@@ -2,7 +2,22 @@
 
 Lightweight Docker Compose manager. A headless Go **agent** (`agent/`) runs on
 a Docker host and exposes an HTTP API; an optional **web UI** (`web/`, planned,
-TypeScript) runs as a separate container and talks only to that API.
+React + Vite) runs as a separate container and talks only to that API.
+
+## Architecture rules
+
+Settled decisions and their reasons are in `docs/decisions.md`; don't reopen
+them without the user. In short:
+
+- **API-first:** every feature is an `/api/v1/` endpoint first; the web UI
+  only consumes the API. Keep the OpenAPI spec in sync once it exists.
+- **One binary, two modes:** the agent runs as a systemd service (primary) and
+  as a container (option). No container-only assumptions: paths come from
+  configuration, never hardcoded (no fixed `/stacks`), and don't assume root.
+- **Platforms:** linux/amd64 and linux/arm64, `CGO_ENABLED=0`, no cgo
+  dependencies.
+- **Standalone and publishable:** no organization-internal hosts, services or
+  secrets; gantry must work without any other system.
 
 ## Commands
 

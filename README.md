@@ -6,13 +6,35 @@ optional **web UI** that runs as its own container.
 
 > Early stage. The agent currently serves a health check and its version.
 
+## Architecture
+
+```
+            ┌──────────────┐        ┌────────────────────┐
+ browser ──▶│ gantry web   │──/api─▶│ gantry agent       │──▶ Docker socket
+            │ (optional)   │        │ HTTP API, Go       │    + stacks dir
+            └──────────────┘        └────────────────────┘
+ other API clients ─────────────────────────▲
+```
+
+- **Agent:** a single Go binary per Docker host. Recommended as a **systemd
+  service**; also available as a **container image**.
+- **API-first:** everything the agent does is available via its versioned
+  HTTP API (`/api/v1/`), to be described by an OpenAPI spec.
+- **Web UI (optional, planned):** a static React app in its own container that
+  only talks to the agent's API.
+- **Platforms:** linux/amd64 and linux/arm64.
+- **Standalone:** gantry works on its own; it needs no other service.
+
+Reasons for these choices: [docs/decisions.md](docs/decisions.md).
+
 ## Layout
 
 | Path | What |
 |---|---|
 | `agent/` | Go agent (API server), its own Go module and Dockerfile |
-| `web/` | Optional web UI (planned, separate container) |
-| `compose.yaml` | Local development setup |
+| `web/` | Optional web UI (planned: React + Vite, separate container) |
+| `docs/` | Architecture decisions |
+| `compose.yaml` | Local development setup (agent as container) |
 | `.github/workflows/ci.yml` | Tests, image builds and releases |
 
 ## Development
@@ -52,3 +74,6 @@ GitHub Flow: `main` is always releasable. Work happens on short-lived branches
 | Tag `vX.Y.Z` | `:X.Y.Z`, `:X.Y`, `:latest` |
 
 Release: test `:edge`, then `git tag v0.1.0 && git push origin v0.1.0`.
+
+Planned: release binaries and `.deb`/`.rpm` packages with a systemd unit
+for amd64 and arm64.
