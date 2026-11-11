@@ -1,0 +1,18 @@
+# OS / editors
+.DS_Store
+.idea/
+
+# Go
+/agent/bin/
+*.test
+*.out
+coverage.*
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Web UI (planned)
+node_modules/
+/web/dist/
