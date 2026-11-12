@@ -86,6 +86,29 @@ jobs:
           curl -fsS -H "Authorization: Bearer smoke" http://127.0.0.1:7070/api/v1/stacks | tee stacks.json
           # servicesTotal comes from `docker compose config` inside the image.
           jq -e '.dockerAvailable and (.stacks[] | select(.name == "whoami") | .servicesTotal == 1)' stacks.json
+
+          # Actions: the agent in the container runs `docker compose` itself.
+          api() { curl -fsS -H "Authorization: Bearer smoke" "$@"; }
+          run_action() {
+            id=$(api -X POST "http://127.0.0.1:7070/api/v1/stacks/$1/actions/$2" | jq -r .id)
+            for i in $(seq 1 120); do
+              status=$(api "http://127.0.0.1:7070/api/v1/operations/$id" | jq -r .status)
+              [ "$status" != running ] && break
+              sleep 1
+            done
+            api "http://127.0.0.1:7070/api/v1/operations/$id" > op.json
+            jq -r .output op.json
+            jq -e '.status == "succeeded"' op.json
+          }
+          run_action whoami start
+          run_action bind-demo start
+          # bind-demo writes ./data/started.txt. It must appear on this host,
+          # which only works with the identical-path mount of the stacks dir.
+          test -f "$stacks/bind-demo/data/started.txt"
+          api http://127.0.0.1:7070/api/v1/stacks \
+            | jq -e '[.stacks[] | select(.name == "whoami" or .name == "bind-demo") | .status] == ["running", "running"]'
+          run_action whoami down
+          run_action bind-demo down
       - name: Smoke test logs
         if: always()
         run: docker logs gantry-smoke || true

@@ -58,6 +58,14 @@ Run from the repo root:
   mapping to generated types).
 - Container state comes from the Engine API; anything that is Compose logic
   goes through the `docker compose` CLI (see `docs/decisions.md`).
+- Run Compose only through `compose.CLI` (`Run` / `Services`), which always
+  passes `-p`, `-f` and `--project-directory`. Never use `down -v` or any
+  other volume removal.
+- Anything that can take longer than a moment (Compose actions, pulls) runs
+  as an operation (`internal/operations`), never synchronously inside a
+  request. Actions only work on managed stacks (`stacks.Target`).
+- Package roles also include `internal/operations` (async actions, one per
+  stack, output buffer for live streams).
 - Configuration through `GANTRY_*` environment variables (plus Docker's own
   `DOCKER_HOST`), documented in the README table.
 - Table-driven tests next to the code (`*_test.go`), using `httptest` for

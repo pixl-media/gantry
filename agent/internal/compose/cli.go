@@ -16,8 +16,19 @@ import (
 type CLI struct {
 	// Docker is the docker binary. Empty means "docker" from PATH.
 	Docker string
-	// Timeout per command. Zero means 30 seconds.
+	// Timeout for short commands such as Services. Zero means 30 seconds.
+	// Run has no own timeout; its context decides.
 	Timeout time.Duration
+	// CancelGrace is how long Run waits after an interrupt before killing
+	// Compose. Zero means 15 seconds.
+	CancelGrace time.Duration
+}
+
+func (c CLI) bin() string {
+	if c.Docker == "" {
+		return "docker"
+	}
+	return c.Docker
 }
 
 // Services returns the sorted service names of the Compose project in dir,
@@ -41,10 +52,7 @@ func (c CLI) Services(ctx context.Context, dir, file string) ([]string, error) {
 }
 
 func (c CLI) run(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	bin := c.Docker
-	if bin == "" {
-		bin = "docker"
-	}
+	bin := c.bin()
 	timeout := c.Timeout
 	if timeout == 0 {
 		timeout = 30 * time.Second

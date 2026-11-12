@@ -6,17 +6,34 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
 )
 
 type fakeStacks struct {
-	list   stacks.List
-	detail stacks.Detail
-	err    error
+	list      stacks.List
+	detail    stacks.Detail
+	err       error
+	unmanaged []string // names Target reports as unmanaged
+}
+
+// Target treats "app" as managed, names in unmanaged as unmanaged, and
+// everything else as unknown.
+func (f fakeStacks) Target(_ context.Context, name string) (compose.Project, error) {
+	switch {
+	case !stacks.ValidName(name):
+		return compose.Project{}, stacks.ErrInvalidName
+	case name == "app":
+		return compose.Project{Name: "app", Dir: "/s/app", File: "/s/app/compose.yaml"}, nil
+	case slices.Contains(f.unmanaged, name):
+		return compose.Project{}, stacks.ErrUnmanaged
+	}
+	return compose.Project{}, stacks.ErrNotFound
 }
 
 func (f fakeStacks) List(context.Context) (stacks.List, error) { return f.list, f.err }

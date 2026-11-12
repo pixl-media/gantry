@@ -329,6 +329,33 @@ func TestGetErrors(t *testing.T) {
 	}
 }
 
+func TestTarget(t *testing.T) {
+	dir := stacksDir(t, "app")
+	writeFile(t, filepath.Join(dir, "empty", "README.md"), "no compose file\n")
+	d := fakeDocker{containers: []docker.Container{ctr("monitoring", "grafana", "running", "/srv/monitoring")}}
+	m := newManager(t, dir, d, fakeCompose{})
+
+	p, err := m.Target(context.Background(), "app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Name != "app" || p.Dir != filepath.Join(dir, "app") || p.File != filepath.Join(dir, "app", "compose.yaml") {
+		t.Errorf("project = %+v", p)
+	}
+
+	tests := map[string]error{
+		"monitoring": ErrUnmanaged,
+		"nope":       ErrNotFound,
+		"empty":      ErrNotFound,
+		"../app":     ErrInvalidName,
+	}
+	for name, want := range tests {
+		if _, err := m.Target(context.Background(), name); !errors.Is(err, want) {
+			t.Errorf("Target(%q) err = %v, want %v", name, err, want)
+		}
+	}
+}
+
 func TestComposeFileTooLarge(t *testing.T) {
 	dir := normPath(t.TempDir())
 	writeFile(t, filepath.Join(dir, "big", "compose.yaml"), strings.Repeat("#", maxComposeFileSize+1))

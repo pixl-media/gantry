@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
 )
 
@@ -26,6 +27,9 @@ var (
 	ErrNotFound = errors.New("stack not found")
 	// ErrInvalidName means the name is not a valid Compose project name.
 	ErrInvalidName = errors.New("invalid stack name")
+	// ErrUnmanaged means the stack is a Compose project outside the stacks
+	// directory. gantry shows it but doesn't change it.
+	ErrUnmanaged = errors.New("stack is not managed by gantry")
 )
 
 // DefaultDir is the default stacks directory. It's the same as Dockge's, and
@@ -187,6 +191,30 @@ func (m *Manager) Get(ctx context.Context, name string) (Detail, error) {
 		}
 	}
 	return d, nil
+}
+
+// Target returns the Compose project of the managed stack called name, to run
+// actions on. It returns ErrUnmanaged for Compose projects outside the stacks
+// directory and ErrNotFound if there is no such stack at all.
+func (m *Manager) Target(ctx context.Context, name string) (compose.Project, error) {
+	if !ValidName(name) {
+		return compose.Project{}, ErrInvalidName
+	}
+	managed, _, err := m.scan(name)
+	if err != nil {
+		return compose.Project{}, err
+	}
+	if len(managed) == 1 {
+		st := managed[0]
+		return compose.Project{Name: st.name, Dir: st.path, File: st.composeFile}, nil
+	}
+	containers, err := m.docker.ListComposeContainers(ctx)
+	if err == nil && slices.ContainsFunc(containers, func(c docker.Container) bool {
+		return c.Labels[docker.LabelProject] == name
+	}) {
+		return compose.Project{}, ErrUnmanaged
+	}
+	return compose.Project{}, ErrNotFound
 }
 
 // stack is the internal, merged view of one stack.

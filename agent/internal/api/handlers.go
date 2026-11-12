@@ -34,7 +34,9 @@ func (h *handlers) ListStacks(ctx context.Context, _ ListStacksRequestObject) (L
 		Stacks:          make([]StackSummary, 0, len(l.Stacks)),
 	}
 	for _, s := range l.Stacks {
-		resp.Stacks = append(resp.Stacks, toSummary(s))
+		summary := toSummary(s)
+		summary.ActiveOperation = h.activeOperation(s.Name)
+		resp.Stacks = append(resp.Stacks, summary)
 	}
 	return resp, nil
 }
@@ -43,9 +45,9 @@ func (h *handlers) GetStack(ctx context.Context, req GetStackRequestObject) (Get
 	d, err := h.cfg.Stacks.Get(ctx, req.Name)
 	switch {
 	case errors.Is(err, stacks.ErrInvalidName):
-		return GetStack400JSONResponse{Error: err.Error()}, nil
+		return GetStack400JSONResponse{InvalidNameJSONResponse(apiError(err, ErrorCodeInvalidName))}, nil
 	case errors.Is(err, stacks.ErrNotFound):
-		return GetStack404JSONResponse{Error: err.Error()}, nil
+		return GetStack404JSONResponse{NotFoundJSONResponse(apiError(err, ErrorCodeNotFound))}, nil
 	case err != nil:
 		return nil, err
 	}
@@ -58,6 +60,7 @@ func (h *handlers) GetStack(ctx context.Context, req GetStackRequestObject) (Get
 		ServicesTotal:   s.ServicesTotal,
 		ServicesRunning: s.ServicesRunning,
 		Path:            s.Path,
+		ActiveOperation: h.activeOperation(s.Name),
 		DockerAvailable: d.DockerAvailable,
 		Warnings:        orEmpty(d.Warnings),
 		Services:        make([]Service, 0, len(d.Services)),
@@ -110,6 +113,22 @@ func toContainer(c docker.Container) Container {
 		out.Ports = append(out.Ports, port)
 	}
 	return out
+}
+
+// activeOperation returns the operation running on stack, if any.
+func (h *handlers) activeOperation(stack string) *ActiveOperation {
+	if h.cfg.Operations == nil {
+		return nil
+	}
+	s, ok := h.cfg.Operations.Active(stack)
+	if !ok {
+		return nil
+	}
+	return &ActiveOperation{Id: s.ID, Action: StackAction(s.Action)}
+}
+
+func apiError(err error, code ErrorCode) Error {
+	return Error{Error: err.Error(), Code: &code}
 }
 
 // orEmpty makes nil slices encode as [] instead of null.
