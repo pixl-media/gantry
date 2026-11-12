@@ -13,7 +13,10 @@ info:
   version: 0.1.0
 
 servers:
+  - url: /
+    description: Same origin as this document (e.g. the dev docs from `make docs`)
   - url: http://127.0.0.1:7070
+    description: Agent on localhost with the default port
 
 security:
   - bearerAuth: []

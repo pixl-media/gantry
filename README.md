@@ -114,6 +114,7 @@ services:
 | `docs/` | Architecture decisions |
 | `compose.yaml` | Local development with the agent as a container |
 | `api.http` | Example requests for the VS Code REST Client |
+| `agent/tools/devdocs/` | Dev-only Swagger UI server (`make docs`) |
 | `.github/workflows/ci.yml` | Tests, image builds and releases |
 
 ## Development
@@ -122,6 +123,7 @@ Requirements: Go 1.27+, Docker with the Compose plugin.
 
 ```bash
 make run               # agent on http://127.0.0.1:7070, token "dev", managing dev/stacks
+make docs              # Swagger UI on http://127.0.0.1:8082 (in a second terminal)
 make test              # unit tests, no Docker needed
 make test-integration  # unit + integration tests against the local Docker daemon
 make lint              # gofmt + go vet
@@ -139,6 +141,15 @@ curl -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/stacks
 
 The agent in a container: `cp .env.example .env && docker compose up --build`
 (run from the repo root; uses the token from `.env`).
+
+### API docs
+
+`make docs` serves Swagger UI for `api/openapi.yaml` on
+http://127.0.0.1:8082 and forwards API requests to the agent on port 7070
+(`make run` or `docker compose up`). Everything comes from one address, so
+"Try it out" works without CORS: click "Authorize", enter the token (`dev`
+for `make run`), and send requests. The spec is re-read on every page load.
+This is a development tool only; the agent doesn't serve docs itself.
 
 Integration tests create their own stacks named `gantry-test-…` and remove
 them afterwards; other containers on the host are not touched.
