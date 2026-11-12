@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/pixl-media/gantry/agent/internal/compose"
+	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
 )
 
@@ -18,15 +20,26 @@ import (
 type StackService interface {
 	List(ctx context.Context) (stacks.List, error)
 	Get(ctx context.Context, name string) (stacks.Detail, error)
+	Target(ctx context.Context, name string) (compose.Project, error)
+}
+
+// OperationService is what the API needs from the operations package.
+type OperationService interface {
+	Start(p compose.Project, a operations.Action) (*operations.Operation, error)
+	Get(id string) (*operations.Operation, error)
+	Cancel(id string) (operations.Snapshot, error)
+	List(stack string) []operations.Snapshot
+	Active(stack string) (operations.Snapshot, bool)
 }
 
 // Config holds what the API needs to serve requests.
 type Config struct {
 	// Token is the shared secret clients send as "Authorization: Bearer <token>".
-	Token   string
-	Version string
-	Stacks  StackService
-	Logger  *slog.Logger // optional
+	Token      string
+	Version    string
+	Stacks     StackService
+	Operations OperationService
+	Logger     *slog.Logger // optional
 }
 
 // publicPaths are served without a token. Everything else requires it.

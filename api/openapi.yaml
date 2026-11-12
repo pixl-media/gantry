@@ -24,6 +24,7 @@ security:
 tags:
   - name: system
   - name: stacks
+  - name: operations
 
 paths:
   /healthz:
@@ -91,13 +92,7 @@ paths:
         The Compose file is returned exactly as stored: variables such as
         `${DB_PASSWORD}` are not resolved, and `.env` files are never returned.
       parameters:
-        - name: name
-          in: path
-          required: true
-          description: Compose project name.
-          schema:
-            type: string
-            pattern: "^[a-z0-9][a-z0-9_-]*$"
+        - $ref: "#/components/parameters/StackName"
       responses:
         "200":
           description: The stack.
@@ -106,7 +101,56 @@ paths:
               schema:
                 $ref: "#/components/schemas/StackDetail"
         "400":
-          description: The name is not a valid Compose project name.
+          $ref: "#/components/responses/InvalidName"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/stacks/{name}/actions/{action}:
+    post:
+      operationId: runStackAction
+      tags: [stacks]
+      summary: Run an action on a stack
+      description: |
+        Starts an action as an asynchronous operation and returns immediately.
+        Follow it with `GET /api/v1/operations/{id}` or live with
+        `GET /api/v1/operations/{id}/events`.
+
+        | Action | Compose | Effect |
+        |---|---|---|
+        | `start` | `up -d --remove-orphans` | Creates or updates containers to match the Compose file |
+        | `stop` | `stop` | Stops containers; they are kept |
+        | `restart` | `stop`, then `start` | Restarts existing containers without applying Compose file changes |
+        | `update` | `pull --ignore-buildable`, then `up -d --remove-orphans` | Pulls new images and recreates changed containers |
+        | `down` | `down --remove-orphans` | Removes containers and networks. Volumes are never removed |
+
+        Only managed stacks can be changed. One operation runs per stack:
+        `start`, `restart` and `update` are rejected with `stack_busy` while
+        another operation runs; `stop` and `down` cancel the running
+        operation first and then run (twice, to settle Docker calls the
+        canceled operation had already made).
+      parameters:
+        - $ref: "#/components/parameters/StackName"
+        - name: action
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/StackAction"
+      responses:
+        "202":
+          description: The operation was started.
+          headers:
+            Location:
+              description: URL of the operation.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          description: "`invalid_name` or `invalid_action`."
           content:
             application/json:
               schema:
@@ -114,13 +158,137 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          description: No stack with this name.
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            `stack_busy`: another operation runs on this stack (its ID is in
+            `operation`). `stack_unmanaged`: the stack isn't managed by gantry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/operations:
+    get:
+      operationId: listOperations
+      tags: [operations]
+      summary: List recent operations
+      description: |
+        Running operations and finished ones from the last hour, newest first,
+        without output. Operations are kept in memory only.
+      parameters:
+        - name: stack
+          in: query
+          required: false
+          description: Only operations of this stack.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The operations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/operations/{id}:
+    get:
+      operationId: getOperation
+      tags: [operations]
+      summary: Operation with output
+      parameters:
+        - $ref: "#/components/parameters/OperationId"
+      responses:
+        "200":
+          description: The operation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/operations/{id}/events:
+    get:
+      operationId: streamOperationEvents
+      tags: [operations]
+      summary: Live output (Server-Sent Events)
+      description: |
+        A `text/event-stream` with the operation's output so far, then each
+        new line as it appears, then a final event. Reconnecting replays the
+        output from the start. Events:
+
+        - `output`: `data` is one line of Compose output.
+        - `done`: `data` is the finished operation as JSON (`Operation`). The
+          stream ends after it.
+
+        Browsers' `EventSource` can't send an `Authorization` header; read
+        the stream with `fetch` instead. From a terminal: `curl -N`.
+      parameters:
+        - $ref: "#/components/parameters/OperationId"
+      responses:
+        "200":
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/operations/{id}/cancel:
+    post:
+      operationId: cancelOperation
+      tags: [operations]
+      summary: Cancel a running operation
+      description: |
+        Sends Compose an interrupt (like Ctrl+C) and waits briefly for it to
+        stop. The stack may be left partly changed; a following `start` or
+        `stop` brings it to a consistent state.
+      parameters:
+        - $ref: "#/components/parameters/OperationId"
+      responses:
+        "202":
+          description: Cancellation was requested; the operation is returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`operation_finished`: the operation has already finished."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
 
 components:
+  parameters:
+    StackName:
+      name: name
+      in: path
+      required: true
+      description: Compose project name.
+      schema:
+        type: string
+        pattern: "^[a-z0-9][a-z0-9_-]*$"
+    OperationId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: op_3f9c2a71b0de
+
   securitySchemes:
     bearerAuth:
       type: http
@@ -134,6 +302,18 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    InvalidName:
+      description: "`invalid_name`: not a valid Compose project name."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: "`not_found`: no such stack or operation."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
 
   schemas:
     Error:
@@ -142,6 +322,20 @@ components:
       properties:
         error:
           type: string
+          description: Human-readable message.
+        code:
+          type: string
+          description: Machine-readable reason, for clients to act on.
+          enum:
+            - invalid_name
+            - invalid_action
+            - not_found
+            - stack_busy
+            - stack_unmanaged
+            - operation_finished
+        operation:
+          type: string
+          description: For `stack_busy`, the ID of the running operation.
 
     Health:
       type: object
@@ -195,6 +389,18 @@ components:
           type: string
           description: Project directory on the host.
           example: /opt/stacks/whoami
+        activeOperation:
+          $ref: "#/components/schemas/ActiveOperation"
+
+    ActiveOperation:
+      type: object
+      description: The operation currently running on a stack, if any.
+      required: [id, action]
+      properties:
+        id:
+          type: string
+        action:
+          $ref: "#/components/schemas/StackAction"
 
     StackList:
       type: object
@@ -236,6 +442,8 @@ components:
           type: integer
         path:
           type: string
+        activeOperation:
+          $ref: "#/components/schemas/ActiveOperation"
         composeFile:
           $ref: "#/components/schemas/ComposeFile"
         services:
@@ -300,6 +508,65 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Port"
+
+    StackAction:
+      type: string
+      enum: [start, stop, restart, update, down]
+
+    OperationStatus:
+      type: string
+      enum: [running, succeeded, failed, canceled]
+
+    Operation:
+      type: object
+      required: [id, stack, action, status, startedAt]
+      properties:
+        id:
+          type: string
+          example: op_3f9c2a71b0de
+        stack:
+          type: string
+          example: whoami
+        action:
+          $ref: "#/components/schemas/StackAction"
+        status:
+          $ref: "#/components/schemas/OperationStatus"
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        exitCode:
+          type: integer
+          description: Exit code of the last Compose command, once finished.
+        error:
+          type: string
+          description: Why the operation failed or was canceled.
+        canceledBy:
+          type: string
+          description: ID of the `stop` or `down` operation that canceled this one.
+
+    OperationDetail:
+      allOf:
+        - $ref: "#/components/schemas/Operation"
+        - type: object
+          required: [output]
+          properties:
+            output:
+              type: string
+              description: |
+                Compose output so far. Limited to the last 1 MiB; a first line
+                says so if earlier output was dropped.
+
+    OperationList:
+      type: object
+      required: [operations]
+      properties:
+        operations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Operation"
 
     Port:
       type: object

@@ -103,6 +103,10 @@ as Dockge, so existing Dockge setups work without configuration. A missing
 directory is reported as a warning, not a startup error: the agent still
 reports unmanaged stacks and Docker's state.
 
+Actions (decision 13) work on managed stacks only; unmanaged stacks stay
+read-only, so gantry never changes what it doesn't own. Taking over an
+existing stack would be a deliberate feature of its own.
+
 ## 9. OpenAPI spec-first with oapi-codegen
 
 **Decided 2026-11-12.** `api/openapi.yaml` is the contract. oapi-codegen
@@ -131,6 +135,56 @@ serves requests, also when Docker is down, so monitors don't restart the agent
 while it reports the outage. Docker's state is part of the API responses
 (`dockerAvailable`). The `z` follows the Go/Kubernetes convention and avoids
 collisions with application routes.
+
+## 12. Actions run as asynchronous operations
+
+**Decided 2026-11-12.** Stack actions can take minutes (image pulls), so a
+request starts an operation and returns `202` at once. Status and output are
+available via `GET /api/v1/operations/{id}`, and live via Server-Sent Events
+(`/events`), the pattern the web UI builds on. Long-running work never runs
+synchronously inside a request.
+
+- **One operation per stack.** `start`, `restart` and `update` are rejected
+  with `409 stack_busy` while another runs; queuing would hide what's pending.
+- **`stop` and `down` take precedence** as an emergency brake: they cancel
+  the running operation, wait for it to end, then run. A new operation is
+  marked active immediately, so two Compose processes never work on the same
+  stack. Interrupting Compose doesn't undo Docker calls it has already made
+  (Docker finishes them), so after canceling, `stop`/`down` run their command
+  a second time to settle such late changes.
+- **Cancel** interrupts Compose like Ctrl+C (SIGINT to its process group) and
+  kills it after 15 seconds. Compose is declarative, so the next `start` or
+  `stop` converges a partly changed stack.
+- 30 minutes per operation; output limited to 1 MiB (the end is kept).
+- Kept in memory for one hour: the agent stays stateless. The stacks' state
+  comes from Docker, so nothing important is lost on restart.
+
+Rejected: synchronous requests (timeouts behind proxies, no progress), a
+queue (hidden pending work) and "any action cancels the running one"
+(clients could cancel each other's updates by accident).
+
+## 13. What the actions do
+
+**Decided 2026-11-12.** All Compose calls pass the project explicitly
+(`-p <name> -f <file> --project-directory <dir>`) and use plain, uncolored
+output.
+
+| Action | Compose |
+|---|---|
+| `start` | `up -d --remove-orphans` |
+| `stop` | `stop` |
+| `restart` | `stop`, then `start` (doesn't apply Compose file changes) |
+| `update` | `pull --ignore-buildable`, then `up -d --remove-orphans` |
+| `down` | `down --remove-orphans` |
+
+`restart` deliberately isn't `docker compose restart`: Docker runs a restart
+as one job (stop, then start) and completes it even after Compose is
+interrupted. In a test, a `stop` that preempted a slow restart was undone
+seconds later by the restart's start. Two separate commands stop after the
+current step.
+
+`down` never uses `-v`: removing volumes deletes data and would need its
+own, explicitly confirmed action.
 
 ## Open questions
 

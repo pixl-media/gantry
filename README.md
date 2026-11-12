@@ -4,8 +4,8 @@ Lightweight Docker Compose manager: a small headless **agent** that runs on a
 Docker host and exposes an HTTP API for managing Compose stacks, plus an
 optional **web UI** that runs as its own container.
 
-> Early stage. The agent lists stacks and shows their details; managing them
-> (start, stop, edit) comes next.
+> Early stage. The agent lists stacks, shows their details and starts, stops,
+> restarts, updates and removes them. Editing stacks and the web UI come next.
 
 ## Architecture
 
@@ -60,10 +60,63 @@ All routes under `/api/` require `Authorization: Bearer <GANTRY_TOKEN>`.
 | `GET /api/v1/version` | Agent version |
 | `GET /api/v1/stacks` | All stacks with status; `dockerAvailable` and `warnings` |
 | `GET /api/v1/stacks/{name}` | Services, containers (state, health, ports) and the raw Compose file |
+| `POST /api/v1/stacks/{name}/actions/{action}` | Run `start`, `stop`, `restart`, `update` or `down` as an operation |
+| `GET /api/v1/operations` | Recent operations (`?stack=` to filter) |
+| `GET /api/v1/operations/{id}` | Operation status and output |
+| `GET /api/v1/operations/{id}/events` | Live output as Server-Sent Events |
+| `POST /api/v1/operations/{id}/cancel` | Cancel a running operation |
 
 The full contract is [`api/openapi.yaml`](api/openapi.yaml). Stack details
 return the Compose file as stored: variables like `${DB_PASSWORD}` stay
-unresolved, and `.env` files are never returned.
+unresolved, and `.env` files are never returned. Errors carry a
+machine-readable `code` (e.g. `stack_busy`, `stack_unmanaged`).
+
+### Actions
+
+Only managed stacks can be changed; unmanaged ones answer `409
+stack_unmanaged`.
+
+| Action | Compose | Effect |
+|---|---|---|
+| `start` | `up -d --remove-orphans` | Creates or updates containers to match the Compose file |
+| `stop` | `stop` | Stops containers; they are kept |
+| `restart` | `stop`, then `start` | Restarts existing containers, **without** applying Compose file changes (use `start` for that) |
+| `update` | `pull --ignore-buildable`, then `up -d --remove-orphans` | Pulls new images and recreates changed containers |
+| `down` | `down --remove-orphans` | Removes containers and networks. **Volumes are never removed** |
+
+### Operations
+
+Actions can take minutes (image pulls), so they run as operations: the
+request returns `202` with the operation at once, and you follow it.
+
+```bash
+curl -X POST -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/stacks/whoami/actions/update
+# {"id":"op_3f9c2a71b0de","stack":"whoami","action":"update","status":"running",...}
+
+curl -N -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/operations/op_3f9c2a71b0de/events
+# event: output
+# data: $ docker compose pull --ignore-buildable
+# ...
+# event: done
+# data: {"id":"op_3f9c2a71b0de","status":"succeeded","exitCode":0,...}
+```
+
+- **One operation per stack.** `start`, `restart` and `update` are rejected
+  with `409 stack_busy` (naming the running operation) while another
+  operation runs. **`stop` and `down` take precedence**: they cancel the
+  running operation and then run, as an emergency brake. They run their
+  command twice in that case, to settle Docker calls the canceled operation
+  had already made. Other stacks are not affected.
+- **Cancel** sends Compose an interrupt, like Ctrl+C. The stack may be left
+  partly changed; the next `start` or `stop` brings it back to a consistent
+  state.
+- Each operation is limited to **30 minutes**. Output is kept up to 1 MiB
+  (the end).
+- Operations are kept **in memory** for an hour; they are gone after an agent
+  restart. The stacks themselves are unaffected, since their state comes from
+  Docker.
+- Browsers' `EventSource` can't send an `Authorization` header; read the event
+  stream with `fetch`.
 
 ## Configuration
 
@@ -81,6 +134,11 @@ missing directory as a warning.
 
 The agent needs `docker compose` (the Compose plugin of Docker's official
 packages) on the host. The container image includes it.
+
+**Private registries:** Compose uses the Docker credentials of the user the
+agent runs as (`~/.docker/config.json`, from `docker login`). In container
+mode, mount that file into the container (e.g.
+`/root/.docker/config.json:/root/.docker/config.json:ro`).
 
 ### Running as a container
 
@@ -168,6 +226,8 @@ them afterwards; other containers on the host are not touched.
   show as `partial`.
 - For unmanaged stacks, only services that currently have containers are
   known.
+- Operations are kept in memory only and are lost when the agent restarts.
+- Swagger UI (`make docs`) can't display the event stream; use `curl -N`.
 
 ## Workflow and releases
 

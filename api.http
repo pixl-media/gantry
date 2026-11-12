@@ -30,3 +30,45 @@ Authorization: Bearer {{token}}
 
 ### Without token → 401
 GET {{host}}/api/v1/stacks
+
+# --- Actions ---------------------------------------------------------------
+# Actions run as operations: the response (202) contains the operation's id.
+# Follow it with "Operation" below, or live in a terminal:
+#   curl -N -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/operations/<id>/events
+
+### Start whoami (docker compose up -d)
+# @name start
+POST {{host}}/api/v1/stacks/whoami/actions/start
+Authorization: Bearer {{token}}
+
+### Operation with output (of the last "Start whoami")
+GET {{host}}/api/v1/operations/{{start.response.body.id}}
+Authorization: Bearer {{token}}
+
+### Restart whoami
+POST {{host}}/api/v1/stacks/whoami/actions/restart
+Authorization: Bearer {{token}}
+
+### Update whoami (pull new images, recreate changed containers)
+POST {{host}}/api/v1/stacks/whoami/actions/update
+Authorization: Bearer {{token}}
+
+### Stop whoami (containers are kept)
+POST {{host}}/api/v1/stacks/whoami/actions/stop
+Authorization: Bearer {{token}}
+
+### Down whoami (removes containers and networks, never volumes)
+POST {{host}}/api/v1/stacks/whoami/actions/down
+Authorization: Bearer {{token}}
+
+### Cancel the last "Start whoami" → 409 if it has already finished
+POST {{host}}/api/v1/operations/{{start.response.body.id}}/cancel
+Authorization: Bearer {{token}}
+
+### Recent operations of whoami
+GET {{host}}/api/v1/operations?stack=whoami
+Authorization: Bearer {{token}}
+
+### Unknown action → 400
+POST {{host}}/api/v1/stacks/whoami/actions/explode
+Authorization: Bearer {{token}}

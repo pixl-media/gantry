@@ -15,6 +15,7 @@ import (
 	"github.com/pixl-media/gantry/agent/internal/api"
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
+	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
 )
 
@@ -45,20 +46,25 @@ func main() {
 			"stacks_dir", manager.Dir())
 	}
 
+	// Canceled on SIGINT/SIGTERM. Running operations end with it: Compose
+	// gets an interrupt, and open event streams finish.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ops := operations.NewManager(ctx, compose.CLI{}, operations.Options{})
+
 	addr := envOr("GANTRY_LISTEN", ":7070")
 	srv := &http.Server{
 		Addr: addr,
 		Handler: api.New(api.Config{
-			Token:   token,
-			Version: version,
-			Stacks:  manager,
-			Logger:  logger,
+			Token:      token,
+			Version:    version,
+			Stacks:     manager,
+			Operations: ops,
+			Logger:     logger,
 		}),
+		// No WriteTimeout: event streams stay open while an operation runs.
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	errc := make(chan error, 1)
 	go func() {
@@ -73,8 +79,10 @@ func main() {
 			os.Exit(1)
 		}
 	case <-ctx.Done():
-		logger.Info("shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		logger.Info("shutting down; running operations are canceled")
+		// Long enough for Compose to react to the interrupt (see
+		// compose.CLI.CancelGrace), so event streams can send their end.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			logger.Error("shutdown failed", "err", err)

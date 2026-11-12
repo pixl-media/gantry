@@ -9,8 +9,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"time"
 
 	"github.com/oapi-codegen/runtime"
 )
@@ -39,6 +42,87 @@ func (e ContainerHealth) Valid() bool {
 	}
 }
 
+// Defines values for ErrorCode.
+const (
+	ErrorCodeInvalidAction     ErrorCode = "invalid_action"
+	ErrorCodeInvalidName       ErrorCode = "invalid_name"
+	ErrorCodeNotFound          ErrorCode = "not_found"
+	ErrorCodeOperationFinished ErrorCode = "operation_finished"
+	ErrorCodeStackBusy         ErrorCode = "stack_busy"
+	ErrorCodeStackUnmanaged    ErrorCode = "stack_unmanaged"
+)
+
+// Valid indicates whether the value is a known member of the ErrorCode enum.
+func (e ErrorCode) Valid() bool {
+	switch e {
+	case ErrorCodeInvalidAction:
+		return true
+	case ErrorCodeInvalidName:
+		return true
+	case ErrorCodeNotFound:
+		return true
+	case ErrorCodeOperationFinished:
+		return true
+	case ErrorCodeStackBusy:
+		return true
+	case ErrorCodeStackUnmanaged:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OperationStatus.
+const (
+	OperationStatusCanceled  OperationStatus = "canceled"
+	OperationStatusFailed    OperationStatus = "failed"
+	OperationStatusRunning   OperationStatus = "running"
+	OperationStatusSucceeded OperationStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the OperationStatus enum.
+func (e OperationStatus) Valid() bool {
+	switch e {
+	case OperationStatusCanceled:
+		return true
+	case OperationStatusFailed:
+		return true
+	case OperationStatusRunning:
+		return true
+	case OperationStatusSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for StackAction.
+const (
+	StackActionDown    StackAction = "down"
+	StackActionRestart StackAction = "restart"
+	StackActionStart   StackAction = "start"
+	StackActionStop    StackAction = "stop"
+	StackActionUpdate  StackAction = "update"
+)
+
+// Valid indicates whether the value is a known member of the StackAction enum.
+func (e StackAction) Valid() bool {
+	switch e {
+	case StackActionDown:
+		return true
+	case StackActionRestart:
+		return true
+	case StackActionStart:
+		return true
+	case StackActionStop:
+		return true
+	case StackActionUpdate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for StackStatus.
 const (
 	StackStatusPartial StackStatus = "partial"
@@ -61,6 +145,12 @@ func (e StackStatus) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// ActiveOperation The operation currently running on a stack, if any.
+type ActiveOperation struct {
+	Action StackAction `json:"action"`
+	Id     string      `json:"id"`
 }
 
 // ComposeFile defines model for ComposeFile.
@@ -101,14 +191,82 @@ type ContainerHealth string
 
 // Error defines model for Error.
 type Error struct {
+	// Code Machine-readable reason, for clients to act on.
+	Code *ErrorCode `json:"code,omitempty"`
+
+	// Error Human-readable message.
 	Error string `json:"error"`
+
+	// Operation For `stack_busy`, the ID of the running operation.
+	Operation *string `json:"operation,omitempty"`
 }
+
+// ErrorCode Machine-readable reason, for clients to act on.
+type ErrorCode string
 
 // Health defines model for Health.
 type Health struct {
 	// Status Example: ok
 	Status string `json:"status"`
 }
+
+// Operation defines model for Operation.
+type Operation struct {
+	Action StackAction `json:"action"`
+
+	// CanceledBy ID of the `stop` or `down` operation that canceled this one.
+	CanceledBy *string `json:"canceledBy,omitempty"`
+
+	// Error Why the operation failed or was canceled.
+	Error *string `json:"error,omitempty"`
+
+	// ExitCode Exit code of the last Compose command, once finished.
+	ExitCode   *int       `json:"exitCode,omitempty"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+
+	// Id Example: op_3f9c2a71b0de
+	Id string `json:"id"`
+
+	// Stack Example: whoami
+	Stack     string          `json:"stack"`
+	StartedAt time.Time       `json:"startedAt"`
+	Status    OperationStatus `json:"status"`
+}
+
+// OperationDetail defines model for OperationDetail.
+type OperationDetail struct {
+	Action StackAction `json:"action"`
+
+	// CanceledBy ID of the `stop` or `down` operation that canceled this one.
+	CanceledBy *string `json:"canceledBy,omitempty"`
+
+	// Error Why the operation failed or was canceled.
+	Error *string `json:"error,omitempty"`
+
+	// ExitCode Exit code of the last Compose command, once finished.
+	ExitCode   *int       `json:"exitCode,omitempty"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+
+	// Id Example: op_3f9c2a71b0de
+	Id string `json:"id"`
+
+	// Output Compose output so far. Limited to the last 1 MiB; a first line
+	// says so if earlier output was dropped.
+	Output string `json:"output"`
+
+	// Stack Example: whoami
+	Stack     string          `json:"stack"`
+	StartedAt time.Time       `json:"startedAt"`
+	Status    OperationStatus `json:"status"`
+}
+
+// OperationList defines model for OperationList.
+type OperationList struct {
+	Operations []Operation `json:"operations"`
+}
+
+// OperationStatus defines model for OperationStatus.
+type OperationStatus string
 
 // Port defines model for Port.
 type Port struct {
@@ -131,16 +289,21 @@ type Service struct {
 	Name       string      `json:"name"`
 }
 
+// StackAction defines model for StackAction.
+type StackAction string
+
 // StackDetail defines model for StackDetail.
 type StackDetail struct {
-	ComposeFile     *ComposeFile `json:"composeFile,omitempty"`
-	DockerAvailable bool         `json:"dockerAvailable"`
-	Managed         bool         `json:"managed"`
-	Name            string       `json:"name"`
-	Path            string       `json:"path"`
-	Services        []Service    `json:"services"`
-	ServicesRunning int          `json:"servicesRunning"`
-	ServicesTotal   int          `json:"servicesTotal"`
+	// ActiveOperation The operation currently running on a stack, if any.
+	ActiveOperation *ActiveOperation `json:"activeOperation,omitempty"`
+	ComposeFile     *ComposeFile     `json:"composeFile,omitempty"`
+	DockerAvailable bool             `json:"dockerAvailable"`
+	Managed         bool             `json:"managed"`
+	Name            string           `json:"name"`
+	Path            string           `json:"path"`
+	Services        []Service        `json:"services"`
+	ServicesRunning int              `json:"servicesRunning"`
+	ServicesTotal   int              `json:"servicesTotal"`
 
 	// Status `running`: every service has a running container.
 	// `partial`: some services have a running container.
@@ -165,6 +328,9 @@ type StackStatus string
 
 // StackSummary defines model for StackSummary.
 type StackSummary struct {
+	// ActiveOperation The operation currently running on a stack, if any.
+	ActiveOperation *ActiveOperation `json:"activeOperation,omitempty"`
+
 	// Managed True if the stack lives in `GANTRY_STACKS_DIR`; false for Compose
 	// projects found elsewhere on the host.
 	Managed bool `json:"managed"`
@@ -199,17 +365,50 @@ type Version struct {
 	Version string `json:"version"`
 }
 
+// OperationId Example: op_3f9c2a71b0de
+type OperationId = string
+
+// StackName defines model for StackName.
+type StackName = string
+
+// InvalidName defines model for InvalidName.
+type InvalidName = Error
+
+// NotFound defines model for NotFound.
+type NotFound = Error
+
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
 
+// ListOperationsParams defines parameters for ListOperations.
+type ListOperationsParams struct {
+	// Stack Only operations of this stack.
+	Stack *string `form:"stack,omitempty" json:"stack,omitempty"`
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListOperations List recent operations
+	// (GET /api/v1/operations)
+	ListOperations(w http.ResponseWriter, r *http.Request, params ListOperationsParams)
+	// GetOperation Operation with output
+	// (GET /api/v1/operations/{id})
+	GetOperation(w http.ResponseWriter, r *http.Request, id OperationId)
+	// CancelOperation Cancel a running operation
+	// (POST /api/v1/operations/{id}/cancel)
+	CancelOperation(w http.ResponseWriter, r *http.Request, id OperationId)
+	// StreamOperationEvents Live output (Server-Sent Events)
+	// (GET /api/v1/operations/{id}/events)
+	StreamOperationEvents(w http.ResponseWriter, r *http.Request, id OperationId)
 	// ListStacks List stacks
 	// (GET /api/v1/stacks)
 	ListStacks(w http.ResponseWriter, r *http.Request)
 	// GetStack Stack details
 	// (GET /api/v1/stacks/{name})
-	GetStack(w http.ResponseWriter, r *http.Request, name string)
+	GetStack(w http.ResponseWriter, r *http.Request, name StackName)
+	// RunStackAction Run an action on a stack
+	// (POST /api/v1/stacks/{name}/actions/{action})
+	RunStackAction(w http.ResponseWriter, r *http.Request, name StackName, action StackAction)
 	// GetVersion Agent version
 	// (GET /api/v1/version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
@@ -226,6 +425,117 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListOperations operation middleware
+func (siw *ServerInterfaceWrapper) ListOperations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOperationsParams
+
+	// ------------- Optional query parameter "stack" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "stack", r.URL.Query(), &params.Stack, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stack"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stack", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOperations(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOperation operation middleware
+func (siw *ServerInterfaceWrapper) GetOperation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id OperationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOperation(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelOperation operation middleware
+func (siw *ServerInterfaceWrapper) CancelOperation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id OperationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelOperation(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StreamOperationEvents operation middleware
+func (siw *ServerInterfaceWrapper) StreamOperationEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id OperationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StreamOperationEvents(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListStacks operation middleware
 func (siw *ServerInterfaceWrapper) ListStacks(w http.ResponseWriter, r *http.Request) {
@@ -248,7 +558,7 @@ func (siw *ServerInterfaceWrapper) GetStack(w http.ResponseWriter, r *http.Reque
 	_ = err
 
 	// ------------- Path parameter "name" -------------
-	var name string
+	var name StackName
 
 	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
@@ -258,6 +568,41 @@ func (siw *ServerInterfaceWrapper) GetStack(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetStack(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RunStackAction operation middleware
+func (siw *ServerInterfaceWrapper) RunStackAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name StackName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "action" -------------
+	var action StackAction
+
+	err = runtime.BindStyledParameterWithOptions("simple", "action", r.PathValue("action"), &action, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunStackAction(w, r, name, action)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -419,11 +764,249 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/version", wrapper.GetVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks", wrapper.ListStacks)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}", wrapper.GetStack)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks/{name}/actions/{action}", wrapper.RunStackAction)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/operations", wrapper.ListOperations)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/operations/{id}", wrapper.GetOperation)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/operations/{id}/events", wrapper.StreamOperationEvents)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/operations/{id}/cancel", wrapper.CancelOperation)
 
 	return m
 }
 
+type InvalidNameJSONResponse Error
+
+type NotFoundJSONResponse Error
+
 type UnauthorizedJSONResponse Error
+
+type ListOperationsRequestObject struct {
+	Params ListOperationsParams
+}
+
+type ListOperationsResponseObject interface {
+	VisitListOperationsResponse(w http.ResponseWriter) error
+}
+
+type ListOperations200JSONResponse OperationList
+
+func (response ListOperations200JSONResponse) VisitListOperationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOperations401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListOperations401JSONResponse) VisitListOperationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOperationRequestObject struct {
+	Id OperationId `json:"id"`
+}
+
+type GetOperationResponseObject interface {
+	VisitGetOperationResponse(w http.ResponseWriter) error
+}
+
+type GetOperation200JSONResponse OperationDetail
+
+func (response GetOperation200JSONResponse) VisitGetOperationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOperation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetOperation401JSONResponse) VisitGetOperationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOperation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetOperation404JSONResponse) VisitGetOperationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelOperationRequestObject struct {
+	Id OperationId `json:"id"`
+}
+
+type CancelOperationResponseObject interface {
+	VisitCancelOperationResponse(w http.ResponseWriter) error
+}
+
+type CancelOperation202JSONResponse Operation
+
+func (response CancelOperation202JSONResponse) VisitCancelOperationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelOperation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CancelOperation401JSONResponse) VisitCancelOperationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelOperation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CancelOperation404JSONResponse) VisitCancelOperationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelOperation409JSONResponse Error
+
+func (response CancelOperation409JSONResponse) VisitCancelOperationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamOperationEventsRequestObject struct {
+	Id OperationId `json:"id"`
+}
+
+type StreamOperationEventsResponseObject interface {
+	VisitStreamOperationEventsResponse(w http.ResponseWriter) error
+}
+
+type StreamOperationEvents200TexteventStreamResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response StreamOperationEvents200TexteventStreamResponse) VisitStreamOperationEventsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// If w doesn't support flushing, fall back to io.Copy.
+		_, err := io.Copy(w, response.Body)
+		return err
+	}
+	// text/event-stream messages are typically small; use a
+	// modest buffer and flush after each chunk so clients see
+	// events immediately instead of waiting on OS buffering.
+	buf := make([]byte, 4096)
+	for {
+		n, err := response.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+			flusher.Flush()
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
+}
+
+type StreamOperationEvents401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StreamOperationEvents401JSONResponse) VisitStreamOperationEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamOperationEvents404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response StreamOperationEvents404JSONResponse) VisitStreamOperationEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListStacksRequestObject struct {
 }
@@ -461,7 +1044,7 @@ func (response ListStacks401JSONResponse) VisitListStacksResponse(w http.Respons
 }
 
 type GetStackRequestObject struct {
-	Name string `json:"name"`
+	Name StackName `json:"name"`
 }
 
 type GetStackResponseObject interface {
@@ -482,7 +1065,7 @@ func (response GetStack200JSONResponse) VisitGetStackResponse(w http.ResponseWri
 	return err
 }
 
-type GetStack400JSONResponse Error
+type GetStack400JSONResponse struct{ InvalidNameJSONResponse }
 
 func (response GetStack400JSONResponse) VisitGetStackResponse(w http.ResponseWriter) error {
 
@@ -510,7 +1093,7 @@ func (response GetStack401JSONResponse) VisitGetStackResponse(w http.ResponseWri
 	return err
 }
 
-type GetStack404JSONResponse Error
+type GetStack404JSONResponse struct{ NotFoundJSONResponse }
 
 func (response GetStack404JSONResponse) VisitGetStackResponse(w http.ResponseWriter) error {
 
@@ -520,6 +1103,95 @@ func (response GetStack404JSONResponse) VisitGetStackResponse(w http.ResponseWri
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunStackActionRequestObject struct {
+	Name   StackName   `json:"name"`
+	Action StackAction `json:"action"`
+}
+
+type RunStackActionResponseObject interface {
+	VisitRunStackActionResponse(w http.ResponseWriter) error
+}
+
+type RunStackAction202ResponseHeaders struct {
+	Location *string
+}
+
+type RunStackAction202JSONResponse struct {
+	Body    Operation
+	Headers RunStackAction202ResponseHeaders
+}
+
+func (response RunStackAction202JSONResponse) VisitRunStackActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunStackAction400JSONResponse Error
+
+func (response RunStackAction400JSONResponse) VisitRunStackActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunStackAction401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RunStackAction401JSONResponse) VisitRunStackActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunStackAction404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RunStackAction404JSONResponse) VisitRunStackActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunStackAction409JSONResponse Error
+
+func (response RunStackAction409JSONResponse) VisitRunStackActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -582,12 +1254,27 @@ func (response GetHealth200JSONResponse) VisitGetHealthResponse(w http.ResponseW
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListOperations List recent operations
+	// (GET /api/v1/operations)
+	ListOperations(ctx context.Context, request ListOperationsRequestObject) (ListOperationsResponseObject, error)
+	// GetOperation Operation with output
+	// (GET /api/v1/operations/{id})
+	GetOperation(ctx context.Context, request GetOperationRequestObject) (GetOperationResponseObject, error)
+	// CancelOperation Cancel a running operation
+	// (POST /api/v1/operations/{id}/cancel)
+	CancelOperation(ctx context.Context, request CancelOperationRequestObject) (CancelOperationResponseObject, error)
+	// StreamOperationEvents Live output (Server-Sent Events)
+	// (GET /api/v1/operations/{id}/events)
+	StreamOperationEvents(ctx context.Context, request StreamOperationEventsRequestObject) (StreamOperationEventsResponseObject, error)
 	// ListStacks List stacks
 	// (GET /api/v1/stacks)
 	ListStacks(ctx context.Context, request ListStacksRequestObject) (ListStacksResponseObject, error)
 	// GetStack Stack details
 	// (GET /api/v1/stacks/{name})
 	GetStack(ctx context.Context, request GetStackRequestObject) (GetStackResponseObject, error)
+	// RunStackAction Run an action on a stack
+	// (POST /api/v1/stacks/{name}/actions/{action})
+	RunStackAction(ctx context.Context, request RunStackActionRequestObject) (RunStackActionResponseObject, error)
 	// GetVersion Agent version
 	// (GET /api/v1/version)
 	GetVersion(ctx context.Context, request GetVersionRequestObject) (GetVersionResponseObject, error)
@@ -635,6 +1322,110 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
+// ListOperations operation middleware
+func (sh *strictHandler) ListOperations(w http.ResponseWriter, r *http.Request, params ListOperationsParams) {
+	var request ListOperationsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListOperations(ctx, request.(ListOperationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListOperations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListOperationsResponseObject); ok {
+		if err := validResponse.VisitListOperationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetOperation operation middleware
+func (sh *strictHandler) GetOperation(w http.ResponseWriter, r *http.Request, id OperationId) {
+	var request GetOperationRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetOperation(ctx, request.(GetOperationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetOperation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetOperationResponseObject); ok {
+		if err := validResponse.VisitGetOperationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CancelOperation operation middleware
+func (sh *strictHandler) CancelOperation(w http.ResponseWriter, r *http.Request, id OperationId) {
+	var request CancelOperationRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelOperation(ctx, request.(CancelOperationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelOperation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelOperationResponseObject); ok {
+		if err := validResponse.VisitCancelOperationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StreamOperationEvents operation middleware
+func (sh *strictHandler) StreamOperationEvents(w http.ResponseWriter, r *http.Request, id OperationId) {
+	var request StreamOperationEventsRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StreamOperationEvents(ctx, request.(StreamOperationEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StreamOperationEvents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StreamOperationEventsResponseObject); ok {
+		if err := validResponse.VisitStreamOperationEventsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListStacks operation middleware
 func (sh *strictHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
 	var request ListStacksRequestObject
@@ -660,7 +1451,7 @@ func (sh *strictHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetStack operation middleware
-func (sh *strictHandler) GetStack(w http.ResponseWriter, r *http.Request, name string) {
+func (sh *strictHandler) GetStack(w http.ResponseWriter, r *http.Request, name StackName) {
 	var request GetStackRequestObject
 
 	request.Name = name
@@ -678,6 +1469,33 @@ func (sh *strictHandler) GetStack(w http.ResponseWriter, r *http.Request, name s
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetStackResponseObject); ok {
 		if err := validResponse.VisitGetStackResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RunStackAction operation middleware
+func (sh *strictHandler) RunStackAction(w http.ResponseWriter, r *http.Request, name StackName, action StackAction) {
+	var request RunStackActionRequestObject
+
+	request.Name = name
+	request.Action = action
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RunStackAction(ctx, request.(RunStackActionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RunStackAction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RunStackActionResponseObject); ok {
+		if err := validResponse.VisitRunStackActionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

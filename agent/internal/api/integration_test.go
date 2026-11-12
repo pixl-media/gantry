@@ -9,19 +9,24 @@
 package api_test
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/pixl-media/gantry/agent/internal/api"
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
+	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
 )
 
@@ -180,5 +185,131 @@ func TestStacksAgainstDocker(t *testing.T) {
 
 	if code := get(t, h, "/api/v1/stacks/"+prefix+"-missing", nil); code != http.StatusNotFound {
 		t.Errorf("missing stack: status %d, want 404", code)
+	}
+}
+
+func post(t *testing.T, h http.Handler, path string) (int, []byte) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec.Code, rec.Body.Bytes()
+}
+
+// runAction starts an action and waits until its operation has finished.
+func runAction(t *testing.T, h http.Handler, stack string, action api.StackAction) api.OperationDetail {
+	t.Helper()
+	code, body := post(t, h, "/api/v1/stacks/"+stack+"/actions/"+string(action))
+	if code != http.StatusAccepted {
+		t.Fatalf("%s: status %d: %s", action, code, body)
+	}
+	var op api.Operation
+	json.Unmarshal(body, &op)
+	deadline := time.Now().Add(3 * time.Minute)
+	for {
+		var d api.OperationDetail
+		get(t, h, "/api/v1/operations/"+op.Id, &d)
+		if d.Status != api.OperationStatusRunning {
+			if d.Status != api.OperationStatusSucceeded {
+				t.Fatalf("%s: %s: %v\n%s", action, d.Status, d.Error, d.Output)
+			}
+			return d
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: still running after 3 minutes", action)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func stackStatus(t *testing.T, h http.Handler, name string) api.StackDetail {
+	t.Helper()
+	var d api.StackDetail
+	if code := get(t, h, "/api/v1/stacks/"+name, &d); code != http.StatusOK {
+		t.Fatalf("stack %s: status %d", name, code)
+	}
+	return d
+}
+
+func TestActionsAgainstDocker(t *testing.T) {
+	b := make([]byte, 4)
+	rand.Read(b)
+	prefix := "gantry-test-" + hex.EncodeToString(b)
+	name := prefix + "-actions"
+	external := prefix + "-external"
+
+	stacksDir := tempDir(t)
+	file := writeStack(t, filepath.Join(stacksDir, name), "app")
+	t.Cleanup(func() {
+		exec.Command("docker", "compose", "-p", name, "-f", file, "down", "-v", "--remove-orphans", "-t", "1").Run()
+	})
+	externalFile := writeStack(t, tempDir(t), "x")
+	up(t, external, externalFile)
+
+	dc, err := docker.New(os.Getenv("DOCKER_HOST"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := stacks.New(stacksDir, dc, compose.CLI{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := operations.NewManager(context.Background(), compose.CLI{}, operations.Options{})
+	h := api.New(api.Config{Token: token, Stacks: manager, Operations: ops})
+
+	// start, followed live over Server-Sent Events.
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	code, body := post(t, h, "/api/v1/stacks/"+name+"/actions/start")
+	if code != http.StatusAccepted {
+		t.Fatalf("start: %d %s", code, body)
+	}
+	var op api.Operation
+	json.Unmarshal(body, &op)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/operations/"+op.Id+"/events", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if s := string(stream); !strings.Contains(s, "Started") || !strings.Contains(s, "event: done") || !strings.Contains(s, `"status":"succeeded"`) {
+		t.Fatalf("event stream:\n%s", s)
+	}
+	if d := stackStatus(t, h, name); d.Status != api.StackStatusRunning || d.ActiveOperation != nil {
+		t.Errorf("after start: %s, active %+v", d.Status, d.ActiveOperation)
+	}
+
+	runAction(t, h, name, api.StackActionRestart)
+	if d := stackStatus(t, h, name); d.Status != api.StackStatusRunning {
+		t.Errorf("after restart: %s", d.Status)
+	}
+
+	runAction(t, h, name, api.StackActionStop)
+	d := stackStatus(t, h, name)
+	if d.Status != api.StackStatusStopped || len(d.Services[0].Containers) != 1 {
+		t.Errorf("after stop: %s, containers %+v (stop keeps containers)", d.Status, d.Services[0].Containers)
+	}
+
+	update := runAction(t, h, name, api.StackActionUpdate)
+	if !strings.Contains(update.Output, "$ docker compose pull --ignore-buildable") {
+		t.Errorf("update output:\n%s", update.Output)
+	}
+	if d := stackStatus(t, h, name); d.Status != api.StackStatusRunning {
+		t.Errorf("after update: %s", d.Status)
+	}
+
+	runAction(t, h, name, api.StackActionDown)
+	d = stackStatus(t, h, name)
+	if d.Status != api.StackStatusStopped || len(d.Services[0].Containers) != 0 {
+		t.Errorf("after down: %s, containers %+v (down removes containers)", d.Status, d.Services[0].Containers)
+	}
+
+	// Stacks outside the stacks directory are never changed.
+	code, body = post(t, h, "/api/v1/stacks/"+external+"/actions/stop")
+	if code != http.StatusConflict || !strings.Contains(string(body), "stack_unmanaged") {
+		t.Errorf("unmanaged stop: %d %s", code, body)
 	}
 }
