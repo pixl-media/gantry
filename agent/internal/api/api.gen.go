@@ -46,10 +46,15 @@ func (e ContainerHealth) Valid() bool {
 const (
 	ErrorCodeInvalidAction     ErrorCode = "invalid_action"
 	ErrorCodeInvalidName       ErrorCode = "invalid_name"
+	ErrorCodeInvalidRequest    ErrorCode = "invalid_request"
+	ErrorCodeInvalidToken      ErrorCode = "invalid_token"
 	ErrorCodeNotFound          ErrorCode = "not_found"
 	ErrorCodeOperationFinished ErrorCode = "operation_finished"
+	ErrorCodeOriginRejected    ErrorCode = "origin_rejected"
 	ErrorCodeStackBusy         ErrorCode = "stack_busy"
 	ErrorCodeStackUnmanaged    ErrorCode = "stack_unmanaged"
+	ErrorCodeTooManyAttempts   ErrorCode = "too_many_attempts"
+	ErrorCodeUnauthorized      ErrorCode = "unauthorized"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
@@ -59,13 +64,23 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeInvalidName:
 		return true
+	case ErrorCodeInvalidRequest:
+		return true
+	case ErrorCodeInvalidToken:
+		return true
 	case ErrorCodeNotFound:
 		return true
 	case ErrorCodeOperationFinished:
 		return true
+	case ErrorCodeOriginRejected:
+		return true
 	case ErrorCodeStackBusy:
 		return true
 	case ErrorCodeStackUnmanaged:
+		return true
+	case ErrorCodeTooManyAttempts:
+		return true
+	case ErrorCodeUnauthorized:
 		return true
 	default:
 		return false
@@ -90,6 +105,24 @@ func (e OperationStatus) Valid() bool {
 	case OperationStatusRunning:
 		return true
 	case OperationStatusSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionMethod.
+const (
+	SessionMethodCookie SessionMethod = "cookie"
+	SessionMethodToken  SessionMethod = "token"
+)
+
+// Valid indicates whether the value is a known member of the SessionMethod enum.
+func (e SessionMethod) Valid() bool {
+	switch e {
+	case SessionMethodCookie:
+		return true
+	case SessionMethodToken:
 		return true
 	default:
 		return false
@@ -210,6 +243,12 @@ type Health struct {
 	Status string `json:"status"`
 }
 
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	// Token The agent's `GANTRY_TOKEN`.
+	Token string `json:"token"`
+}
+
 // Operation defines model for Operation.
 type Operation struct {
 	Action StackAction `json:"action"`
@@ -288,6 +327,18 @@ type Service struct {
 	Containers []Container `json:"containers"`
 	Name       string      `json:"name"`
 }
+
+// Session defines model for Session.
+type Session struct {
+	// ExpiresAt When the session cookie expires (cookie method only).
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+
+	// Method How this request was authenticated.
+	Method SessionMethod `json:"method"`
+}
+
+// SessionMethod How this request was authenticated.
+type SessionMethod string
 
 // StackAction defines model for StackAction.
 type StackAction string
@@ -386,6 +437,9 @@ type ListOperationsParams struct {
 	Stack *string `form:"stack,omitempty" json:"stack,omitempty"`
 }
 
+// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
+type CreateSessionJSONRequestBody = LoginRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// ListOperations List recent operations
@@ -400,6 +454,15 @@ type ServerInterface interface {
 	// StreamOperationEvents Live output (Server-Sent Events)
 	// (GET /api/v1/operations/{id}/events)
 	StreamOperationEvents(w http.ResponseWriter, r *http.Request, id OperationId)
+	// DeleteSession Log out
+	// (DELETE /api/v1/session)
+	DeleteSession(w http.ResponseWriter, r *http.Request)
+	// GetSession Current authentication
+	// (GET /api/v1/session)
+	GetSession(w http.ResponseWriter, r *http.Request)
+	// CreateSession Log in
+	// (POST /api/v1/session)
+	CreateSession(w http.ResponseWriter, r *http.Request)
 	// ListStacks List stacks
 	// (GET /api/v1/stacks)
 	ListStacks(w http.ResponseWriter, r *http.Request)
@@ -528,6 +591,48 @@ func (siw *ServerInterfaceWrapper) StreamOperationEvents(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.StreamOperationEvents(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteSession operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSession(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSession(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSession operation middleware
+func (siw *ServerInterfaceWrapper) GetSession(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSession(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSession operation middleware
+func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSession(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -762,6 +867,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.GetHealth)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/version", wrapper.GetVersion)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/session", wrapper.DeleteSession)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/session", wrapper.GetSession)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/session", wrapper.CreateSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks", wrapper.ListStacks)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}", wrapper.GetStack)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks/{name}/actions/{action}", wrapper.RunStackAction)
@@ -1004,6 +1112,154 @@ func (response StreamOperationEvents404JSONResponse) VisitStreamOperationEventsR
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSessionRequestObject struct {
+}
+
+type DeleteSessionResponseObject interface {
+	VisitDeleteSessionResponse(w http.ResponseWriter) error
+}
+
+type DeleteSession204ResponseHeaders struct {
+	SetCookie *string
+}
+
+type DeleteSession204Response struct {
+	Headers DeleteSession204ResponseHeaders
+}
+
+func (response DeleteSession204Response) VisitDeleteSessionResponse(w http.ResponseWriter) error {
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(204)
+	return nil
+}
+
+type GetSessionRequestObject struct {
+}
+
+type GetSessionResponseObject interface {
+	VisitGetSessionResponse(w http.ResponseWriter) error
+}
+
+type GetSession200JSONResponse Session
+
+func (response GetSession200JSONResponse) VisitGetSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSession401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetSession401JSONResponse) VisitGetSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSessionRequestObject struct {
+	Body *CreateSessionJSONRequestBody
+}
+
+type CreateSessionResponseObject interface {
+	VisitCreateSessionResponse(w http.ResponseWriter) error
+}
+
+type CreateSession204ResponseHeaders struct {
+	SetCookie *string
+}
+
+type CreateSession204Response struct {
+	Headers CreateSession204ResponseHeaders
+}
+
+func (response CreateSession204Response) VisitCreateSessionResponse(w http.ResponseWriter) error {
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(204)
+	return nil
+}
+
+type CreateSession400JSONResponse Error
+
+func (response CreateSession400JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession401JSONResponse Error
+
+func (response CreateSession401JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession403JSONResponse Error
+
+func (response CreateSession403JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSession429ResponseHeaders struct {
+	RetryAfter *int
+}
+
+type CreateSession429JSONResponse struct {
+	Body    Error
+	Headers CreateSession429ResponseHeaders
+}
+
+func (response CreateSession429JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -1266,6 +1522,15 @@ type StrictServerInterface interface {
 	// StreamOperationEvents Live output (Server-Sent Events)
 	// (GET /api/v1/operations/{id}/events)
 	StreamOperationEvents(ctx context.Context, request StreamOperationEventsRequestObject) (StreamOperationEventsResponseObject, error)
+	// DeleteSession Log out
+	// (DELETE /api/v1/session)
+	DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error)
+	// GetSession Current authentication
+	// (GET /api/v1/session)
+	GetSession(ctx context.Context, request GetSessionRequestObject) (GetSessionResponseObject, error)
+	// CreateSession Log in
+	// (POST /api/v1/session)
+	CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error)
 	// ListStacks List stacks
 	// (GET /api/v1/stacks)
 	ListStacks(ctx context.Context, request ListStacksRequestObject) (ListStacksResponseObject, error)
@@ -1419,6 +1684,85 @@ func (sh *strictHandler) StreamOperationEvents(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(StreamOperationEventsResponseObject); ok {
 		if err := validResponse.VisitStreamOperationEventsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteSession operation middleware
+func (sh *strictHandler) DeleteSession(w http.ResponseWriter, r *http.Request) {
+	var request DeleteSessionRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSession(ctx, request.(DeleteSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSessionResponseObject); ok {
+		if err := validResponse.VisitDeleteSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSession operation middleware
+func (sh *strictHandler) GetSession(w http.ResponseWriter, r *http.Request) {
+	var request GetSessionRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSession(ctx, request.(GetSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSessionResponseObject); ok {
+		if err := validResponse.VisitGetSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSession operation middleware
+func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
+	var request CreateSessionRequestObject
+
+	var body CreateSessionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSession(ctx, request.(CreateSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSessionResponseObject); ok {
+		if err := validResponse.VisitCreateSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -5,14 +5,14 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strings"
+	"time"
 
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/operations"
+	"github.com/pixl-media/gantry/agent/internal/session"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
 )
 
@@ -42,17 +42,17 @@ type Config struct {
 	Logger     *slog.Logger // optional
 }
 
-// publicPaths are served without a token. Everything else requires it.
-var publicPaths = map[string]bool{"/healthz": true}
-
 // New returns the agent's HTTP handler.
 func New(cfg Config) http.Handler {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	strict := NewStrictHandlerWithOptions(&handlers{cfg: cfg}, nil, StrictHTTPServerOptions{
+	auth := &authenticator{token: cfg.Token, signer: session.NewSigner(cfg.Token, 0)}
+	h := &handlers{cfg: cfg, auth: auth, limiter: session.NewLimiter(maxFailedLogins, time.Minute)}
+	invalid := ErrorCodeInvalidRequest
+	strict := NewStrictHandlerWithOptions(h, []StrictMiddlewareFunc{withRequest}, StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeJSON(w, http.StatusBadRequest, Error{Error: err.Error()})
+			writeJSON(w, http.StatusBadRequest, Error{Error: err.Error(), Code: &invalid})
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			cfg.Logger.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
@@ -63,28 +63,28 @@ func New(cfg Config) http.Handler {
 	routes := HandlerWithOptions(strict, StdHTTPServerOptions{
 		BaseRouter: mux,
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeJSON(w, http.StatusBadRequest, Error{Error: err.Error()})
+			writeJSON(w, http.StatusBadRequest, Error{Error: err.Error(), Code: &invalid})
 		},
 	})
-	return requireToken(cfg.Token, routes)
+	return auth.middleware(routes)
 }
 
-// requireToken rejects requests without the expected bearer token, except
-// for publicPaths. Denying by default keeps new routes protected. An empty
-// configured token rejects everything instead of accepting an empty header.
-func requireToken(token string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if publicPaths[r.URL.Path] {
-			next.ServeHTTP(w, r)
-			return
-		}
-		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if token == "" || !ok || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
-			writeJSON(w, http.StatusUnauthorized, Error{Error: "unauthorized"})
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+// maxFailedLogins is how many wrong tokens a client may send per minute.
+const maxFailedLogins = 10
+
+type requestKey struct{}
+
+// withRequest makes the *http.Request available to strict handlers, which
+// otherwise only see the decoded request object.
+func withRequest(f StrictHandlerFunc, _ string) StrictHandlerFunc {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, req any) (any, error) {
+		return f(context.WithValue(ctx, requestKey{}, r), w, r, req)
+	}
+}
+
+func requestFrom(ctx context.Context) *http.Request {
+	r, _ := ctx.Value(requestKey{}).(*http.Request)
+	return r
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

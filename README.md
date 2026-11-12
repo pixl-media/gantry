@@ -5,7 +5,8 @@ Docker host and exposes an HTTP API for managing Compose stacks, plus an
 optional **web UI** that runs as its own container.
 
 > Early stage. The agent lists stacks, shows their details and starts, stops,
-> restarts, updates and removes them. Editing stacks and the web UI come next.
+> restarts, updates and removes them; the web UI does all of that in the
+> browser, in English and German. Editing stacks comes next.
 
 ## Architecture
 
@@ -21,7 +22,7 @@ optional **web UI** that runs as its own container.
   service**; also available as a **container image**.
 - **API-first:** everything the agent does is available via its versioned
   HTTP API (`/api/v1/`), described by [`api/openapi.yaml`](api/openapi.yaml).
-- **Web UI (optional, planned):** a static React app in its own container that
+- **Web UI (optional):** a static React app in its own container (Caddy) that
   only talks to the agent's API.
 - **Platforms:** linux/amd64 and linux/arm64.
 - **Standalone:** gantry works on its own; it needs no other service.
@@ -50,13 +51,30 @@ A stack is a Compose project.
 A stack's status is `running` (every service has a running container),
 `partial`, `stopped` or `unknown` (Docker unreachable).
 
+## Web UI
+
+The web UI lists all stacks with their status and runs actions with live
+output; a stack's page shows services, containers, the Compose file and
+recent operations. It is in English and German (from the browser's language,
+switchable) and follows the system's light or dark mode.
+
+**Login:** enter the agent token once. The agent exchanges it for a session
+cookie that JavaScript can't read (`HttpOnly`, `SameSite=Strict`, 12 hours);
+the token itself is never stored in the browser.
+
 ## API
 
-All routes under `/api/` require `Authorization: Bearer <GANTRY_TOKEN>`.
+Routes under `/api/` require authentication: `Authorization: Bearer
+<GANTRY_TOKEN>` for API clients, or the session cookie for the web UI. With
+the cookie, POST and DELETE requests must come from the same origin
+(`Origin` header), which protects against cross-site request forgery.
 
 | Route | Description |
 |---|---|
 | `GET /healthz` | Liveness check, public. 200 while the agent runs, even if Docker is down |
+| `POST /api/v1/session` | Log in with `{"token": …}`; sets the session cookie (public) |
+| `GET /api/v1/session` | Whether and how the request is authenticated |
+| `DELETE /api/v1/session` | Log out; clears the cookie (public) |
 | `GET /api/v1/version` | Agent version |
 | `GET /api/v1/stacks` | All stacks with status; `dockerAvailable` and `warnings` |
 | `GET /api/v1/stacks/{name}` | Services, containers (state, health, ports) and the raw Compose file |
@@ -122,7 +140,7 @@ curl -N -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/operations/o
 
 | Variable | Default | Description |
 |---|---|---|
-| `GANTRY_TOKEN` | (required) | Bearer token for all `/api/` requests |
+| `GANTRY_TOKEN` | (required) | Token for the API and the web UI login; use at least 24 random characters (`openssl rand -hex 24`) |
 | `GANTRY_STACKS_DIR` | `/opt/stacks` | Directory with the managed stacks (same default as Dockge) |
 | `GANTRY_LISTEN` | `:7070` | Listen address |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker socket (only `unix://` is supported) |
@@ -159,7 +177,22 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/stacks:/opt/stacks
     restart: unless-stopped
+
+  # Optional web UI on port 8080. It forwards /api to the agent.
+  gantry-web:
+    image: ghcr.io/pixl-media/gantry-web:edge
+    environment:
+      GANTRY_AGENT_URL: http://gantry-agent:7070
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
 ```
+
+The web UI speaks plain HTTP on port 8080. For access beyond your own
+machine, put it behind a reverse proxy with HTTPS (e.g. Caddy, Traefik);
+proxies in private networks are trusted for `X-Forwarded-Proto`, so the
+session cookie is then marked `Secure`. The web container also works with an
+agent running as a systemd service: point `GANTRY_AGENT_URL` at it.
 
 ## Layout
 
@@ -167,27 +200,38 @@ services:
 |---|---|
 | `agent/` | Go agent: its own Go module and Dockerfile |
 | `api/openapi.yaml` | API contract; Go code is generated from it |
-| `web/` | Optional web UI (planned: React + Vite, separate container) |
+| `web/` | Optional web UI: React, Vite, MUI; Dockerfile and Caddyfile |
 | `dev/stacks/` | Example stacks for local development |
 | `docs/` | Architecture decisions |
-| `compose.yaml` | Local development with the agent as a container |
+| `compose.yaml` | Local development with agent and web UI as containers |
 | `api.http` | Example requests for the VS Code REST Client |
 | `agent/tools/devdocs/` | Dev-only Swagger UI server (`make docs`) |
 | `.github/workflows/ci.yml` | Tests, image builds and releases |
 
 ## Development
 
-Requirements: Go 1.27+, Docker with the Compose plugin.
+Requirements: Go 1.27+, Docker with the Compose plugin; for the web UI
+Node 24 and pnpm 10.
 
 ```bash
 make run               # agent on http://127.0.0.1:7070, token "dev", managing dev/stacks
+make web-install       # once: install the web UI's dependencies
+make web               # web UI on http://127.0.0.1:5173 (in a second terminal), log in with "dev"
 make docs              # Swagger UI on http://127.0.0.1:8082 (in a second terminal)
 make test              # unit tests, no Docker needed
 make test-integration  # unit + integration tests against the local Docker daemon
 make lint              # gofmt + go vet
 make generate          # regenerate Go code after changing api/openapi.yaml
-make image             # build the Docker image locally
+make image             # build the agent's Docker image locally
+make web-test          # web UI tests (Vitest)
+make web-lint          # ESLint, Prettier, typecheck
+make web-generate      # regenerate the web UI's API types after changing the spec
+make web-image         # build the web UI's Docker image locally
 ```
+
+The web dev server forwards `/api` to the agent (`GANTRY_AGENT_URL`, default
+`http://127.0.0.1:7070`), so the app and the API share one origin, as behind
+Caddy in the container.
 
 Try it: start an example stack with `docker compose up -d` in
 `dev/stacks/whoami`, run `make run`, and send the requests in
@@ -197,8 +241,9 @@ Try it: start an example stack with `docker compose up -d` in
 curl -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/stacks
 ```
 
-The agent in a container: `cp .env.example .env && docker compose up --build`
-(run from the repo root; uses the token from `.env`).
+Agent and web UI in containers: `cp .env.example .env && docker compose up
+--build` (run from the repo root), then open http://127.0.0.1:8080 and log in
+with the token from `.env`.
 
 ### API docs
 
@@ -219,6 +264,8 @@ them afterwards; other containers on the host are not touched.
    hand).
 3. Implement the new methods in `agent/internal/api/handlers.go`; the
    compiler shows what's missing.
+4. `make web-generate` updates the web UI's types
+   (`web/src/api/schema.gen.ts`).
 
 ## Known limitations
 
@@ -228,6 +275,9 @@ them afterwards; other containers on the host are not touched.
   known.
 - Operations are kept in memory only and are lost when the agent restarts.
 - Swagger UI (`make docs`) can't display the event stream; use `curl -N`.
+- One shared login (the agent token); there are no user accounts.
+- The web UI refreshes every 5 seconds instead of receiving push events.
+- Compose files are read-only in the web UI.
 
 ## Workflow and releases
 
@@ -236,9 +286,9 @@ GitHub Flow: `main` is always releasable. Work happens on short-lived branches
 
 | Event | CI |
 |---|---|
-| Pull request | tests, integration tests, image built and smoke-tested, not pushed |
-| Merge to `main` | same, then `ghcr.io/pixl-media/gantry-agent:edge` is pushed |
-| Tag `vX.Y.Z` | same, then `:X.Y.Z`, `:X.Y`, `:latest` are pushed |
+| Pull request | Go and web tests, integration tests, both images built and smoke-tested, not pushed |
+| Merge to `main` | same, then `ghcr.io/pixl-media/gantry-agent:edge` and `gantry-web:edge` are pushed |
+| Tag `vX.Y.Z` | same, then `:X.Y.Z`, `:X.Y`, `:latest` of both images are pushed |
 
 Release: test `:edge`, then `git tag v0.1.0 && git push origin v0.1.0`.
 

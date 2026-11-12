@@ -1,0 +1,115 @@
+{
+  "app": {
+    "title": "gantry",
+    "stacks": "Stacks",
+    "logout": "Log out",
+    "language": "Language"
+  },
+  "login": {
+    "title": "Sign in",
+    "subtitle": "Enter the agent token (GANTRY_TOKEN). It is exchanged for a session cookie and not stored in the browser.",
+    "token": "Token",
+    "submit": "Sign in",
+    "invalidToken": "Wrong token.",
+    "tooManyAttempts": "Too many failed attempts. Try again in a minute.",
+    "failed": "Sign-in failed: {{message}}"
+  },
+  "status": {
+    "running": "Running",
+    "partial": "Partly running",
+    "stopped": "Stopped",
+    "unknown": "Unknown"
+  },
+  "managed": {
+    "managed": "Managed",
+    "external": "External",
+    "externalHint": "Runs outside the stacks directory. gantry shows it but doesn't change it."
+  },
+  "actions": {
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "update": "Update",
+    "down": "Down",
+    "hint": {
+      "start": "Create or update containers to match the Compose file",
+      "stop": "Stop containers; they are kept",
+      "restart": "Restart containers without applying Compose file changes",
+      "update": "Pull new images and recreate changed containers",
+      "down": "Remove containers and networks (volumes are kept)"
+    },
+    "busy": "Another operation is running; only stop and down are possible",
+    "confirmDownTitle": "Remove the containers of {{name}}?",
+    "confirmDownText": "Containers and networks are removed; their logs are lost. Volumes and data are kept. Start the stack again to recreate them.",
+    "confirm": "Remove",
+    "cancel": "Cancel"
+  },
+  "stacks": {
+    "title": "Stacks",
+    "name": "Name",
+    "type": "Type",
+    "status": "Status",
+    "services": "Services",
+    "actions": "Actions",
+    "empty": "No stacks found. Managed stacks are directories with a compose.yaml in GANTRY_STACKS_DIR (default /opt/stacks).",
+    "dockerUnavailable": "Docker is unreachable. Managed stacks are listed from disk; their status is unknown.",
+    "warnings_one": "{{count}} warning",
+    "warnings_other": "{{count}} warnings",
+    "operationRunning": "{{action}} running"
+  },
+  "stack": {
+    "back": "All stacks",
+    "path": "Path",
+    "servicesTitle": "Services and containers",
+    "service": "Service",
+    "container": "Container",
+    "state": "State",
+    "health": "Health",
+    "image": "Image",
+    "ports": "Ports",
+    "noContainers": "No containers",
+    "composeFile": "Compose file",
+    "composeUnreadable": "The agent can't read this file.",
+    "operations": "Recent operations",
+    "noOperations": "No operations in the last hour.",
+    "notFound": "There is no stack named {{name}}."
+  },
+  "health": {
+    "healthy": "healthy",
+    "unhealthy": "unhealthy",
+    "starting": "starting",
+    "none": "–"
+  },
+  "operation": {
+    "title": "{{action}} · {{stack}}",
+    "status": {
+      "running": "Running",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "canceled": "Canceled"
+    },
+    "cancel": "Cancel operation",
+    "close": "Close",
+    "exitCode": "Exit code {{code}}",
+    "canceledBy": "Canceled by {{id}}",
+    "waiting": "Waiting for output…",
+    "reconnecting": "Live connection lost, reconnecting…",
+    "startedAt": "Started {{time}}",
+    "action": "Action",
+    "started": "Started",
+    "result": "Result"
+  },
+  "errors": {
+    "stack_busy": "Another operation is running on this stack.",
+    "stack_unmanaged": "This stack isn't managed by gantry.",
+    "operation_finished": "The operation has already finished.",
+    "not_found": "Not found.",
+    "origin_rejected": "Request rejected: it didn't come from this page.",
+    "unauthorized": "Your session has expired. Please sign in again.",
+    "generic": "Something went wrong: {{message}}"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "back": "Go to stacks"
+  }
+}
