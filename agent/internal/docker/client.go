@@ -5,9 +5,7 @@ package docker
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -30,6 +28,9 @@ const (
 // Client talks to the Docker Engine API.
 type Client struct {
 	http *http.Client
+	// stream has no overall timeout, for log streams that stay open; they
+	// end through their context.
+	stream *http.Client
 }
 
 // New returns a client for host, a DOCKER_HOST value such as
@@ -48,7 +49,10 @@ func New(host string) (*Client, error) {
 			return d.DialContext(ctx, "unix", socket)
 		},
 	}
-	return &Client{http: &http.Client{Transport: transport, Timeout: 10 * time.Second}}, nil
+	return &Client{
+		http:   &http.Client{Transport: transport, Timeout: 10 * time.Second},
+		stream: &http.Client{Transport: transport},
+	}, nil
 }
 
 // Container is the part of a container summary that gantry uses.
@@ -83,18 +87,13 @@ func (c *Client) ListComposeContainers(ctx context.Context) ([]Container, error)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		// Drop the internal request URL; the cause (e.g. "dial unix ...:
-		// no such file or directory") is what matters to users.
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
-		}
-		return nil, fmt.Errorf("list containers: %w", err)
+		// The cause (e.g. "dial unix ...: no such file or directory") is
+		// what matters to users, not the internal request URL.
+		return nil, fmt.Errorf("list containers: %w", unwrapURLError(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("list containers: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return nil, statusError("list containers", resp)
 	}
 
 	var raw []apiContainer

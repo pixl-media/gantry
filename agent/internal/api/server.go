@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pixl-media/gantry/agent/internal/compose"
+	"github.com/pixl-media/gantry/agent/internal/logs"
 	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/session"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
@@ -32,6 +33,11 @@ type OperationService interface {
 	Active(stack string) (operations.Snapshot, bool)
 }
 
+// LogService is what the API needs from the logs package.
+type LogService interface {
+	Stream(ctx context.Context, project string, opts logs.Options, emit func(logs.Line) error, flush func() error) error
+}
+
 // Config holds what the API needs to serve requests.
 type Config struct {
 	// Token is the shared secret clients send as "Authorization: Bearer <token>".
@@ -39,6 +45,7 @@ type Config struct {
 	Version    string
 	Stacks     StackService
 	Operations OperationService
+	Logs       LogService
 	Logger     *slog.Logger // optional
 }
 

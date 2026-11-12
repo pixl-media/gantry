@@ -5,6 +5,10 @@ generate:
   models: true
   std-http-server: true
   strict-server: true
+output-options:
+  # Also generate schemas only used inside event streams (e.g. LogLine), so
+  # the Go side encodes exactly the types the spec documents.
+  skip-prune: true
 compatibility:
   # StackStatusRunning instead of Running, ContainerHealthNone instead of None.
   always-prefix-enum-values: true

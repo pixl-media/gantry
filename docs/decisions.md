@@ -237,6 +237,31 @@ logout, the UI container would need the token).
 - TypeScript 6 rather than the new native TypeScript 7, until the ESLint
   tooling supports it.
 
+## 16. Container logs: merged per stack, from the Engine API
+
+**Decided 2026-11-12.** `GET /api/v1/stacks/{name}/logs` streams the logs of
+all containers of a stack as Server-Sent Events, like `docker compose logs
+-f`.
+
+- **Engine API, not the Compose CLI:** logs are container data (decision 7).
+  One HTTP stream per container instead of a `docker compose logs` process
+  per viewer, and stdout/stderr arrive separately. The agent decodes
+  Docker's multiplexed frames itself (standard library only).
+- **Merged in the agent:** first the last `tail` lines of every container
+  sorted by time, then live lines in arrival order. A watcher (every 2 s)
+  re-attaches to containers that are started or recreated, continuing with
+  `since` right after the last line sent, so restarts don't break the stream
+  or repeat lines.
+- **Unmanaged stacks can be read:** reading changes nothing (decision 8).
+- **Unfiltered:** lines come as written, including ANSI codes; the web UI
+  renders colors with its own small parser and strips other control
+  sequences. Logs may contain whatever programs print; they are only
+  available to authenticated clients.
+- The end-of-stream error event is called `failed`, because browsers'
+  `EventSource` uses `error` for connection errors.
+- In the browser, lines are applied at most once per animation frame and
+  capped at 10,000, so chatty containers don't slow the UI down.
+
 ## Open questions
 
 - **Release distribution:** GoReleaser for binaries, `.deb`/`.rpm` and images.

@@ -72,7 +72,30 @@
     "composeUnreadable": "The agent can't read this file.",
     "operations": "Recent operations",
     "noOperations": "No operations in the last hour.",
-    "notFound": "There is no stack named {{name}}."
+    "notFound": "There is no stack named {{name}}.",
+    "tabOverview": "Overview",
+    "tabLogs": "Logs",
+    "showLogs": "Show logs",
+    "showLogsOf": "Show logs of {{name}}"
+  },
+  "logs": {
+    "services": "Services",
+    "allServices": "All services",
+    "containerFilter": "Container: {{name}}",
+    "search": "Search…",
+    "tail": "Past lines",
+    "tailOption_one": "Last {{count}} line",
+    "tailOption_other": "Last {{count}} lines",
+    "timestamps": "Timestamps",
+    "clear": "Clear view",
+    "download": "Download as text",
+    "failed": "Can't read the logs: {{message}}",
+    "reconnecting": "Live connection lost, reconnecting…",
+    "empty": "No log lines yet.",
+    "noMatches": "No lines match the filter.",
+    "jumpToLatest": "Jump to latest",
+    "count_one": "{{count}} line",
+    "count_other": "{{count}} lines"
   },
   "health": {
     "healthy": "healthy",

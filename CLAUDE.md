@@ -74,8 +74,12 @@ Web UI (`web/`, pnpm, Node 24):
   as an operation (`internal/operations`), never synchronously inside a
   request. Actions only work on managed stacks (`stacks.Target`).
 - Package roles also include `internal/operations` (async actions, one per
-  stack, output buffer for live streams) and `internal/session` (signed
-  session cookies, login rate limit).
+  stack, output buffer for live streams), `internal/session` (signed
+  session cookies, login rate limit) and `internal/logs` (merged stack logs
+  with re-attach after restarts).
+- Long or open-ended output (operation output, logs) is streamed as
+  Server-Sent Events via `startEventStream` in `agent/internal/api`; never
+  buffer it in a single response.
 
 ## Web UI conventions
 

@@ -1,4 +1,5 @@
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import ArticleIcon from '@mui/icons-material/Article';
 import {
   Alert,
   Box,
@@ -7,25 +8,30 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  IconButton,
   List,
   ListItemButton,
   ListItemText,
   Paper,
   Stack,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link as RouterLink, useParams } from 'react-router';
+import { Link as RouterLink, useParams, useSearchParams } from 'react-router';
 import { apiError, type StackDetail } from '../api/client';
 import { useStack, useStackOperations } from '../api/queries';
 import { ActionButtons } from '../components/ActionButtons';
+import { LogView } from '../components/LogView';
 import { useOperationPanel } from '../components/OperationPanel';
 import { OperationStatusChip, StatusChip } from '../components/StatusChip';
 import { errorMessage } from '../lib/errors';
@@ -36,6 +42,10 @@ export function StackPage() {
   const { t } = useTranslation();
   const name = useParams().name ?? '';
   const stack = useStack(name);
+  // The tab and the log filter live in the URL, so they can be linked.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('tab') === 'logs' ? 'logs' : 'overview';
+  const logContainer = searchParams.get('container') ?? undefined;
 
   const back = (
     <Button
@@ -95,14 +105,47 @@ export function StackPage() {
         </Alert>
       ))}
 
-      <Services stack={s} />
-      <Operations stack={s.name} />
-      <ComposeFile stack={s} />
+      <Tabs
+        value={tab}
+        onChange={(_, v: string) =>
+          setSearchParams(v === 'logs' ? { tab: 'logs' } : {})
+        }
+        sx={{ borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Tab value="overview" label={t('stack.tabOverview')} />
+        <Tab value="logs" label={t('stack.tabLogs')} />
+      </Tabs>
+
+      {tab === 'logs' ? (
+        <LogView
+          stack={s.name}
+          services={s.services.map((svc) => svc.name)}
+          container={logContainer}
+          onContainerChange={(c) =>
+            setSearchParams(c ? { tab: 'logs', container: c } : { tab: 'logs' })
+          }
+        />
+      ) : (
+        <>
+          <Services
+            stack={s}
+            onShowLogs={(c) => setSearchParams({ tab: 'logs', container: c })}
+          />
+          <Operations stack={s.name} />
+          <ComposeFile stack={s} />
+        </>
+      )}
     </Stack>
   );
 }
 
-function Services({ stack }: { stack: StackDetail }) {
+function Services({
+  stack,
+  onShowLogs,
+}: {
+  stack: StackDetail;
+  onShowLogs: (container: string) => void;
+}) {
   const { t } = useTranslation();
   return (
     <Box>
@@ -119,6 +162,7 @@ function Services({ stack }: { stack: StackDetail }) {
               <TableCell>{t('stack.health')}</TableCell>
               <TableCell>{t('stack.image')}</TableCell>
               <TableCell>{t('stack.ports')}</TableCell>
+              <TableCell />
             </TableRow>
           </TableHead>
           <TableBody>
@@ -127,7 +171,7 @@ function Services({ stack }: { stack: StackDetail }) {
                 {svc.containers.length === 0 ? (
                   <TableRow>
                     <TableCell sx={{ fontWeight: 600 }}>{svc.name}</TableCell>
-                    <TableCell colSpan={5} sx={{ color: 'text.secondary' }}>
+                    <TableCell colSpan={6} sx={{ color: 'text.secondary' }}>
                       {t('stack.noContainers')}
                     </TableCell>
                   </TableRow>
@@ -163,6 +207,17 @@ function Services({ stack }: { stack: StackDetail }) {
                         {formatPorts(c.ports).map((p) => (
                           <div key={p}>{p}</div>
                         ))}
+                      </TableCell>
+                      <TableCell padding="checkbox">
+                        <Tooltip title={t('stack.showLogs')}>
+                          <IconButton
+                            size="small"
+                            aria-label={t('stack.showLogsOf', { name: c.name })}
+                            onClick={() => onShowLogs(c.name)}
+                          >
+                            <ArticleIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       </TableCell>
                     </TableRow>
                   ))

@@ -201,6 +201,75 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/stacks/{name}/logs:
+    get:
+      operationId: streamStackLogs
+      tags: [stacks]
+      summary: Container logs (Server-Sent Events)
+      description: |
+        The logs of all containers of a stack in one `text/event-stream`, like
+        `docker compose logs -f`: first the last `tail` lines of each
+        container merged by time, then new lines as they appear. Works for
+        unmanaged stacks too (read-only).
+
+        Events:
+
+        - `log`: `data` is a `LogLine` as JSON.
+        - `end`: only with `follow=false`, after the past lines.
+        - `failed`: `data` is an `Error` as JSON, e.g. when Docker can't be
+          read; the stream ends after it. (Not `error`: browsers' EventSource
+          uses that name for connection errors.)
+
+        While following, containers that are started or recreated later
+        (e.g. by `start`, `restart`, `update`) are picked up without
+        duplicate lines. Reconnecting starts over with the past lines.
+
+        Logs are returned as the programs wrote them, including ANSI color
+        codes; they may contain anything the programs print.
+      parameters:
+        - $ref: "#/components/parameters/StackName"
+        - name: tail
+          in: query
+          required: false
+          description: Past lines per container.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 5000
+            default: 200
+        - name: follow
+          in: query
+          required: false
+          description: Keep streaming new lines. With false the stream ends after the past lines.
+          schema:
+            type: boolean
+            default: true
+        - name: service
+          in: query
+          required: false
+          description: Only this service's containers.
+          schema:
+            type: string
+        - name: container
+          in: query
+          required: false
+          description: Only this container (name).
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/InvalidName"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/stacks/{name}/actions/{action}:
     post:
       operationId: runStackAction
@@ -633,6 +702,28 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Port"
+
+    LogLine:
+      type: object
+      description: One log line, the `data` of a `log` event.
+      required: [time, service, container, stream, line]
+      properties:
+        time:
+          type: string
+          format: date-time
+          description: When Docker received the line.
+        service:
+          type: string
+          example: app
+        container:
+          type: string
+          example: whoami-app-1
+        stream:
+          type: string
+          enum: [stdout, stderr]
+        line:
+          type: string
+          description: The text, without a trailing newline; cut off after 16 KiB.
 
     StackAction:
       type: string

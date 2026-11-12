@@ -9,6 +9,7 @@
 package api_test
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -26,6 +27,7 @@ import (
 	"github.com/pixl-media/gantry/agent/internal/api"
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
+	"github.com/pixl-media/gantry/agent/internal/logs"
 	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
 )
@@ -311,5 +313,160 @@ func TestActionsAgainstDocker(t *testing.T) {
 	code, body = post(t, h, "/api/v1/stacks/"+external+"/actions/stop")
 	if code != http.StatusConflict || !strings.Contains(string(body), "stack_unmanaged") {
 		t.Errorf("unmanaged stop: %d %s", code, body)
+	}
+}
+
+// sseEvent is one Server-Sent Event.
+type sseEvent struct{ name, data string }
+
+// readEvents sends the events of an SSE stream to the returned channel until
+// the stream ends.
+func readEvents(r io.Reader) <-chan sseEvent {
+	ch := make(chan sseEvent, 64)
+	go func() {
+		defer close(ch)
+		sc := bufio.NewScanner(r)
+		sc.Buffer(make([]byte, 64<<10), 1<<20)
+		var ev sseEvent
+		for sc.Scan() {
+			line := sc.Text()
+			switch {
+			case strings.HasPrefix(line, "event: "):
+				ev.name = strings.TrimPrefix(line, "event: ")
+			case strings.HasPrefix(line, "data: "):
+				ev.data = strings.TrimPrefix(line, "data: ")
+			case line == "":
+				ch <- ev
+				ev = sseEvent{}
+			}
+		}
+	}()
+	return ch
+}
+
+func TestLogsAgainstDocker(t *testing.T) {
+	b := make([]byte, 4)
+	rand.Read(b)
+	name := "gantry-test-" + hex.EncodeToString(b) + "-logs"
+	stacksDir := tempDir(t)
+	dir := filepath.Join(stacksDir, name)
+	os.MkdirAll(dir, 0o755)
+	file := filepath.Join(dir, "compose.yaml")
+	os.WriteFile(file, []byte(`services:
+  talk:
+    image: alpine:3.24
+    command: ["sh", "-c", "i=0; while true; do echo tick $$i; i=$$((i+1)); sleep 0.2; done"]
+    init: true
+    stop_grace_period: 1s
+  err:
+    image: alpine:3.24
+    command: ["sh", "-c", "echo to-stderr >&2; sleep infinity"]
+    init: true
+    stop_grace_period: 1s
+`), 0o644)
+	up(t, name, file)
+	time.Sleep(1500 * time.Millisecond)
+
+	dc, err := docker.New(os.Getenv("DOCKER_HOST"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, _ := stacks.New(stacksDir, dc, compose.CLI{})
+	ops := operations.NewManager(context.Background(), compose.CLI{}, operations.Options{})
+	h := api.New(api.Config{Token: token, Stacks: manager, Operations: ops, Logs: logs.New(dc)})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	open := func(ctx context.Context, query string) <-chan sseEvent {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/v1/stacks/"+name+"/logs?"+query, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { resp.Body.Close() })
+		return readEvents(resp.Body)
+	}
+
+	// Past lines only: both services, in time order, stderr marked.
+	var lines []api.LogLine
+	ended := false
+	for ev := range open(context.Background(), "follow=false&tail=5") {
+		switch ev.name {
+		case "log":
+			var l api.LogLine
+			json.Unmarshal([]byte(ev.data), &l)
+			lines = append(lines, l)
+		case "end":
+			ended = true
+		}
+	}
+	if !ended {
+		t.Error("no end event with follow=false")
+	}
+	var sawStderr, sawTick bool
+	for i, l := range lines {
+		if i > 0 && l.Time.Before(lines[i-1].Time) {
+			t.Errorf("lines out of order at %d: %v before %v", i, l.Time, lines[i-1].Time)
+		}
+		if l.Service == "err" && l.Line == "to-stderr" && l.Stream == api.LogLineStreamStderr {
+			sawStderr = true
+		}
+		if l.Service == "talk" && strings.HasPrefix(l.Line, "tick ") && l.Stream == api.LogLineStreamStdout {
+			sawTick = true
+		}
+	}
+	if !sawStderr || !sawTick || len(lines) > 10 {
+		t.Errorf("past lines (tail=5 per container) = %+v", lines)
+	}
+
+	// Following, across a restart of the stack.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	events := open(ctx, "tail=1&service=talk")
+	next := func() api.LogLine {
+		for {
+			select {
+			case ev, ok := <-events:
+				if !ok {
+					t.Fatal("stream ended")
+				}
+				if ev.name == "log" {
+					var l api.LogLine
+					json.Unmarshal([]byte(ev.data), &l)
+					return l
+				}
+			case <-ctx.Done():
+				t.Fatal("timed out waiting for log lines")
+			}
+		}
+	}
+	seen := map[string]bool{}
+	record := func(l api.LogLine) {
+		key := l.Time.String() + l.Line
+		if seen[key] {
+			t.Errorf("duplicate line %q at %v", l.Line, l.Time)
+		}
+		seen[key] = true
+		if l.Service != "talk" {
+			t.Errorf("service filter: got a line from %q", l.Service)
+		}
+	}
+	for range 5 {
+		record(next())
+	}
+
+	runAction(t, h, name, api.StackActionRestart)
+	// After the restart the counter starts again at 0, in the same stream.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		l := next()
+		record(l)
+		if l.Line == "tick 2" && time.Now().Before(deadline) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no lines from the restarted container")
+		}
 	}
 }
