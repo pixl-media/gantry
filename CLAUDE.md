@@ -13,7 +13,9 @@ them without the user. In short:
   only consumes the API. Keep the OpenAPI spec in sync once it exists.
 - **One binary, two modes:** the agent runs as a systemd service (primary) and
   as a container (option). No container-only assumptions: paths come from
-  configuration, never hardcoded (no fixed `/stacks`), and don't assume root.
+  configuration; defaults must be documented host paths that work in both
+  modes (`GANTRY_STACKS_DIR` defaults to `/opt/stacks`, like Dockge), never
+  container-only paths like `/stacks`. Don't assume root.
 - **Platforms:** linux/amd64 and linux/arm64, `CGO_ENABLED=0`, no cgo
   dependencies.
 - **Standalone and publishable:** no organization-internal hosts, services or

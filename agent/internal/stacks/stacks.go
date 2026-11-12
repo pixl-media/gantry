@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,6 +27,11 @@ var (
 	// ErrInvalidName means the name is not a valid Compose project name.
 	ErrInvalidName = errors.New("invalid stack name")
 )
+
+// DefaultDir is the default stacks directory. It's the same as Dockge's, and
+// so is the layout (one directory per stack), so gantry picks up existing
+// Dockge stacks without configuration.
+const DefaultDir = "/opt/stacks"
 
 // composeFileNames are the default Compose file names, in the order Compose
 // itself looks for them.
@@ -108,17 +114,22 @@ type Manager struct {
 	compose ServiceLister
 }
 
-// New returns a Manager for the stacks directory dir, which must exist.
+// New returns a Manager for the stacks directory dir. The directory may not
+// exist yet: then there are no managed stacks, and List and Get report it as a
+// warning, while unmanaged stacks are still found. An existing path that isn't
+// a directory is an error.
 func New(dir string, d ContainerLister, c ServiceLister) (*Manager, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
 	info, err := os.Stat(abs)
-	if err != nil {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		// Allowed; see above.
+	case err != nil:
 		return nil, fmt.Errorf("stacks directory: %w", err)
-	}
-	if !info.IsDir() {
+	case !info.IsDir():
 		return nil, fmt.Errorf("stacks directory %s is not a directory", abs)
 	}
 	return &Manager{dir: normPath(abs), docker: d, compose: c}, nil
@@ -126,6 +137,12 @@ func New(dir string, d ContainerLister, c ServiceLister) (*Manager, error) {
 
 // Dir returns the absolute stacks directory.
 func (m *Manager) Dir() string { return m.dir }
+
+// DirExists reports whether the stacks directory exists.
+func (m *Manager) DirExists() bool {
+	_, err := os.Stat(m.dir)
+	return err == nil
+}
 
 // List returns all managed and unmanaged stacks, sorted by name.
 func (m *Manager) List(ctx context.Context) (List, error) {
@@ -243,6 +260,9 @@ func (m *Manager) collect(ctx context.Context, only string) (snapshot, error) {
 
 // scan reads the managed stacks from the stacks directory.
 func (m *Manager) scan(only string) ([]*stack, []string, error) {
+	if !m.DirExists() {
+		return nil, []string{fmt.Sprintf("stacks directory %s does not exist", m.dir)}, nil
+	}
 	var names []string
 	if only != "" {
 		names = []string{only}

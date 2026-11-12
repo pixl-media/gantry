@@ -32,7 +32,7 @@ Reasons for these choices: [docs/decisions.md](docs/decisions.md).
 
 A stack is a Compose project.
 
-- **Managed stacks** live in `GANTRY_STACKS_DIR`, one directory per stack
+- **Managed stacks** live in `GANTRY_STACKS_DIR` (default `/opt/stacks`), one directory per stack
   with a `compose.yaml` (or `compose.yml`, `docker-compose.yaml`,
   `docker-compose.yml`). The directory name is the project name and must be a
   valid Compose project name: lowercase letters, digits, `-` and `_`.
@@ -70,9 +70,14 @@ unresolved, and `.env` files are never returned.
 | Variable | Default | Description |
 |---|---|---|
 | `GANTRY_TOKEN` | (required) | Bearer token for all `/api/` requests |
-| `GANTRY_STACKS_DIR` | (required) | Directory with the managed stacks |
+| `GANTRY_STACKS_DIR` | `/opt/stacks` | Directory with the managed stacks (same default as Dockge) |
 | `GANTRY_LISTEN` | `:7070` | Listen address |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker socket (only `unix://` is supported) |
+
+The stacks directory uses the same default and layout as Dockge, so gantry
+picks up existing Dockge stacks without configuration. If the directory
+doesn't exist, the agent still starts, lists unmanaged stacks and reports the
+missing directory as a warning.
 
 The agent needs `docker compose` (the Compose plugin of Docker's official
 packages) on the host. The container image includes it.

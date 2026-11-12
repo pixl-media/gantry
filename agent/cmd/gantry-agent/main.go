@@ -30,20 +30,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	stacksDir := os.Getenv("GANTRY_STACKS_DIR")
-	if stacksDir == "" {
-		logger.Error("GANTRY_STACKS_DIR must be set")
-		os.Exit(1)
-	}
 	dockerClient, err := docker.New(os.Getenv("DOCKER_HOST"))
 	if err != nil {
 		logger.Error("docker client", "err", err)
 		os.Exit(1)
 	}
-	manager, err := stacks.New(stacksDir, dockerClient, compose.CLI{})
+	manager, err := stacks.New(envOr("GANTRY_STACKS_DIR", stacks.DefaultDir), dockerClient, compose.CLI{})
 	if err != nil {
 		logger.Error("stacks", "err", err)
 		os.Exit(1)
+	}
+	if !manager.DirExists() {
+		logger.Warn("stacks directory does not exist; no managed stacks until it is created (set GANTRY_STACKS_DIR to use another one)",
+			"stacks_dir", manager.Dir())
 	}
 
 	addr := envOr("GANTRY_LISTEN", ":7070")

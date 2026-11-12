@@ -98,6 +98,11 @@ doesn't own.
 Stack names must be valid Compose project names (`^[a-z0-9][a-z0-9_-]*$`),
 which also rules out path traversal.
 
+`GANTRY_STACKS_DIR` defaults to `/opt/stacks`, the same directory and layout
+as Dockge, so existing Dockge setups work without configuration. A missing
+directory is reported as a warning, not a startup error: the agent still
+reports unmanaged stacks and Docker's state.
+
 ## 9. OpenAPI spec-first with oapi-codegen
 
 **Decided 2026-11-12.** `api/openapi.yaml` is the contract. oapi-codegen

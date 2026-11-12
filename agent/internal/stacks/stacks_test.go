@@ -341,13 +341,41 @@ func TestComposeFileTooLarge(t *testing.T) {
 	}
 }
 
-func TestNewRequiresDirectory(t *testing.T) {
-	if _, err := New(filepath.Join(t.TempDir(), "missing"), fakeDocker{}, fakeCompose{}); err == nil {
-		t.Error("New with missing directory: want error")
-	}
+func TestNewRejectsFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
 	writeFile(t, file, "x")
 	if _, err := New(file, fakeDocker{}, fakeCompose{}); err == nil {
 		t.Error("New with a file: want error")
+	}
+}
+
+func TestMissingStacksDirectory(t *testing.T) {
+	missing := filepath.Join(normPath(t.TempDir()), "missing")
+	d := fakeDocker{containers: []docker.Container{ctr("monitoring", "grafana", "running", "/srv/monitoring")}}
+	m := newManager(t, missing, d, fakeCompose{})
+	if m.DirExists() {
+		t.Fatal("DirExists = true for a missing directory")
+	}
+
+	l, err := m.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v, want no error for a missing directory", err)
+	}
+	if len(l.Warnings) != 1 || !strings.Contains(l.Warnings[0], "does not exist") {
+		t.Errorf("warnings = %v, want missing directory warning", l.Warnings)
+	}
+	// Unmanaged stacks are still found.
+	if len(l.Stacks) != 1 || l.Stacks[0].Name != "monitoring" || l.Stacks[0].Managed {
+		t.Errorf("stacks = %+v, want only unmanaged monitoring", l.Stacks)
+	}
+
+	if _, err := m.Get(context.Background(), "monitoring"); err != nil {
+		t.Errorf("Get unmanaged with missing directory: %v", err)
+	}
+
+	// Once the directory is created, its stacks show up.
+	writeFile(t, filepath.Join(missing, "app", "compose.yaml"), "services: {}\n")
+	if l, _ := m.List(context.Background()); len(l.Stacks) != 2 || len(l.Warnings) != 0 {
+		t.Errorf("after creating the directory: stacks = %+v, warnings = %v", l.Stacks, l.Warnings)
 	}
 }
