@@ -69,11 +69,66 @@ optional UI), without the future infrastructure app, and stay publishable as
 open source: no organization-internal hosts, services or secrets, all
 configuration via `GANTRY_*` variables, all docs in English.
 
+## 7. Docker access: Engine API for state, Compose CLI for Compose
+
+**Decided 2026-11-12.** Container state is read from the Docker Engine API
+over the socket, with a small standard-library client (`agent/internal/docker`):
+one request returns every Compose container with labels, state and health.
+Everything that is Compose logic (evaluating Compose files, later up/down)
+runs through the `docker compose` CLI (`agent/internal/compose`), so it
+behaves exactly as in a terminal.
+
+Rejected: CLI only (one process per query, dependence on CLI output formats,
+awkward for live events later) and Go libraries only (the Compose library
+pulls in a very large dependency tree and may behave differently from the
+host's `docker compose`).
+
+Consequence: hosts need the Compose plugin (part of Docker's official
+packages); the container image bundles the Docker CLI and the plugin.
+
+## 8. Stack model: stacks directory plus discovery
+
+**Decided 2026-11-12.** Managed stacks are the subdirectories of
+`GANTRY_STACKS_DIR` that contain a Compose file; the directory name is the
+Compose project name. Other Compose projects on the host are discovered
+through their container labels and reported with `managed: false`, read-only.
+This shows the whole host without gantry silently taking over stacks it
+doesn't own.
+
+Stack names must be valid Compose project names (`^[a-z0-9][a-z0-9_-]*$`),
+which also rules out path traversal.
+
+## 9. OpenAPI spec-first with oapi-codegen
+
+**Decided 2026-11-12.** `api/openapi.yaml` is the contract. oapi-codegen
+generates Go types and a strict server interface for `net/http` into
+`agent/internal/api/api.gen.go`; handlers implement that interface, so code
+that drifts from the spec doesn't compile. CI fails if the generated code is
+out of date. API clients (web UI, infrastructure app) are generated from the
+same file.
+
+Rejected: hand-written spec and handlers (drift only caught by tests, types
+maintained twice) and code-first (the contract becomes a by-product, and it
+ties us to a framework).
+
+## 10. The API never exposes secrets from stacks
+
+**Decided 2026-11-12.** Stack details return the Compose file exactly as
+stored (`${DB_PASSWORD}` stays unresolved). The API never returns the resolved
+configuration (`docker compose config` output) or `.env` contents, and the
+agent reads service names with `--no-interpolate`. Managing `.env` values
+needs its own feature with its own protection.
+
+## 11. `/healthz` is a liveness check
+
+**Decided 2026-11-12.** `/healthz` (public) returns 200 as long as the agent
+serves requests, also when Docker is down, so monitors don't restart the agent
+while it reports the outage. Docker's state is part of the API responses
+(`dockerAvailable`). The `z` follows the Go/Kubernetes convention and avoids
+collisions with application routes.
+
 ## Open questions
 
-- **Compose operations:** call the `docker compose` CLI or use the Go
-  libraries? Decide with the first feature; leaning towards the CLI for full
-  compatibility.
 - **Standalone UI authentication:** how the UI authenticates users without
   handing the agent token to the browser.
 - **Release distribution:** GoReleaser for binaries, `.deb`/`.rpm` and images.

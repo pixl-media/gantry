@@ -1,0 +1,316 @@
+openapi: 3.0.3
+info:
+  title: gantry agent API
+  description: |
+    HTTP API of the gantry agent, which runs on a Docker host and manages its
+    Compose stacks.
+
+    All routes under `/api/` require `Authorization: Bearer <GANTRY_TOKEN>`.
+    `/healthz` is public.
+
+    This file is the contract: the Go server types are generated from it
+    (`make generate`), and API clients should be generated from it too.
+  version: 0.1.0
+
+servers:
+  - url: http://127.0.0.1:7070
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: system
+  - name: stacks
+
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      tags: [system]
+      summary: Liveness check
+      description: |
+        Returns 200 as long as the agent process serves requests, **including
+        when Docker is unreachable**, so that monitors don't restart the agent
+        while it is the one reporting the outage. Docker's state is reported
+        by the API (`dockerAvailable`).
+      security: []
+      responses:
+        "200":
+          description: The agent is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /api/v1/version:
+    get:
+      operationId: getVersion
+      tags: [system]
+      summary: Agent version
+      responses:
+        "200":
+          description: The agent's version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Version"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/stacks:
+    get:
+      operationId: listStacks
+      tags: [stacks]
+      summary: List stacks
+      description: |
+        Lists the managed stacks (subdirectories of `GANTRY_STACKS_DIR`) and
+        the other Compose projects found on the host (`managed: false`).
+
+        If Docker is unreachable, managed stacks are still listed with status
+        `unknown`, `dockerAvailable` is false, and a warning explains why.
+      responses:
+        "200":
+          description: All known stacks, sorted by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StackList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/stacks/{name}:
+    get:
+      operationId: getStack
+      tags: [stacks]
+      summary: Stack details
+      description: |
+        Returns a stack with its services, containers and its raw Compose file.
+        The Compose file is returned exactly as stored: variables such as
+        `${DB_PASSWORD}` are not resolved, and `.env` files are never returned.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Compose project name.
+          schema:
+            type: string
+            pattern: "^[a-z0-9][a-z0-9_-]*$"
+      responses:
+        "200":
+          description: The stack.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StackDetail"
+        "400":
+          description: The name is not a valid Compose project name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No stack with this name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: The agent's `GANTRY_TOKEN`.
+
+  responses:
+    Unauthorized:
+      description: Missing or wrong bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    Version:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: string
+          example: 0.1.0
+
+    StackStatus:
+      type: string
+      description: |
+        `running`: every service has a running container.
+        `partial`: some services have a running container.
+        `stopped`: no service has a running container.
+        `unknown`: Docker is unreachable.
+      enum: [running, partial, stopped, unknown]
+
+    StackSummary:
+      type: object
+      required: [name, managed, status, servicesTotal, servicesRunning, path]
+      properties:
+        name:
+          type: string
+          description: Compose project name.
+          example: whoami
+        managed:
+          type: boolean
+          description: |
+            True if the stack lives in `GANTRY_STACKS_DIR`; false for Compose
+            projects found elsewhere on the host.
+        status:
+          $ref: "#/components/schemas/StackStatus"
+        servicesTotal:
+          type: integer
+          description: |
+            Services defined by the stack. For unmanaged stacks only the
+            services that currently have containers are known.
+        servicesRunning:
+          type: integer
+          description: Services with at least one running container.
+        path:
+          type: string
+          description: Project directory on the host.
+          example: /opt/stacks/whoami
+
+    StackList:
+      type: object
+      required: [stacks, dockerAvailable, warnings]
+      properties:
+        stacks:
+          type: array
+          items:
+            $ref: "#/components/schemas/StackSummary"
+        dockerAvailable:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            type: string
+
+    StackDetail:
+      type: object
+      required:
+        - name
+        - managed
+        - status
+        - servicesTotal
+        - servicesRunning
+        - path
+        - services
+        - dockerAvailable
+        - warnings
+      properties:
+        name:
+          type: string
+        managed:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/StackStatus"
+        servicesTotal:
+          type: integer
+        servicesRunning:
+          type: integer
+        path:
+          type: string
+        composeFile:
+          $ref: "#/components/schemas/ComposeFile"
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/Service"
+        dockerAvailable:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            type: string
+
+    ComposeFile:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          example: /opt/stacks/whoami/compose.yaml
+        content:
+          type: string
+          description: |
+            Raw file content, variables unresolved. Omitted if the file can't
+            be read by the agent.
+
+    Service:
+      type: object
+      required: [name, containers]
+      properties:
+        name:
+          type: string
+        containers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Container"
+
+    Container:
+      type: object
+      required: [id, name, state, status, health, image, ports]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: whoami-whoami-1
+        state:
+          type: string
+          description: Docker state, e.g. running, exited, restarting, paused.
+          example: running
+        status:
+          type: string
+          description: Human-readable status from Docker.
+          example: Up 2 hours
+        health:
+          type: string
+          enum: [healthy, unhealthy, starting, none]
+        image:
+          type: string
+          example: traefik/whoami:latest
+        ports:
+          type: array
+          items:
+            $ref: "#/components/schemas/Port"
+
+    Port:
+      type: object
+      required: [privatePort, type]
+      properties:
+        ip:
+          type: string
+          example: 127.0.0.1
+        privatePort:
+          type: integer
+          example: 80
+        publicPort:
+          type: integer
+          example: 8081
+        type:
+          type: string
+          example: tcp
