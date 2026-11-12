@@ -13,6 +13,9 @@ coverage.*
 .env.*
 !.env.example
 
+# Data written by the dev example stacks
+/dev/stacks/*/data/
+
 # Web UI (planned)
 node_modules/
 /web/dist/

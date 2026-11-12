@@ -1,0 +1,10 @@
+# Generates api.gen.go from ../../../api/openapi.yaml. Run `make generate`.
+package: api
+output: api.gen.go
+generate:
+  models: true
+  std-http-server: true
+  strict-server: true
+compatibility:
+  # StackStatusRunning instead of Running, ContainerHealthNone instead of None.
+  always-prefix-enum-values: true

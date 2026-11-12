@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"github.com/pixl-media/gantry/agent/internal/api"
+	"github.com/pixl-media/gantry/agent/internal/compose"
+	"github.com/pixl-media/gantry/agent/internal/docker"
+	"github.com/pixl-media/gantry/agent/internal/stacks"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -27,10 +30,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	dockerClient, err := docker.New(os.Getenv("DOCKER_HOST"))
+	if err != nil {
+		logger.Error("docker client", "err", err)
+		os.Exit(1)
+	}
+	manager, err := stacks.New(envOr("GANTRY_STACKS_DIR", stacks.DefaultDir), dockerClient, compose.CLI{})
+	if err != nil {
+		logger.Error("stacks", "err", err)
+		os.Exit(1)
+	}
+	if !manager.DirExists() {
+		logger.Warn("stacks directory does not exist; no managed stacks until it is created (set GANTRY_STACKS_DIR to use another one)",
+			"stacks_dir", manager.Dir())
+	}
+
 	addr := envOr("GANTRY_LISTEN", ":7070")
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           api.New(api.Config{Token: token, Version: version}),
+		Addr: addr,
+		Handler: api.New(api.Config{
+			Token:   token,
+			Version: version,
+			Stacks:  manager,
+			Logger:  logger,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -39,7 +62,7 @@ func main() {
 
 	errc := make(chan error, 1)
 	go func() {
-		logger.Info("gantry agent listening", "addr", addr, "version", version)
+		logger.Info("gantry agent listening", "addr", addr, "version", version, "stacks_dir", manager.Dir())
 		errc <- srv.ListenAndServe()
 	}()
 

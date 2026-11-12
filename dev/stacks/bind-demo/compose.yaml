@@ -1,0 +1,12 @@
+# Example stack with a relative bind mount. Docker resolves ./data on the
+# host, using the path the agent passes. When the agent runs in a container,
+# this only works if the stacks directory is mounted at the same path inside
+# the agent container as on the host (see compose.yaml in the repo root).
+services:
+  writer:
+    image: alpine:3.24
+    command: ["sh", "-c", "date >> /data/started.txt && sleep infinity"]
+    init: true
+    stop_grace_period: 1s
+    volumes:
+      - ./data:/data

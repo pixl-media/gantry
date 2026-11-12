@@ -1,0 +1,32 @@
+# Requests for the VS Code "REST Client" extension (humao.rest-client):
+# click "Send Request" above each request.
+# `make run` uses the token "dev"; `docker compose up` uses GANTRY_TOKEN from .env.
+
+@host = http://127.0.0.1:7070
+@token = dev
+
+### Health (public, no token)
+GET {{host}}/healthz
+
+### Version
+GET {{host}}/api/v1/version
+Authorization: Bearer {{token}}
+
+### List stacks
+GET {{host}}/api/v1/stacks
+Authorization: Bearer {{token}}
+
+### Stack details
+GET {{host}}/api/v1/stacks/whoami
+Authorization: Bearer {{token}}
+
+### Unknown stack → 404
+GET {{host}}/api/v1/stacks/does-not-exist
+Authorization: Bearer {{token}}
+
+### Invalid name → 400
+GET {{host}}/api/v1/stacks/Bad.Name
+Authorization: Bearer {{token}}
+
+### Without token → 401
+GET {{host}}/api/v1/stacks

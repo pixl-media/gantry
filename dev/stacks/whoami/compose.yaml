@@ -1,0 +1,8 @@
+# Example stack for local development: a tiny web server that echoes the
+# request. Start it with `docker compose up -d` in this directory, then open
+# http://127.0.0.1:8081.
+services:
+  whoami:
+    image: traefik/whoami:v1.12
+    ports:
+      - "127.0.0.1:8081:80"

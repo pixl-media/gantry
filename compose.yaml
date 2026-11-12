@@ -1,15 +1,21 @@
-# Local development: builds the agent from source.
+# Local development with the agent in a container, managing dev/stacks.
+# Run from the repo root:
 #   cp .env.example .env && docker compose up --build
-# Then: curl -H "Authorization: Bearer change-me" http://127.0.0.1:7070/api/v1/version
+# Then use api.http (token from .env) or:
+#   curl -H "Authorization: Bearer change-me" http://127.0.0.1:7070/api/v1/stacks
 services:
   agent:
     build: ./agent
     environment:
       GANTRY_TOKEN: ${GANTRY_TOKEN:?set GANTRY_TOKEN}
+      GANTRY_STACKS_DIR: ${PWD}/dev/stacks
     ports:
       - "127.0.0.1:7070:7070"
-    # Uncomment once the agent talks to Docker. Access to the socket is
-    # root-equivalent on the host, which is why the API requires a token.
-    # volumes:
-    #   - /var/run/docker.sock:/var/run/docker.sock
+    volumes:
+      # Access to the socket is root-equivalent on the host, which is why
+      # the API requires a token.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Same path inside and outside: Docker resolves relative bind mounts of
+      # stacks (e.g. ./data) on the host, using the path the agent passes.
+      - ${PWD}/dev/stacks:${PWD}/dev/stacks
     restart: unless-stopped
