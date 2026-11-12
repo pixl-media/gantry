@@ -8,6 +8,18 @@ updates:
     directory: /agent
     schedule:
       interval: weekly
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      # One PR for routine updates instead of one per package.
+      web-dependencies:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: /web
+    schedule:
+      interval: weekly
   - package-ecosystem: github-actions
     directory: /
     schedule:

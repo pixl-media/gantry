@@ -1,0 +1,115 @@
+{
+  "app": {
+    "title": "gantry",
+    "stacks": "Stacks",
+    "logout": "Abmelden",
+    "language": "Sprache"
+  },
+  "login": {
+    "title": "Anmelden",
+    "subtitle": "Gib den Agent-Token ein (GANTRY_TOKEN). Er wird gegen ein Session-Cookie getauscht und nicht im Browser gespeichert.",
+    "token": "Token",
+    "submit": "Anmelden",
+    "invalidToken": "Falscher Token.",
+    "tooManyAttempts": "Zu viele Fehlversuche. Versuch es in einer Minute erneut.",
+    "failed": "Anmeldung fehlgeschlagen: {{message}}"
+  },
+  "status": {
+    "running": "Läuft",
+    "partial": "Läuft teilweise",
+    "stopped": "Gestoppt",
+    "unknown": "Unbekannt"
+  },
+  "managed": {
+    "managed": "Verwaltet",
+    "external": "Fremd",
+    "externalHint": "Läuft außerhalb des Stacks-Ordners. gantry zeigt ihn an, verändert ihn aber nicht."
+  },
+  "actions": {
+    "start": "Starten",
+    "stop": "Stoppen",
+    "restart": "Neu starten",
+    "update": "Aktualisieren",
+    "down": "Herunterfahren",
+    "hint": {
+      "start": "Container nach der Compose-Datei anlegen oder aktualisieren",
+      "stop": "Container anhalten; sie bleiben erhalten",
+      "restart": "Container neu starten, ohne Änderungen an der Compose-Datei anzuwenden",
+      "update": "Neue Images holen und geänderte Container neu erstellen",
+      "down": "Container und Netzwerke entfernen (Volumes bleiben)"
+    },
+    "busy": "Ein anderer Vorgang läuft; möglich sind nur Stoppen und Herunterfahren",
+    "confirmDownTitle": "Container von {{name}} entfernen?",
+    "confirmDownText": "Container und Netzwerke werden entfernt, ihre Logs gehen verloren. Volumes und Daten bleiben erhalten. Ein erneuter Start legt alles wieder an.",
+    "confirm": "Entfernen",
+    "cancel": "Abbrechen"
+  },
+  "stacks": {
+    "title": "Stacks",
+    "name": "Name",
+    "type": "Art",
+    "status": "Status",
+    "services": "Services",
+    "actions": "Aktionen",
+    "empty": "Keine Stacks gefunden. Verwaltete Stacks sind Ordner mit einer compose.yaml in GANTRY_STACKS_DIR (Standard /opt/stacks).",
+    "dockerUnavailable": "Docker ist nicht erreichbar. Verwaltete Stacks werden aus dem Ordner gelistet; ihr Status ist unbekannt.",
+    "warnings_one": "{{count}} Warnung",
+    "warnings_other": "{{count}} Warnungen",
+    "operationRunning": "{{action}} läuft"
+  },
+  "stack": {
+    "back": "Alle Stacks",
+    "path": "Pfad",
+    "servicesTitle": "Services und Container",
+    "service": "Service",
+    "container": "Container",
+    "state": "Zustand",
+    "health": "Health",
+    "image": "Image",
+    "ports": "Ports",
+    "noContainers": "Keine Container",
+    "composeFile": "Compose-Datei",
+    "composeUnreadable": "Der Agent kann diese Datei nicht lesen.",
+    "operations": "Letzte Vorgänge",
+    "noOperations": "Keine Vorgänge in der letzten Stunde.",
+    "notFound": "Es gibt keinen Stack namens {{name}}."
+  },
+  "health": {
+    "healthy": "gesund",
+    "unhealthy": "ungesund",
+    "starting": "startet",
+    "none": "–"
+  },
+  "operation": {
+    "title": "{{action}} · {{stack}}",
+    "status": {
+      "running": "Läuft",
+      "succeeded": "Erfolgreich",
+      "failed": "Fehlgeschlagen",
+      "canceled": "Abgebrochen"
+    },
+    "cancel": "Vorgang abbrechen",
+    "close": "Schließen",
+    "exitCode": "Exit-Code {{code}}",
+    "canceledBy": "Abgebrochen durch {{id}}",
+    "waiting": "Warte auf Ausgabe…",
+    "reconnecting": "Live-Verbindung unterbrochen, verbinde neu…",
+    "startedAt": "Gestartet {{time}}",
+    "action": "Aktion",
+    "started": "Gestartet",
+    "result": "Ergebnis"
+  },
+  "errors": {
+    "stack_busy": "Auf diesem Stack läuft bereits ein anderer Vorgang.",
+    "stack_unmanaged": "Dieser Stack wird nicht von gantry verwaltet.",
+    "operation_finished": "Der Vorgang ist bereits beendet.",
+    "not_found": "Nicht gefunden.",
+    "origin_rejected": "Anfrage abgelehnt: Sie kam nicht von dieser Seite.",
+    "unauthorized": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.",
+    "generic": "Etwas ist schiefgelaufen: {{message}}"
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "back": "Zu den Stacks"
+  }
+}

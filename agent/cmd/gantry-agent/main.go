@@ -22,6 +22,9 @@ import (
 // version is set at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
+// minTokenLength is the length below which the agent warns about its token.
+const minTokenLength = 24
+
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -29,6 +32,10 @@ func main() {
 	if token == "" {
 		logger.Error("GANTRY_TOKEN must be set")
 		os.Exit(1)
+	}
+	if len(token) < minTokenLength {
+		logger.Warn("GANTRY_TOKEN is short; use at least 24 random characters, e.g. from `openssl rand -hex 24`",
+			"length", len(token))
 	}
 
 	dockerClient, err := docker.New(os.Getenv("DOCKER_HOST"))

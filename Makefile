@@ -1,7 +1,8 @@
 GANTRY_TOKEN ?= dev
 STACKS_DIR ?= $(CURDIR)/dev/stacks
 
-.PHONY: run docs test test-integration lint generate build image
+.PHONY: run docs test test-integration lint generate build image \
+	web web-install web-generate web-test web-lint web-build web-image
 
 run: ## Run the agent locally on 127.0.0.1:7070, managing dev/stacks
 	cd agent && GANTRY_TOKEN=$(GANTRY_TOKEN) GANTRY_STACKS_DIR=$(STACKS_DIR) GANTRY_LISTEN=127.0.0.1:7070 go run ./cmd/gantry-agent
@@ -26,3 +27,24 @@ build: ## Build the agent binary into agent/bin/
 
 image: ## Build the agent Docker image locally
 	docker build -t gantry-agent:dev agent
+
+web: ## Web UI dev server on http://127.0.0.1:5173, forwarding /api to the agent on :7070
+	cd web && pnpm dev
+
+web-install: ## Install the web UI's dependencies
+	cd web && pnpm install
+
+web-generate: ## Regenerate web/src/api/schema.gen.ts from api/openapi.yaml
+	cd web && pnpm generate
+
+web-test: ## Run the web UI's tests
+	cd web && pnpm test
+
+web-lint: ## ESLint, Prettier and typecheck for the web UI
+	cd web && pnpm lint && pnpm typecheck
+
+web-build: ## Build the web UI into web/dist
+	cd web && pnpm build
+
+web-image: ## Build the web UI Docker image locally
+	docker build -t gantry-web:dev web

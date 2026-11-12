@@ -1,8 +1,9 @@
 # gantry
 
 Lightweight Docker Compose manager. A headless Go **agent** (`agent/`) runs on
-a Docker host and exposes an HTTP API; an optional **web UI** (`web/`, planned,
-React + Vite) runs as a separate container and talks only to that API.
+a Docker host and exposes an HTTP API; an optional **web UI** (`web/`, React +
+Vite + MUI, served by Caddy) runs as a separate container and talks only to
+that API.
 
 ## Architecture rules
 
@@ -37,6 +38,14 @@ Run from the repo root:
   (`agent/tools/devdocs`, never part of the agent binary or image)
 - `make image` – build the Docker image
 
+Web UI (`web/`, pnpm, Node 24):
+
+- `make web` – Vite dev server on 127.0.0.1:5173, `/api` forwarded to the agent
+- `make web-test` – Vitest; `make web-lint` – ESLint, Prettier, typecheck
+- `make web-generate` – regenerate `web/src/api/schema.gen.ts` from the spec
+  (CI fails if it's out of date)
+- `make web-build`, `make web-image`
+
 ## Git workflow
 
 - GitHub Flow. `main` must always be releasable.
@@ -65,7 +74,22 @@ Run from the repo root:
   as an operation (`internal/operations`), never synchronously inside a
   request. Actions only work on managed stacks (`stacks.Target`).
 - Package roles also include `internal/operations` (async actions, one per
-  stack, output buffer for live streams).
+  stack, output buffer for live streams) and `internal/session` (signed
+  session cookies, login rate limit).
+
+## Web UI conventions
+
+- API access only through the generated types (`web/src/api/schema.gen.ts`,
+  never edited by hand) and the hooks in `web/src/api/queries.ts`.
+- **Every UI text goes through i18n** (`t('…')`) and exists in both
+  `web/src/i18n/locales/en.json` and `de.json`; a test checks that the keys
+  match, and the typecheck rejects unknown keys.
+- MUI components and the theme in `web/src/theme.ts`; no external fonts or
+  scripts (the CSP in `web/Caddyfile` allows only the own origin).
+- Action rules (what's possible when) live in `web/src/lib/actions.ts` and
+  mirror the agent's rules.
+- Prettier style: single quotes, trailing commas (as in the user's other
+  projects).
 - Configuration through `GANTRY_*` environment variables (plus Docker's own
   `DOCKER_HOST`), documented in the README table.
 - Table-driven tests next to the code (`*_test.go`), using `httptest` for
@@ -78,8 +102,18 @@ Run from the repo root:
 ## Security
 
 The agent has access to the Docker socket, which is root-equivalent on the
-host. Every `/api/` route must stay behind the bearer token, never log the
-token, and keep the dev setup bound to 127.0.0.1.
+host. Every `/api/` route must stay behind authentication (bearer token or
+session cookie), never log the token, and keep the dev setup bound to
+127.0.0.1.
+
+- **Public routes are explicit:** the middleware denies by default; only the
+  method + path entries in `publicRoutes` (`agent/internal/api/auth.go`) are
+  public. Add one only deliberately.
+- **Cookie auth keeps its CSRF check:** changing requests with the session
+  cookie need a same-origin `Origin` header. Don't weaken `SameSite=Strict`
+  or `HttpOnly`.
+- **Never store tokens in the browser** (`localStorage`, `sessionStorage`,
+  JS-readable cookies). The web UI only uses the `HttpOnly` session cookie.
 
 - **Never expose secrets from stacks:** return Compose files as stored, never
   the resolved configuration (`docker compose config` output) or `.env`

@@ -62,6 +62,8 @@ Vite, served by a small web server container that proxies `/api` to the agent.
 - React keeps components and knowledge portable to the Next.js app.
 - The UI is built after the API, once its scope is clear.
 
+Details on the stack and the login: decisions 14 and 15.
+
 ## 6. Standalone and publishable
 
 **Decided 2026-11-12.** gantry must be fully usable on its own (agent plus
@@ -186,10 +188,57 @@ current step.
 `down` never uses `-v`: removing volumes deletes data and would need its
 own, explicitly confirmed action.
 
+## 14. Web UI login: a session cookie from the agent
+
+**Decided 2026-11-12.** The agent token is root-equivalent on the host, so it
+must not sit in JavaScript-readable browser storage, where an XSS bug could
+read it. The UI sends the token once to `POST /api/v1/session`; the agent
+answers with a `gantry_session` cookie:
+
+- `HttpOnly` (invisible to JavaScript), `SameSite=Strict` (not sent from other
+  sites), `Secure` behind HTTPS, valid 12 hours.
+- Stateless: the value is the expiry plus an HMAC keyed with a key derived
+  from the token. Sessions survive agent restarts; changing the token ends
+  all of them. Logout clears the cookie.
+- **CSRF:** with cookie auth, POST/DELETE must carry an `Origin` matching the
+  host, in addition to `SameSite=Strict`. Logins from other sites are
+  rejected too.
+- At most 10 failed logins per minute and client address (`429` with
+  `Retry-After`). Behind the UI's proxy that is one shared limit, which is
+  fine for a single shared token. The agent warns about tokens shorter than
+  24 characters.
+- API clients (e.g. the infrastructure app) keep using the bearer token. The
+  middleware denies by default; public routes are listed explicitly as
+  method plus path.
+- The cookie makes the browser's plain `EventSource` work for live output.
+
+Rejected: the token in `localStorage` (simplest, as Portainer and Dockge do,
+but exposed to any XSS) and Basic Auth at the proxy (no login page, no
+logout, the UI container would need the token).
+
+## 15. Web UI stack and container
+
+**Decided 2026-11-12.**
+
+- **React 19 + Vite + MUI v9**, the same UI library as the planned
+  infrastructure app (Next.js), so components carry over. TanStack Query for
+  data (lists refresh every 5 s), React Router, react-i18next with English
+  and German from the start (typed keys, a test keeps both in sync).
+- **API types generated** from `api/openapi.yaml` with openapi-typescript;
+  `openapi-fetch`/`openapi-react-query` call the API type-safely. CI fails if
+  the generated file is out of date, like on the Go side.
+- **Container:** Caddy serves the static build and forwards `/api` to the
+  agent (`GANTRY_AGENT_URL`), so app and API share one origin: no CORS, and
+  the cookie works. Hashed assets are cached as immutable.
+- **Content-Security-Policy** as a second line of defense against XSS: only
+  the app's own scripts, data only to its own origin, no framing.
+  `style-src 'unsafe-inline'` is needed because MUI injects styles at
+  runtime. No external fonts.
+- TypeScript 6 rather than the new native TypeScript 7, until the ESLint
+  tooling supports it.
+
 ## Open questions
 
-- **Standalone UI authentication:** how the UI authenticates users without
-  handing the agent token to the browser.
 - **Release distribution:** GoReleaser for binaries, `.deb`/`.rpm` and images.
   While the repo is private, downloads need a token.
 - **License**, before publishing.

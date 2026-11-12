@@ -1,8 +1,8 @@
-# Local development with the agent in a container, managing dev/stacks.
-# Run from the repo root:
+# Local development with the agent and the web UI in containers, managing
+# dev/stacks. Run from the repo root:
 #   cp .env.example .env && docker compose up --build
-# Then use api.http (token from .env) or:
-#   curl -H "Authorization: Bearer change-me" http://127.0.0.1:7070/api/v1/stacks
+# Web UI: http://127.0.0.1:8080 (log in with the token from .env)
+# API:    curl -H "Authorization: Bearer change-me" http://127.0.0.1:7070/api/v1/stacks
 services:
   agent:
     build: ./agent
@@ -18,4 +18,14 @@ services:
       # Same path inside and outside: Docker resolves relative bind mounts of
       # stacks (e.g. ./data) on the host, using the path the agent passes.
       - ${PWD}/dev/stacks:${PWD}/dev/stacks
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    environment:
+      GANTRY_AGENT_URL: http://agent:7070
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - agent
     restart: unless-stopped
