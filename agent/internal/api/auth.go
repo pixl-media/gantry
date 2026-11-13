@@ -68,6 +68,11 @@ func (a *authenticator) authenticate(r *http.Request) (authInfo, bool) {
 // forgery in addition to SameSite=Strict.
 func (a *authenticator) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			// API data is live and may include secrets (env reveal): never
+			// cache it. Event streams set their own value.
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		if publicRoutes[r.Method+" "+r.URL.Path] {
 			next.ServeHTTP(w, r)
 			return

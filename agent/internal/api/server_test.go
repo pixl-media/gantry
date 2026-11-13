@@ -22,6 +22,9 @@ type fakeStacks struct {
 	unmanaged []string // names Target reports as unmanaged
 }
 
+func (f fakeStacks) Dir() string         { return "/s" }
+func (f fakeStacks) Remove(string) error { return nil }
+
 // Target treats "app" as managed, names in unmanaged as unmanaged, and
 // everything else as unknown.
 func (f fakeStacks) Target(_ context.Context, name string) (compose.Project, error) {

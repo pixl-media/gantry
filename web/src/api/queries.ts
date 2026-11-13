@@ -77,6 +77,57 @@ export function useRunAction() {
   });
 }
 
+export function useUpdateCompose() {
+  const invalidate = useInvalidateState();
+  return $api.useMutation('put', '/api/v1/stacks/{name}/compose', {
+    onSettled: invalidate,
+  });
+}
+
+/** Variable names of a stack's .env file (never values). */
+export function useEnv(name: string, enabled = true) {
+  return $api.useQuery(
+    'get',
+    '/api/v1/stacks/{name}/env',
+    { params: { path: { name } } },
+    { enabled },
+  );
+}
+
+export function useUpdateEnv(name: string) {
+  const queryClient = useQueryClient();
+  return $api.useMutation('patch', '/api/v1/stacks/{name}/env', {
+    // The answer is the new state: keep the version current for the next
+    // change.
+    onSuccess: (data) =>
+      queryClient.setQueryData(
+        ['get', '/api/v1/stacks/{name}/env', { params: { path: { name } } }],
+        data,
+      ),
+  });
+}
+
+/** Reads one value on purpose. Never cached: the result stays in the caller. */
+export function useRevealEnv() {
+  // gcTime 0: the revealed value doesn't linger in the mutation cache after
+  // the tab is left.
+  return $api.useMutation('post', '/api/v1/stacks/{name}/env/reveal', {
+    gcTime: 0,
+  });
+}
+
+export function useCreateStack() {
+  const invalidate = useInvalidateState();
+  return $api.useMutation('post', '/api/v1/stacks', { onSettled: invalidate });
+}
+
+export function useDeleteStack() {
+  const invalidate = useInvalidateState();
+  return $api.useMutation('delete', '/api/v1/stacks/{name}', {
+    onSettled: invalidate,
+  });
+}
+
 export function useCancelOperation() {
   const invalidate = useInvalidateState();
   return $api.useMutation('post', '/api/v1/operations/{id}/cancel', {

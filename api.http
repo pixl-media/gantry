@@ -72,3 +72,52 @@ Authorization: Bearer {{token}}
 ### Unknown action → 400
 POST {{host}}/api/v1/stacks/whoami/actions/explode
 Authorization: Bearer {{token}}
+
+### Create a stack "scratch"
+POST {{host}}/api/v1/stacks
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"name": "scratch", "compose": "services:\n  app:\n    image: traefik/whoami:v1.12\n", "env": {"GREETING": "hello"}}
+
+### Details of scratch, with the Compose file's version
+# @name scratch
+GET {{host}}/api/v1/stacks/scratch
+Authorization: Bearer {{token}}
+
+### Replace scratch's Compose file (409 version_conflict if it changed meanwhile)
+PUT {{host}}/api/v1/stacks/scratch/compose
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"version": "{{scratch.response.body.composeFile.version}}", "content": "services:\n  app:\n    image: traefik/whoami:v1.12\n    restart: unless-stopped\n"}
+
+### Invalid Compose file → 400 invalid_compose, file unchanged
+PUT {{host}}/api/v1/stacks/scratch/compose
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"version": "{{scratch.response.body.composeFile.version}}", "content": "services:\n  app:\n    ports: 80\n"}
+
+### .env variable names of scratch (no values)
+# @name env
+GET {{host}}/api/v1/stacks/scratch/env
+Authorization: Bearer {{token}}
+
+### Set and delete .env variables
+PATCH {{host}}/api/v1/stacks/scratch/env
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"version": "{{env.response.body.version}}", "set": {"DB_PASSWORD": "it's a $ecret"}, "delete": ["GREETING"]}
+
+### Show one .env value (logged by the agent, without the value)
+POST {{host}}/api/v1/stacks/scratch/env/reveal
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"key": "DB_PASSWORD"}
+
+### Delete scratch permanently (directory included; volumes only with volumes=true)
+DELETE {{host}}/api/v1/stacks/scratch?confirm=scratch
+Authorization: Bearer {{token}}

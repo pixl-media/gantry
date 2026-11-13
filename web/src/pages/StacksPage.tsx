@@ -1,7 +1,9 @@
+import AddIcon from '@mui/icons-material/Add';
 import {
   Alert,
   AlertTitle,
   Box,
+  Button,
   Chip,
   CircularProgress,
   Link,
@@ -16,17 +18,20 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link as RouterLink } from 'react-router';
 import type { StackSummary } from '../api/client';
 import { useStacks } from '../api/queries';
 import { ActionButtons } from '../components/ActionButtons';
+import { CreateStackDialog } from '../components/CreateStackDialog';
 import { StatusChip } from '../components/StatusChip';
 import { errorMessage } from '../lib/errors';
 
 export function StacksPage() {
   const { t } = useTranslation();
   const stacks = useStacks();
+  const [creating, setCreating] = useState(false);
 
   if (stacks.isPending) return <CircularProgress />;
   if (stacks.isError) {
@@ -36,9 +41,23 @@ export function StacksPage() {
 
   return (
     <Stack sx={{ gap: 2 }}>
-      <Typography variant="h4" component="h1">
-        {t('stacks.title')}
-      </Typography>
+      <Stack direction="row" sx={{ alignItems: 'center', gap: 2 }}>
+        <Typography variant="h4" component="h1" sx={{ flex: 1 }}>
+          {t('stacks.title')}
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setCreating(true)}
+        >
+          {t('create.button')}
+        </Button>
+      </Stack>
+      <CreateStackDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        existing={list.map((s) => s.name)}
+      />
       {!dockerAvailable && (
         <Alert severity="error">{t('stacks.dockerUnavailable')}</Alert>
       )}

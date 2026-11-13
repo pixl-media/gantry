@@ -150,7 +150,7 @@ func toOperation(s operations.Snapshot) Operation {
 	o := Operation{
 		Id:         s.ID,
 		Stack:      s.Stack,
-		Action:     StackAction(s.Action),
+		Action:     OperationAction(s.Action),
 		Status:     OperationStatus(s.Status),
 		StartedAt:  s.StartedAt,
 		FinishedAt: s.FinishedAt,

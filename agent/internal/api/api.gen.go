@@ -45,16 +45,20 @@ func (e ContainerHealth) Valid() bool {
 // Defines values for ErrorCode.
 const (
 	ErrorCodeInvalidAction     ErrorCode = "invalid_action"
+	ErrorCodeInvalidCompose    ErrorCode = "invalid_compose"
 	ErrorCodeInvalidName       ErrorCode = "invalid_name"
 	ErrorCodeInvalidRequest    ErrorCode = "invalid_request"
 	ErrorCodeInvalidToken      ErrorCode = "invalid_token"
+	ErrorCodeInvalidVariable   ErrorCode = "invalid_variable"
 	ErrorCodeNotFound          ErrorCode = "not_found"
 	ErrorCodeOperationFinished ErrorCode = "operation_finished"
 	ErrorCodeOriginRejected    ErrorCode = "origin_rejected"
 	ErrorCodeStackBusy         ErrorCode = "stack_busy"
+	ErrorCodeStackExists       ErrorCode = "stack_exists"
 	ErrorCodeStackUnmanaged    ErrorCode = "stack_unmanaged"
 	ErrorCodeTooManyAttempts   ErrorCode = "too_many_attempts"
 	ErrorCodeUnauthorized      ErrorCode = "unauthorized"
+	ErrorCodeVersionConflict   ErrorCode = "version_conflict"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
@@ -62,11 +66,15 @@ func (e ErrorCode) Valid() bool {
 	switch e {
 	case ErrorCodeInvalidAction:
 		return true
+	case ErrorCodeInvalidCompose:
+		return true
 	case ErrorCodeInvalidName:
 		return true
 	case ErrorCodeInvalidRequest:
 		return true
 	case ErrorCodeInvalidToken:
+		return true
+	case ErrorCodeInvalidVariable:
 		return true
 	case ErrorCodeNotFound:
 		return true
@@ -76,11 +84,15 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeStackBusy:
 		return true
+	case ErrorCodeStackExists:
+		return true
 	case ErrorCodeStackUnmanaged:
 		return true
 	case ErrorCodeTooManyAttempts:
 		return true
 	case ErrorCodeUnauthorized:
+		return true
+	case ErrorCodeVersionConflict:
 		return true
 	default:
 		return false
@@ -99,6 +111,36 @@ func (e LogLineStream) Valid() bool {
 	case LogLineStreamStderr:
 		return true
 	case LogLineStreamStdout:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OperationAction.
+const (
+	OperationActionDelete  OperationAction = "delete"
+	OperationActionDown    OperationAction = "down"
+	OperationActionRestart OperationAction = "restart"
+	OperationActionStart   OperationAction = "start"
+	OperationActionStop    OperationAction = "stop"
+	OperationActionUpdate  OperationAction = "update"
+)
+
+// Valid indicates whether the value is a known member of the OperationAction enum.
+func (e OperationAction) Valid() bool {
+	switch e {
+	case OperationActionDelete:
+		return true
+	case OperationActionDown:
+		return true
+	case OperationActionRestart:
+		return true
+	case OperationActionStart:
+		return true
+	case OperationActionStop:
+		return true
+	case OperationActionUpdate:
 		return true
 	default:
 		return false
@@ -200,8 +242,9 @@ func (e StackStatus) Valid() bool {
 
 // ActiveOperation The operation currently running on a stack, if any.
 type ActiveOperation struct {
-	Action StackAction `json:"action"`
-	Id     string      `json:"id"`
+	// Action What an operation does; the stack actions plus `delete`.
+	Action OperationAction `json:"action"`
+	Id     string          `json:"id"`
 }
 
 // ComposeFile defines model for ComposeFile.
@@ -212,6 +255,19 @@ type ComposeFile struct {
 
 	// Path Example: /opt/stacks/whoami/compose.yaml
 	Path string `json:"path"`
+
+	// Version Version of the content (SHA-256), to send back when saving. Only
+	// set together with `content`.
+	Version *string `json:"version,omitempty"`
+}
+
+// ComposeUpdate defines model for ComposeUpdate.
+type ComposeUpdate struct {
+	// Content The new Compose file, at most 1 MiB.
+	Content string `json:"content"`
+
+	// Version The version that was read.
+	Version string `json:"version"`
 }
 
 // Container defines model for Container.
@@ -240,6 +296,45 @@ type Container struct {
 // ContainerHealth defines model for Container.Health.
 type ContainerHealth string
 
+// EnvFile defines model for EnvFile.
+type EnvFile struct {
+	// Exists Whether the stack has a `.env` file.
+	Exists    bool          `json:"exists"`
+	Variables []EnvVariable `json:"variables"`
+
+	// Version Version of the file to send back when updating ("" if it doesn't exist).
+	Version string `json:"version"`
+}
+
+// EnvRevealRequest defines model for EnvRevealRequest.
+type EnvRevealRequest struct {
+	Key string `json:"key"`
+}
+
+// EnvUpdate defines model for EnvUpdate.
+type EnvUpdate struct {
+	// Delete Variables to remove.
+	Delete *[]string `json:"delete,omitempty"`
+
+	// Set Variables to add or change. Values can't contain line breaks.
+	Set *map[string]string `json:"set,omitempty"`
+
+	// Version The version that was read ("" if the file doesn't exist yet).
+	Version string `json:"version"`
+}
+
+// EnvValue defines model for EnvValue.
+type EnvValue struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// EnvVariable defines model for EnvVariable.
+type EnvVariable struct {
+	// Key Example: POSTGRES_PASSWORD
+	Key string `json:"key"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	// Code Machine-readable reason, for clients to act on.
@@ -254,6 +349,11 @@ type Error struct {
 
 // ErrorCode Machine-readable reason, for clients to act on.
 type ErrorCode string
+
+// FileVersion defines model for FileVersion.
+type FileVersion struct {
+	Version string `json:"version"`
+}
 
 // Health defines model for Health.
 type Health struct {
@@ -288,7 +388,8 @@ type LoginRequest struct {
 
 // Operation defines model for Operation.
 type Operation struct {
-	Action StackAction `json:"action"`
+	// Action What an operation does; the stack actions plus `delete`.
+	Action OperationAction `json:"action"`
 
 	// CanceledBy ID of the `stop` or `down` operation that canceled this one.
 	CanceledBy *string `json:"canceledBy,omitempty"`
@@ -309,9 +410,13 @@ type Operation struct {
 	Status    OperationStatus `json:"status"`
 }
 
+// OperationAction What an operation does; the stack actions plus `delete`.
+type OperationAction string
+
 // OperationDetail defines model for OperationDetail.
 type OperationDetail struct {
-	Action StackAction `json:"action"`
+	// Action What an operation does; the stack actions plus `delete`.
+	Action OperationAction `json:"action"`
 
 	// CanceledBy ID of the `stop` or `down` operation that canceled this one.
 	CanceledBy *string `json:"canceledBy,omitempty"`
@@ -380,6 +485,22 @@ type SessionMethod string
 // StackAction defines model for StackAction.
 type StackAction string
 
+// StackCreate defines model for StackCreate.
+type StackCreate struct {
+	// Compose Content of the Compose file (`compose.yaml`).
+	Compose string `json:"compose"`
+
+	// Env Variables for the `.env` file.
+	Env  *map[string]string `json:"env,omitempty"`
+	Name string             `json:"name"`
+}
+
+// StackCreated defines model for StackCreated.
+type StackCreated struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
 // StackDetail defines model for StackDetail.
 type StackDetail struct {
 	// ActiveOperation The operation currently running on a stack, if any.
@@ -397,8 +518,11 @@ type StackDetail struct {
 	// `partial`: some services have a running container.
 	// `stopped`: no service has a running container.
 	// `unknown`: Docker is unreachable.
-	Status   StackStatus `json:"status"`
-	Warnings []string    `json:"warnings"`
+	Status StackStatus `json:"status"`
+
+	// Volumes Named Docker volumes created for this Compose project.
+	Volumes  []string `json:"volumes"`
+	Warnings []string `json:"warnings"`
 }
 
 // StackList defines model for StackList.
@@ -474,6 +598,15 @@ type ListOperationsParams struct {
 	Stack *string `form:"stack,omitempty" json:"stack,omitempty"`
 }
 
+// DeleteStackParams defines parameters for DeleteStack.
+type DeleteStackParams struct {
+	// Confirm The stack name again.
+	Confirm string `form:"confirm" json:"confirm"`
+
+	// Volumes Also delete the stack's named volumes.
+	Volumes *bool `form:"volumes,omitempty" json:"volumes,omitempty"`
+}
+
 // StreamStackLogsParams defines parameters for StreamStackLogs.
 type StreamStackLogsParams struct {
 	// Tail Past lines per container.
@@ -491,6 +624,18 @@ type StreamStackLogsParams struct {
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
+
+// CreateStackJSONRequestBody defines body for CreateStack for application/json ContentType.
+type CreateStackJSONRequestBody = StackCreate
+
+// UpdateComposeJSONRequestBody defines body for UpdateCompose for application/json ContentType.
+type UpdateComposeJSONRequestBody = ComposeUpdate
+
+// UpdateEnvJSONRequestBody defines body for UpdateEnv for application/json ContentType.
+type UpdateEnvJSONRequestBody = EnvUpdate
+
+// RevealEnvValueJSONRequestBody defines body for RevealEnvValue for application/json ContentType.
+type RevealEnvValueJSONRequestBody = EnvRevealRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -518,12 +663,30 @@ type ServerInterface interface {
 	// ListStacks List stacks
 	// (GET /api/v1/stacks)
 	ListStacks(w http.ResponseWriter, r *http.Request)
+	// CreateStack Create a stack
+	// (POST /api/v1/stacks)
+	CreateStack(w http.ResponseWriter, r *http.Request)
+	// DeleteStack Delete a stack permanently
+	// (DELETE /api/v1/stacks/{name})
+	DeleteStack(w http.ResponseWriter, r *http.Request, name StackName, params DeleteStackParams)
 	// GetStack Stack details
 	// (GET /api/v1/stacks/{name})
 	GetStack(w http.ResponseWriter, r *http.Request, name StackName)
 	// RunStackAction Run an action on a stack
 	// (POST /api/v1/stacks/{name}/actions/{action})
 	RunStackAction(w http.ResponseWriter, r *http.Request, name StackName, action StackAction)
+	// UpdateCompose Save the Compose file
+	// (PUT /api/v1/stacks/{name}/compose)
+	UpdateCompose(w http.ResponseWriter, r *http.Request, name StackName)
+	// GetEnv Variables of the .env file (names only)
+	// (GET /api/v1/stacks/{name}/env)
+	GetEnv(w http.ResponseWriter, r *http.Request, name StackName)
+	// UpdateEnv Set or delete variables
+	// (PATCH /api/v1/stacks/{name}/env)
+	UpdateEnv(w http.ResponseWriter, r *http.Request, name StackName)
+	// RevealEnvValue Read one variable's value
+	// (POST /api/v1/stacks/{name}/env/reveal)
+	RevealEnvValue(w http.ResponseWriter, r *http.Request, name StackName)
 	// StreamStackLogs Container logs (Server-Sent Events)
 	// (GET /api/v1/stacks/{name}/logs)
 	StreamStackLogs(w http.ResponseWriter, r *http.Request, name StackName, params StreamStackLogsParams)
@@ -711,6 +874,75 @@ func (siw *ServerInterfaceWrapper) ListStacks(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// CreateStack operation middleware
+func (siw *ServerInterfaceWrapper) CreateStack(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateStack(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteStack operation middleware
+func (siw *ServerInterfaceWrapper) DeleteStack(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name StackName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteStackParams
+
+	// ------------- Required query parameter "confirm" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "confirm", r.URL.Query(), &params.Confirm, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "confirm"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "confirm", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "volumes" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "volumes", r.URL.Query(), &params.Volumes, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "volumes"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "volumes", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteStack(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetStack operation middleware
 func (siw *ServerInterfaceWrapper) GetStack(w http.ResponseWriter, r *http.Request) {
 
@@ -763,6 +995,110 @@ func (siw *ServerInterfaceWrapper) RunStackAction(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RunStackAction(w, r, name, action)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCompose operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCompose(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name StackName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCompose(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEnv operation middleware
+func (siw *ServerInterfaceWrapper) GetEnv(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name StackName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEnv(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateEnv operation middleware
+func (siw *ServerInterfaceWrapper) UpdateEnv(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name StackName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateEnv(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevealEnvValue operation middleware
+func (siw *ServerInterfaceWrapper) RevealEnvValue(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name StackName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevealEnvValue(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1007,7 +1343,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/session", wrapper.GetSession)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/session", wrapper.CreateSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks", wrapper.ListStacks)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks", wrapper.CreateStack)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/stacks/{name}", wrapper.DeleteStack)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}", wrapper.GetStack)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/stacks/{name}/compose", wrapper.UpdateCompose)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}/env", wrapper.GetEnv)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/stacks/{name}/env", wrapper.UpdateEnv)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks/{name}/env/reveal", wrapper.RevealEnvValue)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}/logs", wrapper.StreamStackLogs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks/{name}/actions/{action}", wrapper.RunStackAction)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/operations", wrapper.ListOperations)
@@ -1436,6 +1778,169 @@ func (response ListStacks401JSONResponse) VisitListStacksResponse(w http.Respons
 	return err
 }
 
+type CreateStackRequestObject struct {
+	Body *CreateStackJSONRequestBody
+}
+
+type CreateStackResponseObject interface {
+	VisitCreateStackResponse(w http.ResponseWriter) error
+}
+
+type CreateStack201ResponseHeaders struct {
+	Location *string
+}
+
+type CreateStack201JSONResponse struct {
+	Body    StackCreated
+	Headers CreateStack201ResponseHeaders
+}
+
+func (response CreateStack201JSONResponse) VisitCreateStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStack400JSONResponse Error
+
+func (response CreateStack400JSONResponse) VisitCreateStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStack401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateStack401JSONResponse) VisitCreateStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStack409JSONResponse Error
+
+func (response CreateStack409JSONResponse) VisitCreateStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteStackRequestObject struct {
+	Name   StackName `json:"name"`
+	Params DeleteStackParams
+}
+
+type DeleteStackResponseObject interface {
+	VisitDeleteStackResponse(w http.ResponseWriter) error
+}
+
+type DeleteStack202ResponseHeaders struct {
+	Location *string
+}
+
+type DeleteStack202JSONResponse struct {
+	Body    Operation
+	Headers DeleteStack202ResponseHeaders
+}
+
+func (response DeleteStack202JSONResponse) VisitDeleteStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteStack400JSONResponse Error
+
+func (response DeleteStack400JSONResponse) VisitDeleteStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteStack401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteStack401JSONResponse) VisitDeleteStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteStack404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteStack404JSONResponse) VisitDeleteStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteStack409JSONResponse Error
+
+func (response DeleteStack409JSONResponse) VisitDeleteStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetStackRequestObject struct {
 	Name StackName `json:"name"`
 }
@@ -1578,6 +2083,321 @@ func (response RunStackAction404JSONResponse) VisitRunStackActionResponse(w http
 type RunStackAction409JSONResponse Error
 
 func (response RunStackAction409JSONResponse) VisitRunStackActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateComposeRequestObject struct {
+	Name StackName `json:"name"`
+	Body *UpdateComposeJSONRequestBody
+}
+
+type UpdateComposeResponseObject interface {
+	VisitUpdateComposeResponse(w http.ResponseWriter) error
+}
+
+type UpdateCompose200JSONResponse FileVersion
+
+func (response UpdateCompose200JSONResponse) VisitUpdateComposeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCompose400JSONResponse Error
+
+func (response UpdateCompose400JSONResponse) VisitUpdateComposeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCompose401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateCompose401JSONResponse) VisitUpdateComposeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCompose404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateCompose404JSONResponse) VisitUpdateComposeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCompose409JSONResponse Error
+
+func (response UpdateCompose409JSONResponse) VisitUpdateComposeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnvRequestObject struct {
+	Name StackName `json:"name"`
+}
+
+type GetEnvResponseObject interface {
+	VisitGetEnvResponse(w http.ResponseWriter) error
+}
+
+type GetEnv200JSONResponse EnvFile
+
+func (response GetEnv200JSONResponse) VisitGetEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnv400JSONResponse struct{ InvalidNameJSONResponse }
+
+func (response GetEnv400JSONResponse) VisitGetEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnv401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetEnv401JSONResponse) VisitGetEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnv404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetEnv404JSONResponse) VisitGetEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnv409JSONResponse Error
+
+func (response GetEnv409JSONResponse) VisitGetEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEnvRequestObject struct {
+	Name StackName `json:"name"`
+	Body *UpdateEnvJSONRequestBody
+}
+
+type UpdateEnvResponseObject interface {
+	VisitUpdateEnvResponse(w http.ResponseWriter) error
+}
+
+type UpdateEnv200JSONResponse EnvFile
+
+func (response UpdateEnv200JSONResponse) VisitUpdateEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEnv400JSONResponse Error
+
+func (response UpdateEnv400JSONResponse) VisitUpdateEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEnv401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateEnv401JSONResponse) VisitUpdateEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEnv404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateEnv404JSONResponse) VisitUpdateEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEnv409JSONResponse Error
+
+func (response UpdateEnv409JSONResponse) VisitUpdateEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevealEnvValueRequestObject struct {
+	Name StackName `json:"name"`
+	Body *RevealEnvValueJSONRequestBody
+}
+
+type RevealEnvValueResponseObject interface {
+	VisitRevealEnvValueResponse(w http.ResponseWriter) error
+}
+
+type RevealEnvValue200JSONResponse EnvValue
+
+func (response RevealEnvValue200JSONResponse) VisitRevealEnvValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevealEnvValue400JSONResponse Error
+
+func (response RevealEnvValue400JSONResponse) VisitRevealEnvValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevealEnvValue401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RevealEnvValue401JSONResponse) VisitRevealEnvValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevealEnvValue404JSONResponse Error
+
+func (response RevealEnvValue404JSONResponse) VisitRevealEnvValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevealEnvValue409JSONResponse Error
+
+func (response RevealEnvValue409JSONResponse) VisitRevealEnvValueResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1765,12 +2585,30 @@ type StrictServerInterface interface {
 	// ListStacks List stacks
 	// (GET /api/v1/stacks)
 	ListStacks(ctx context.Context, request ListStacksRequestObject) (ListStacksResponseObject, error)
+	// CreateStack Create a stack
+	// (POST /api/v1/stacks)
+	CreateStack(ctx context.Context, request CreateStackRequestObject) (CreateStackResponseObject, error)
+	// DeleteStack Delete a stack permanently
+	// (DELETE /api/v1/stacks/{name})
+	DeleteStack(ctx context.Context, request DeleteStackRequestObject) (DeleteStackResponseObject, error)
 	// GetStack Stack details
 	// (GET /api/v1/stacks/{name})
 	GetStack(ctx context.Context, request GetStackRequestObject) (GetStackResponseObject, error)
 	// RunStackAction Run an action on a stack
 	// (POST /api/v1/stacks/{name}/actions/{action})
 	RunStackAction(ctx context.Context, request RunStackActionRequestObject) (RunStackActionResponseObject, error)
+	// UpdateCompose Save the Compose file
+	// (PUT /api/v1/stacks/{name}/compose)
+	UpdateCompose(ctx context.Context, request UpdateComposeRequestObject) (UpdateComposeResponseObject, error)
+	// GetEnv Variables of the .env file (names only)
+	// (GET /api/v1/stacks/{name}/env)
+	GetEnv(ctx context.Context, request GetEnvRequestObject) (GetEnvResponseObject, error)
+	// UpdateEnv Set or delete variables
+	// (PATCH /api/v1/stacks/{name}/env)
+	UpdateEnv(ctx context.Context, request UpdateEnvRequestObject) (UpdateEnvResponseObject, error)
+	// RevealEnvValue Read one variable's value
+	// (POST /api/v1/stacks/{name}/env/reveal)
+	RevealEnvValue(ctx context.Context, request RevealEnvValueRequestObject) (RevealEnvValueResponseObject, error)
 	// StreamStackLogs Container logs (Server-Sent Events)
 	// (GET /api/v1/stacks/{name}/logs)
 	StreamStackLogs(ctx context.Context, request StreamStackLogsRequestObject) (StreamStackLogsResponseObject, error)
@@ -2028,6 +2866,64 @@ func (sh *strictHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// CreateStack operation middleware
+func (sh *strictHandler) CreateStack(w http.ResponseWriter, r *http.Request) {
+	var request CreateStackRequestObject
+
+	var body CreateStackJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateStack(ctx, request.(CreateStackRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateStack")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateStackResponseObject); ok {
+		if err := validResponse.VisitCreateStackResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteStack operation middleware
+func (sh *strictHandler) DeleteStack(w http.ResponseWriter, r *http.Request, name StackName, params DeleteStackParams) {
+	var request DeleteStackRequestObject
+
+	request.Name = name
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteStack(ctx, request.(DeleteStackRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteStack")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteStackResponseObject); ok {
+		if err := validResponse.VisitDeleteStackResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetStack operation middleware
 func (sh *strictHandler) GetStack(w http.ResponseWriter, r *http.Request, name StackName) {
 	var request GetStackRequestObject
@@ -2074,6 +2970,131 @@ func (sh *strictHandler) RunStackAction(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RunStackActionResponseObject); ok {
 		if err := validResponse.VisitRunStackActionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateCompose operation middleware
+func (sh *strictHandler) UpdateCompose(w http.ResponseWriter, r *http.Request, name StackName) {
+	var request UpdateComposeRequestObject
+
+	request.Name = name
+
+	var body UpdateComposeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateCompose(ctx, request.(UpdateComposeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateCompose")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateComposeResponseObject); ok {
+		if err := validResponse.VisitUpdateComposeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetEnv operation middleware
+func (sh *strictHandler) GetEnv(w http.ResponseWriter, r *http.Request, name StackName) {
+	var request GetEnvRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEnv(ctx, request.(GetEnvRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEnv")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetEnvResponseObject); ok {
+		if err := validResponse.VisitGetEnvResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateEnv operation middleware
+func (sh *strictHandler) UpdateEnv(w http.ResponseWriter, r *http.Request, name StackName) {
+	var request UpdateEnvRequestObject
+
+	request.Name = name
+
+	var body UpdateEnvJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateEnv(ctx, request.(UpdateEnvRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateEnv")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateEnvResponseObject); ok {
+		if err := validResponse.VisitUpdateEnvResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevealEnvValue operation middleware
+func (sh *strictHandler) RevealEnvValue(w http.ResponseWriter, r *http.Request, name StackName) {
+	var request RevealEnvValueRequestObject
+
+	request.Name = name
+
+	var body RevealEnvValueJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevealEnvValue(ctx, request.(RevealEnvValueRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevealEnvValue")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevealEnvValueResponseObject); ok {
+		if err := validResponse.VisitRevealEnvValueResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

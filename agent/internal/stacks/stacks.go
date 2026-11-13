@@ -20,6 +20,7 @@ import (
 
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
+	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 )
 
 var (
@@ -85,6 +86,7 @@ type Detail struct {
 	Summary
 	ComposeFile     *ComposeFile // nil if unknown
 	Services        []Service
+	Volumes         []string // named volumes of the Compose project
 	DockerAvailable bool
 	Warnings        []string
 }
@@ -93,6 +95,13 @@ type Detail struct {
 type ComposeFile struct {
 	Path    string
 	Content *string // nil if the agent can't read it
+	Version string  // version of Content, to send back when saving
+}
+
+// VolumeLister lists a Compose project's volumes. If the ContainerLister
+// passed to New implements it (docker.Client does), details include volumes.
+type VolumeLister interface {
+	ListProjectVolumes(ctx context.Context, project string) ([]string, error)
 }
 
 // Service is a Compose service and its containers.
@@ -186,11 +195,44 @@ func (m *Manager) Get(ctx context.Context, name string) (Detail, error) {
 	if st.composeFile != "" {
 		content, warning := readComposeFile(st.composeFile)
 		d.ComposeFile = &ComposeFile{Path: st.composeFile, Content: content}
+		if content != nil {
+			// The same version stackfiles compares when saving.
+			d.ComposeFile.Version = stackfiles.Version([]byte(*content))
+		}
 		if warning != "" {
 			d.Warnings = append(d.Warnings, warning)
 		}
 	}
+	d.Volumes = []string{}
+	if vl, ok := m.docker.(VolumeLister); ok && snap.dockerAvailable {
+		if volumes, err := vl.ListProjectVolumes(ctx, name); err == nil {
+			d.Volumes = volumes
+		}
+	}
 	return d, nil
+}
+
+// Remove permanently deletes the directory of the managed stack called name.
+// Callers must have stopped the stack first (the delete operation runs
+// `down` before this).
+func (m *Manager) Remove(name string) error {
+	if !ValidName(name) {
+		return ErrInvalidName
+	}
+	dir := filepath.Join(m.dir, name)
+	// ValidName rules out separators and dots, so dir is a direct child of
+	// the stacks directory; still, never follow a symlink out of it.
+	info, err := os.Lstat(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("stack %s: not a directory", name)
+	}
+	return os.RemoveAll(dir)
 }
 
 // Target returns the Compose project of the managed stack called name, to run

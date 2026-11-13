@@ -66,13 +66,17 @@ Web UI (`web/`, pnpm, Node 24):
   depends on interfaces so tests use fakes), `internal/operations` (async
   actions, one per stack, output buffer for live streams), `internal/logs`
   (merged stack logs with re-attach after restarts), `internal/session`
-  (signed session cookies, login rate limit), `internal/api` (HTTP wiring,
-  auth and mapping to generated types).
+  (signed session cookies, login rate limit), `internal/stackfiles` (stack
+  files: validated atomic writes, versions, layout-preserving `.env`),
+  `internal/api` (HTTP wiring, auth and mapping to generated types).
 - Container state comes from the Engine API; anything that is Compose logic
   goes through the `docker compose` CLI (see `docs/decisions.md`).
-- Run Compose only through `compose.CLI` (`Run` / `Services`), which always
-  passes `-p`, `-f` and `--project-directory`. Never use `down -v` or any
-  other volume removal.
+- Run Compose only through `compose.CLI` (`Run` / `Services` / `Validate`),
+  which always passes `-p`, `-f` and `--project-directory`. Never use
+  `down -v` or any other volume removal; the only exception is the `delete`
+  operation with `volumes=true` (decision 19).
+- Read and write stack files only through `internal/stackfiles` (validated,
+  atomic, versioned, no symlinks), and only for managed stacks.
 - Anything that can take longer than a moment (Compose actions, pulls) runs
   as an operation (`internal/operations`), never synchronously inside a
   request. Actions only work on managed stacks (`stacks.Target`).
@@ -103,6 +107,10 @@ Web UI (`web/`, pnpm, Node 24):
   scripts (the CSP in `web/Caddyfile` allows only the own origin).
 - Action rules (what's possible when) live in `web/src/lib/actions.ts` and
   mirror the agent's rules.
+- The app uses a data router (`createBrowserRouter` in `main.tsx`, routes in
+  `App.tsx`), which `useBlocker` needs; tests for such components render with
+  `renderWithDataRouter`. The CodeMirror editor (`components/CodeEditor.tsx`)
+  is loaded lazily; tests replace it with `test/codeEditorStub.tsx`.
 - Prettier style: single quotes, trailing commas (as in the user's other
   projects).
 
@@ -123,7 +131,10 @@ session cookie), never log the token, and keep the dev setup bound to
   JS-readable cookies). The web UI only uses the `HttpOnly` session cookie.
 
 - **Never expose secrets from stacks:** return Compose files as stored, never
-  the resolved configuration (`docker compose config` output) or `.env`
-  contents. Read Compose data with `--no-interpolate`.
+  the resolved configuration (`docker compose config` output). `.env` values
+  only through the reveal endpoint, one value per explicit request
+  (decision 18). Read Compose data with `--no-interpolate`.
+- **Never log values:** audit logs name the stack, file and keys, never
+  `.env` values or file contents.
 - Validate stack names with `stacks.ValidName` before using them in paths or
   commands.

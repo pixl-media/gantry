@@ -2,7 +2,7 @@ import { ThemeProvider } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { MemoryRouter } from 'react-router';
+import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router';
 import { vi } from 'vitest';
 import { NotificationProvider } from '../components/Notifications';
 import { OperationPanelProvider } from '../components/OperationPanel';
@@ -26,15 +26,54 @@ export function renderWithProviders(ui: ReactElement, route = '/') {
   );
 }
 
+/**
+ * Like renderWithProviders, but with a data router (needed for useBlocker).
+ * ui is shown at `path`; "/" shows "Home" so navigation can be tested.
+ */
+export function renderWithDataRouter(
+  ui: ReactElement,
+  route = '/stacks/app',
+  path = '/stacks/:name',
+) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const router = createMemoryRouter(
+    [
+      { path, element: ui },
+      { path: '/', element: <div>Home</div> },
+    ],
+    { initialEntries: [route] },
+  );
+  const result = render(
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider theme={theme}>
+        <NotificationProvider>
+          <OperationPanelProvider>
+            <RouterProvider router={router} />
+          </OperationPanelProvider>
+        </NotificationProvider>
+      </ThemeProvider>
+    </QueryClientProvider>,
+  );
+  return { ...result, router };
+}
+
 type Handler = (request: Request) => Response | Promise<Response>;
 
-/** Replaces fetch; handler gets every request the app makes. */
+/**
+ * Replaces fetch; handler gets every request the app makes. The returned
+ * mock's `requests` holds an unread copy of each, for checking bodies.
+ */
 export function mockFetch(handler: Handler) {
-  const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
-    Promise.resolve(handler(new Request(input, init))),
-  );
+  const requests: Request[] = [];
+  const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request.clone());
+    return Promise.resolve(handler(request));
+  });
   vi.stubGlobal('fetch', fn);
-  return fn;
+  return Object.assign(fn, { requests });
 }
 
 export function json(body: unknown, status = 200): Response {

@@ -1,17 +1,20 @@
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArticleIcon from '@mui/icons-material/Article';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   CircularProgress,
   IconButton,
   List,
   ListItemButton,
+  ListItemIcon,
   ListItemText,
+  Menu,
+  MenuItem,
   Paper,
   Stack,
   Tab,
@@ -25,12 +28,15 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router';
 import { apiError, type StackDetail } from '../api/client';
 import { useStack, useStackOperations } from '../api/queries';
 import { ActionButtons } from '../components/ActionButtons';
+import { ComposeTab } from '../components/ComposeTab';
+import { DeleteStackDialog } from '../components/DeleteStackDialog';
+import { EnvTab } from '../components/EnvTab';
 import { LogView } from '../components/LogView';
 import { useOperationPanel } from '../components/OperationPanel';
 import { OperationStatusChip, StatusChip } from '../components/StatusChip';
@@ -44,8 +50,10 @@ export function StackPage() {
   const stack = useStack(name);
   // The tab and the log filter live in the URL, so they can be linked.
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get('tab') === 'logs' ? 'logs' : 'overview';
+  const requested = searchParams.get('tab');
   const logContainer = searchParams.get('container') ?? undefined;
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const back = (
     <Button
@@ -73,6 +81,8 @@ export function StackPage() {
     );
   }
   const s = stack.data;
+  const tabs = ['overview', 'logs', 'compose', ...(s.managed ? ['env'] : [])];
+  const tab = tabs.includes(requested ?? '') ? requested! : 'overview';
 
   return (
     <Stack sx={{ gap: 2 }}>
@@ -93,6 +103,41 @@ export function StackPage() {
         {s.activeOperation && <CircularProgress size={18} />}
         <Box sx={{ flex: 1 }} />
         <ActionButtons stack={s} />
+        {s.managed && (
+          <>
+            <Tooltip title={t('stack.moreActions')}>
+              <IconButton
+                aria-label={t('stack.moreActions')}
+                onClick={(e) => setMenu(e.currentTarget)}
+              >
+                <MoreVertIcon />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={menu}
+              open={menu !== null}
+              onClose={() => setMenu(null)}
+            >
+              <MenuItem
+                sx={{ color: 'error.main' }}
+                onClick={() => {
+                  setMenu(null);
+                  setDeleting(true);
+                }}
+              >
+                <ListItemIcon sx={{ color: 'inherit' }}>
+                  <DeleteForeverIcon fontSize="small" />
+                </ListItemIcon>
+                {t('stack.deleteStack')}
+              </MenuItem>
+            </Menu>
+            <DeleteStackDialog
+              open={deleting}
+              onClose={() => setDeleting(false)}
+              stack={s}
+            />
+          </>
+        )}
       </Stack>
       <Typography variant="body2" color="text.secondary">
         {t('stack.path')}: {s.path} · {t('stacks.services')}:{' '}
@@ -108,15 +153,19 @@ export function StackPage() {
       <Tabs
         value={tab}
         onChange={(_, v: string) =>
-          setSearchParams(v === 'logs' ? { tab: 'logs' } : {})
+          setSearchParams(v === 'overview' ? {} : { tab: v })
         }
+        variant="scrollable"
+        allowScrollButtonsMobile
         sx={{ borderBottom: 1, borderColor: 'divider' }}
       >
         <Tab value="overview" label={t('stack.tabOverview')} />
         <Tab value="logs" label={t('stack.tabLogs')} />
+        <Tab value="compose" label={t('stack.tabCompose')} />
+        {s.managed && <Tab value="env" label={t('stack.tabEnv')} />}
       </Tabs>
 
-      {tab === 'logs' ? (
+      {tab === 'logs' && (
         <LogView
           stack={s.name}
           services={s.services.map((svc) => svc.name)}
@@ -125,14 +174,16 @@ export function StackPage() {
             setSearchParams(c ? { tab: 'logs', container: c } : { tab: 'logs' })
           }
         />
-      ) : (
+      )}
+      {tab === 'compose' && <ComposeTab stack={s} />}
+      {tab === 'env' && <EnvTab stack={s.name} />}
+      {tab === 'overview' && (
         <>
           <Services
             stack={s}
             onShowLogs={(c) => setSearchParams({ tab: 'logs', container: c })}
           />
           <Operations stack={s.name} />
-          <ComposeFile stack={s} />
         </>
       )}
     </Stack>
@@ -271,50 +322,6 @@ function Operations({ stack }: { stack: string }) {
           </List>
         )}
       </Paper>
-    </Box>
-  );
-}
-
-function ComposeFile({ stack }: { stack: StackDetail }) {
-  const { t } = useTranslation();
-  if (!stack.composeFile) return null;
-  return (
-    <Box>
-      <Typography variant="h6" component="h2" gutterBottom>
-        {t('stack.composeFile')}
-      </Typography>
-      <Card variant="outlined">
-        <CardContent>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: monoFont }}
-          >
-            {stack.composeFile.path}
-          </Typography>
-          {stack.composeFile.content === undefined ? (
-            <Alert severity="info" sx={{ mt: 1 }}>
-              {t('stack.composeUnreadable')}
-            </Alert>
-          ) : (
-            <Box
-              component="pre"
-              sx={{
-                m: 0,
-                mt: 1,
-                p: 1.5,
-                overflow: 'auto',
-                borderRadius: 1,
-                bgcolor: 'action.hover',
-                fontFamily: monoFont,
-                fontSize: 13,
-              }}
-            >
-              {stack.composeFile.content}
-            </Box>
-          )}
-        </CardContent>
-      </Card>
     </Box>
   );
 }

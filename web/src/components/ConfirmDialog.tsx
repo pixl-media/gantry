@@ -13,6 +13,7 @@ interface Props {
   title: string;
   text: string;
   confirmLabel: string;
+  cancelLabel?: string;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -22,6 +23,7 @@ export function ConfirmDialog({
   title,
   text,
   confirmLabel,
+  cancelLabel,
   onConfirm,
   onClose,
 }: Props) {
@@ -33,7 +35,7 @@ export function ConfirmDialog({
         <DialogContentText>{text}</DialogContentText>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>{t('actions.cancel')}</Button>
+        <Button onClick={onClose}>{cancelLabel ?? t('actions.cancel')}</Button>
         <Button
           color="error"
           variant="contained"

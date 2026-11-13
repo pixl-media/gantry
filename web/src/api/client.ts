@@ -5,6 +5,8 @@ import type { components, paths } from './schema.gen';
 export type StackSummary = components['schemas']['StackSummary'];
 export type StackDetail = components['schemas']['StackDetail'];
 export type StackAction = components['schemas']['StackAction'];
+export type OperationAction = components['schemas']['OperationAction'];
+export type EnvFile = components['schemas']['EnvFile'];
 export type StackStatus = components['schemas']['StackStatus'];
 export type Operation = components['schemas']['Operation'];
 export type OperationStatus = components['schemas']['OperationStatus'];

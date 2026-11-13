@@ -88,7 +88,7 @@ func TestRunStackAction(t *testing.T) {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
 	}
 	op := decode[Operation](t, rec)
-	if op.Action != StackActionStart || op.Stack != "app" || !strings.HasPrefix(op.Id, "op_") {
+	if op.Action != OperationActionStart || op.Stack != "app" || !strings.HasPrefix(op.Id, "op_") {
 		t.Errorf("operation = %+v", op)
 	}
 	if loc := rec.Header().Get("Location"); loc != "/api/v1/operations/"+op.Id {
@@ -141,7 +141,7 @@ func TestBusyAndPreemption(t *testing.T) {
 
 	// The stack shows its active operation.
 	list := decode[StackList](t, request(t, h, http.MethodGet, "/api/v1/stacks"))
-	if a := list.Stacks[0].ActiveOperation; a == nil || a.Id != start.Id || a.Action != StackActionStart {
+	if a := list.Stacks[0].ActiveOperation; a == nil || a.Id != start.Id || a.Action != OperationActionStart {
 		t.Errorf("activeOperation in list = %+v", a)
 	}
 	detail := decode[StackDetail](t, request(t, h, http.MethodGet, "/api/v1/stacks/app"))

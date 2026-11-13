@@ -95,7 +95,14 @@ export interface paths {
          */
         get: operations["listStacks"];
         put?: never;
-        post?: never;
+        /**
+         * Create a stack
+         * @description Creates a managed stack: a directory in `GANTRY_STACKS_DIR` with the
+         *     Compose file and, if given, a `.env` file (mode 0600). The Compose
+         *     file is validated first; nothing is written if it is invalid. The
+         *     stack is not started; use the `start` action for that.
+         */
+        post: operations["createStack"];
         delete?: never;
         options?: never;
         head?: never;
@@ -118,6 +125,94 @@ export interface paths {
         get: operations["getStack"];
         put?: never;
         post?: never;
+        /**
+         * Delete a stack permanently
+         * @description Starts an operation `delete`: `docker compose down --remove-orphans`,
+         *     then the stack's directory is deleted **permanently**, including data
+         *     in it such as `./data`. Named volumes are kept unless `volumes=true`
+         *     (then `down` runs with `-v`). Like `stop` and `down`, it cancels a
+         *     running operation first.
+         *
+         *     `confirm` must repeat the stack name, as a guard against accidental
+         *     calls.
+         */
+        delete: operations["deleteStack"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stacks/{name}/compose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save the Compose file
+         * @description Validates the content with `docker compose config --no-interpolate`
+         *     and then replaces the Compose file atomically. `version` must be the
+         *     version that was read (from the stack details); if the file has
+         *     changed since, the answer is `409 version_conflict` and nothing is
+         *     written. The change takes effect with the next `start` or `update`.
+         */
+        put: operations["updateCompose"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stacks/{name}/env": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Variables of the .env file (names only)
+         * @description The names of the variables in the stack's `.env` file, never their
+         *     values. Use `POST …/env/reveal` to read a single value on purpose.
+         */
+        get: operations["getEnv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set or delete variables
+         * @description Sets and deletes variables in the stack's `.env` file, keeping its
+         *     comments, blank lines and order; new variables are appended. Creates
+         *     the file (mode 0600) if needed. `version` must be the version that
+         *     was read; otherwise `409 version_conflict`. Changes take effect with
+         *     the next `start` or `update`.
+         */
+        patch: operations["updateEnv"];
+        trace?: never;
+    };
+    "/api/v1/stacks/{name}/env/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read one variable's value
+         * @description Returns the value of a single variable, as Compose reads it. This is
+         *     the only way values leave the agent: one at a time, on purpose. It is
+         *     a POST so that browsers and proxies neither prefetch nor cache it
+         *     (the response is `Cache-Control: no-store`), and the agent logs that
+         *     the value was revealed, never the value itself.
+         */
+        post: operations["revealEnvValue"];
         delete?: never;
         options?: never;
         head?: never;
@@ -298,7 +393,7 @@ export interface components {
              * @description Machine-readable reason, for clients to act on.
              * @enum {string}
              */
-            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "invalid_name" | "invalid_action" | "not_found" | "stack_busy" | "stack_unmanaged" | "operation_finished";
+            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "invalid_name" | "invalid_action" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "stack_busy" | "stack_unmanaged" | "operation_finished";
             /** @description For `stack_busy`, the ID of the running operation. */
             operation?: string;
         };
@@ -363,7 +458,7 @@ export interface components {
         /** @description The operation currently running on a stack, if any. */
         ActiveOperation: {
             id: string;
-            action: components["schemas"]["StackAction"];
+            action: components["schemas"]["OperationAction"];
         };
         StackList: {
             stacks: components["schemas"]["StackSummary"][];
@@ -380,6 +475,8 @@ export interface components {
             activeOperation?: components["schemas"]["ActiveOperation"];
             composeFile?: components["schemas"]["ComposeFile"];
             services: components["schemas"]["Service"][];
+            /** @description Named Docker volumes created for this Compose project. */
+            volumes: string[];
             dockerAvailable: boolean;
             warnings: string[];
         };
@@ -391,6 +488,61 @@ export interface components {
              *     be read by the agent.
              */
             content?: string;
+            /**
+             * @description Version of the content (SHA-256), to send back when saving. Only
+             *     set together with `content`.
+             */
+            version?: string;
+        };
+        FileVersion: {
+            version: string;
+        };
+        ComposeUpdate: {
+            /** @description The new Compose file, at most 1 MiB. */
+            content: string;
+            /** @description The version that was read. */
+            version: string;
+        };
+        StackCreate: {
+            name: string;
+            /** @description Content of the Compose file (`compose.yaml`). */
+            compose: string;
+            /** @description Variables for the `.env` file. */
+            env?: {
+                [key: string]: string;
+            };
+        };
+        StackCreated: {
+            name: string;
+            path: string;
+        };
+        EnvVariable: {
+            /** @example POSTGRES_PASSWORD */
+            key: string;
+        };
+        EnvFile: {
+            /** @description Whether the stack has a `.env` file. */
+            exists: boolean;
+            /** @description Version of the file to send back when updating ("" if it doesn't exist). */
+            version: string;
+            variables: components["schemas"]["EnvVariable"][];
+        };
+        EnvUpdate: {
+            /** @description The version that was read ("" if the file doesn't exist yet). */
+            version: string;
+            /** @description Variables to add or change. Values can't contain line breaks. */
+            set?: {
+                [key: string]: string;
+            };
+            /** @description Variables to remove. */
+            delete?: string[];
+        };
+        EnvRevealRequest: {
+            key: string;
+        };
+        EnvValue: {
+            key: string;
+            value: string;
         };
         Service: {
             name: string;
@@ -434,6 +586,11 @@ export interface components {
         };
         /** @enum {string} */
         StackAction: "start" | "stop" | "restart" | "update" | "down";
+        /**
+         * @description What an operation does; the stack actions plus `delete`.
+         * @enum {string}
+         */
+        OperationAction: "start" | "stop" | "restart" | "update" | "down" | "delete";
         /** @enum {string} */
         OperationStatus: "running" | "succeeded" | "failed" | "canceled";
         Operation: {
@@ -441,7 +598,7 @@ export interface components {
             id: string;
             /** @example whoami */
             stack: string;
-            action: components["schemas"]["StackAction"];
+            action: components["schemas"]["OperationAction"];
             status: components["schemas"]["OperationStatus"];
             /** Format: date-time */
             startedAt: string;
@@ -680,6 +837,51 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    createStack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StackCreate"];
+            };
+        };
+        responses: {
+            /** @description The stack was created. */
+            201: {
+                headers: {
+                    /** @description URL of the stack. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StackCreated"];
+                };
+            };
+            /** @description `invalid_name`, `invalid_compose`, `invalid_variable` or `invalid_request`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description `stack_exists`: a directory or Compose project with this name exists. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getStack: {
         parameters: {
             query?: never;
@@ -704,6 +906,240 @@ export interface operations {
             400: components["responses"]["InvalidName"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    deleteStack: {
+        parameters: {
+            query: {
+                /** @description The stack name again. */
+                confirm: string;
+                /** @description Also delete the stack's named volumes. */
+                volumes?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Compose project name. */
+                name: components["parameters"]["StackName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The delete operation was started. */
+            202: {
+                headers: {
+                    /** @description URL of the operation. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            /** @description `invalid_name`, or `invalid_request` if `confirm` doesn't match. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `stack_unmanaged`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateCompose: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Compose project name. */
+                name: components["parameters"]["StackName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileVersion"];
+                };
+            };
+            /** @description `invalid_compose` (with Compose's message), `invalid_name` or `invalid_request`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `version_conflict` or `stack_unmanaged`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getEnv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Compose project name. */
+                name: components["parameters"]["StackName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The variable names. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvFile"];
+                };
+            };
+            400: components["responses"]["InvalidName"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `stack_unmanaged`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateEnv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Compose project name. */
+                name: components["parameters"]["StackName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnvUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated variable names. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvFile"];
+                };
+            };
+            /** @description `invalid_variable`, `invalid_name` or `invalid_request`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `version_conflict` or `stack_unmanaged`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    revealEnvValue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Compose project name. */
+                name: components["parameters"]["StackName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnvRevealRequest"];
+            };
+        };
+        responses: {
+            /** @description The value. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvValue"];
+                };
+            };
+            /** @description `invalid_variable`, `invalid_name` or `invalid_request`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description `not_found`: no such stack or variable. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `stack_unmanaged`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     streamStackLogs: {
