@@ -67,9 +67,13 @@ func (h *handlers) GetStack(ctx context.Context, req GetStackRequestObject) (Get
 		DockerAvailable: d.DockerAvailable,
 		Warnings:        orEmpty(d.Warnings),
 		Services:        make([]Service, 0, len(d.Services)),
+		Volumes:         orEmpty(d.Volumes),
 	}
 	if d.ComposeFile != nil {
 		resp.ComposeFile = &ComposeFile{Path: d.ComposeFile.Path, Content: d.ComposeFile.Content}
+		if d.ComposeFile.Version != "" {
+			resp.ComposeFile.Version = &d.ComposeFile.Version
+		}
 	}
 	for _, svc := range d.Services {
 		out := Service{Name: svc.Name, Containers: make([]Container, 0, len(svc.Containers))}
@@ -127,7 +131,7 @@ func (h *handlers) activeOperation(stack string) *ActiveOperation {
 	if !ok {
 		return nil
 	}
-	return &ActiveOperation{Id: s.ID, Action: StackAction(s.Action)}
+	return &ActiveOperation{Id: s.ID, Action: OperationAction(s.Action)}
 }
 
 func apiError(err error, code ErrorCode) Error {

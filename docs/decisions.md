@@ -130,6 +130,9 @@ configuration (`docker compose config` output) or `.env` contents, and the
 agent reads service names with `--no-interpolate`. Managing `.env` values
 needs its own feature with its own protection.
 
+*Amended by decision 18:* single `.env` values are available on explicit
+request through their own endpoint.
+
 ## 11. `/healthz` is a liveness check
 
 **Decided 2026-11-12.** `/healthz` (public) returns 200 as long as the agent
@@ -186,7 +189,7 @@ seconds later by the restart's start. Two separate commands stop after the
 current step.
 
 `down` never uses `-v`: removing volumes deletes data and would need its
-own, explicitly confirmed action.
+own, explicitly confirmed action. *That action is `delete` (decision 19).*
 
 ## 14. Web UI login: a session cookie from the agent
 
@@ -261,6 +264,83 @@ all containers of a stack as Server-Sent Events, like `docker compose logs
   `EventSource` uses `error` for connection errors.
 - In the browser, lines are applied at most once per animation frame and
   capped at 10,000, so chatty containers don't slow the UI down.
+
+## 17. Editing stack files
+
+**Decided 2026-11-13.** Managed stacks can be created and their
+`compose.yaml` and `.env` edited through the API; unmanaged stacks stay
+read-only (decision 8). All file access goes through `internal/stackfiles`.
+
+- **Validated before saving:** a new Compose file is written to a temporary
+  file next to the original and checked with `docker compose config --quiet
+  --no-interpolate` (with the stack's project directory, so relative paths
+  and `env_file` resolve). On error the stored file stays untouched and the
+  API answers `400 invalid_compose` with Compose's message. The check is
+  structural: it doesn't pull images or require variables to be set.
+- **Atomic writes:** temporary file in the same directory, `fsync`, then
+  `rename`. A crash leaves either the old or the new file, never half of
+  one. File modes are kept; new `.env` files get `0600`.
+- **Versions against lost updates:** the version of a file is the SHA-256 of
+  its content. A save carries the version it was based on; if the file has
+  changed since (another tab, an edit over SSH), the API answers
+  `409 version_conflict` instead of overwriting. Saves to one stack are
+  serialized by a mutex.
+- **Limits:** files up to 1 MiB; symlinks are never edited or followed, so
+  a link can't redirect a write outside the stacks directory.
+- **`.env` keeps its layout:** comments, blank lines, order and `export`
+  prefixes stay; changed keys are updated in place, new ones appended.
+  Values are quoted only when needed, read back with Compose's own quoting
+  rules (an integration test round-trips tricky values through the real
+  `docker compose`). Keys must match `^[A-Za-z_][A-Za-z0-9_]*$`; values
+  with line breaks are rejected.
+- **Creating a stack** builds it in a hidden staging directory in the stacks
+  directory, validates it, then renames it into place. A name that is
+  already a directory or an existing Compose project (also an unmanaged
+  one) is refused with `409 stack_exists`.
+- Every change is logged (stack, file, keys), never with values.
+
+Not in this version: renaming stacks (volumes are prefixed with the project
+name), a history or undo for Compose files.
+
+## 18. `.env` values only on request
+
+**Decided 2026-11-13.** `.env` files hold secrets, but editing them needs
+their values. `GET /api/v1/stacks/{name}/env` lists only the names; a single
+value is returned by `POST /api/v1/stacks/{name}/env/reveal` when a user
+explicitly asks for it (the eye or edit button in the UI).
+
+- `POST`, so browsers and proxies never prefetch or cache it, and with
+  cookie auth the CSRF `Origin` check applies. All `/api/` responses are
+  sent with `Cache-Control: no-store`.
+- Each reveal is logged with stack, key and client, never the value.
+- The web UI keeps revealed values in memory only while the tab is shown,
+  never in browser storage, and drops them again on a second click.
+
+Rejected: returning all values with the list (every page view would expose
+every secret) and not supporting `.env` at all (users would edit it over
+SSH, which this tool is meant to replace).
+
+## 19. Deleting a stack
+
+**Decided 2026-11-13.** `down` keeps removing only containers and networks.
+Deleting a stack is a separate, explicit action:
+`DELETE /api/v1/stacks/{name}?confirm=<name>&volumes=false`.
+
+- It runs as an operation (`delete`) that takes precedence like `stop` and
+  `down`: first `docker compose down --remove-orphans`, then the stack
+  directory is removed **permanently**, including bind-mounted data such as
+  `./data`. If `down` fails, the files stay.
+- **Named volumes** are removed only with `volumes=true` (`down --volumes`);
+  this is the only place gantry ever passes `-v`. The stack details list the
+  project's volumes so the UI can show what would be lost.
+- `confirm` must repeat the stack name, a second safeguard next to the UI,
+  where the user types the name and opts in to deleting volumes (off by
+  default).
+- Only managed stacks can be deleted; the directory must be a real
+  directory, not a symlink.
+
+Rejected: a trash folder (data would pile up unnoticed on small hosts;
+backups are the place for recovery) and deleting volumes by default.
 
 ## Open questions
 

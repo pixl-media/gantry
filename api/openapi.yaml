@@ -175,6 +175,47 @@ paths:
                 $ref: "#/components/schemas/StackList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createStack
+      tags: [stacks]
+      summary: Create a stack
+      description: |
+        Creates a managed stack: a directory in `GANTRY_STACKS_DIR` with the
+        Compose file and, if given, a `.env` file (mode 0600). The Compose
+        file is validated first; nothing is written if it is invalid. The
+        stack is not started; use the `start` action for that.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StackCreate"
+      responses:
+        "201":
+          description: The stack was created.
+          headers:
+            Location:
+              description: URL of the stack.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StackCreated"
+        "400":
+          description: "`invalid_name`, `invalid_compose`, `invalid_variable` or `invalid_request`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: "`stack_exists`: a directory or Compose project with this name exists."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/stacks/{name}:
     get:
@@ -200,6 +241,223 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteStack
+      tags: [stacks]
+      summary: Delete a stack permanently
+      description: |
+        Starts an operation `delete`: `docker compose down --remove-orphans`,
+        then the stack's directory is deleted **permanently**, including data
+        in it such as `./data`. Named volumes are kept unless `volumes=true`
+        (then `down` runs with `-v`). Like `stop` and `down`, it cancels a
+        running operation first.
+
+        `confirm` must repeat the stack name, as a guard against accidental
+        calls.
+      parameters:
+        - $ref: "#/components/parameters/StackName"
+        - name: confirm
+          in: query
+          required: true
+          description: The stack name again.
+          schema:
+            type: string
+        - name: volumes
+          in: query
+          required: false
+          description: Also delete the stack's named volumes.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "202":
+          description: The delete operation was started.
+          headers:
+            Location:
+              description: URL of the operation.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          description: "`invalid_name`, or `invalid_request` if `confirm` doesn't match."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`stack_unmanaged`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/stacks/{name}/compose:
+    put:
+      operationId: updateCompose
+      tags: [stacks]
+      summary: Save the Compose file
+      description: |
+        Validates the content with `docker compose config --no-interpolate`
+        and then replaces the Compose file atomically. `version` must be the
+        version that was read (from the stack details); if the file has
+        changed since, the answer is `409 version_conflict` and nothing is
+        written. The change takes effect with the next `start` or `update`.
+      parameters:
+        - $ref: "#/components/parameters/StackName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComposeUpdate"
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileVersion"
+        "400":
+          description: "`invalid_compose` (with Compose's message), `invalid_name` or `invalid_request`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`version_conflict` or `stack_unmanaged`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/stacks/{name}/env:
+    get:
+      operationId: getEnv
+      tags: [stacks]
+      summary: Variables of the .env file (names only)
+      description: |
+        The names of the variables in the stack's `.env` file, never their
+        values. Use `POST …/env/reveal` to read a single value on purpose.
+      parameters:
+        - $ref: "#/components/parameters/StackName"
+      responses:
+        "200":
+          description: The variable names.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvFile"
+        "400":
+          $ref: "#/components/responses/InvalidName"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`stack_unmanaged`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      operationId: updateEnv
+      tags: [stacks]
+      summary: Set or delete variables
+      description: |
+        Sets and deletes variables in the stack's `.env` file, keeping its
+        comments, blank lines and order; new variables are appended. Creates
+        the file (mode 0600) if needed. `version` must be the version that
+        was read; otherwise `409 version_conflict`. Changes take effect with
+        the next `start` or `update`.
+      parameters:
+        - $ref: "#/components/parameters/StackName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnvUpdate"
+      responses:
+        "200":
+          description: The updated variable names.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvFile"
+        "400":
+          description: "`invalid_variable`, `invalid_name` or `invalid_request`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`version_conflict` or `stack_unmanaged`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/stacks/{name}/env/reveal:
+    post:
+      operationId: revealEnvValue
+      tags: [stacks]
+      summary: Read one variable's value
+      description: |
+        Returns the value of a single variable, as Compose reads it. This is
+        the only way values leave the agent: one at a time, on purpose. It is
+        a POST so that browsers and proxies neither prefetch nor cache it
+        (the response is `Cache-Control: no-store`), and the agent logs that
+        the value was revealed, never the value itself.
+      parameters:
+        - $ref: "#/components/parameters/StackName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnvRevealRequest"
+      responses:
+        "200":
+          description: The value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvValue"
+        "400":
+          description: "`invalid_variable`, `invalid_name` or `invalid_request`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: no such stack or variable."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "`stack_unmanaged`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/stacks/{name}/logs:
     get:
@@ -502,6 +760,10 @@ components:
             - invalid_request
             - invalid_name
             - invalid_action
+            - invalid_compose
+            - invalid_variable
+            - version_conflict
+            - stack_exists
             - not_found
             - stack_busy
             - stack_unmanaged
@@ -594,7 +856,7 @@ components:
         id:
           type: string
         action:
-          $ref: "#/components/schemas/StackAction"
+          $ref: "#/components/schemas/OperationAction"
 
     StackList:
       type: object
@@ -621,6 +883,7 @@ components:
         - servicesRunning
         - path
         - services
+        - volumes
         - dockerAvailable
         - warnings
       properties:
@@ -644,6 +907,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Service"
+        volumes:
+          type: array
+          description: Named Docker volumes created for this Compose project.
+          items:
+            type: string
         dockerAvailable:
           type: boolean
         warnings:
@@ -663,6 +931,111 @@ components:
           description: |
             Raw file content, variables unresolved. Omitted if the file can't
             be read by the agent.
+        version:
+          type: string
+          description: |
+            Version of the content (SHA-256), to send back when saving. Only
+            set together with `content`.
+
+    FileVersion:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: string
+
+    ComposeUpdate:
+      type: object
+      required: [content, version]
+      properties:
+        content:
+          type: string
+          description: The new Compose file, at most 1 MiB.
+        version:
+          type: string
+          description: The version that was read.
+
+    StackCreate:
+      type: object
+      required: [name, compose]
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9_-]*$"
+        compose:
+          type: string
+          description: Content of the Compose file (`compose.yaml`).
+        env:
+          type: object
+          description: Variables for the `.env` file.
+          additionalProperties:
+            type: string
+
+    StackCreated:
+      type: object
+      required: [name, path]
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+
+    EnvVariable:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          example: POSTGRES_PASSWORD
+
+    EnvFile:
+      type: object
+      required: [exists, version, variables]
+      properties:
+        exists:
+          type: boolean
+          description: Whether the stack has a `.env` file.
+        version:
+          type: string
+          description: Version of the file to send back when updating ("" if it doesn't exist).
+        variables:
+          type: array
+          items:
+            $ref: "#/components/schemas/EnvVariable"
+
+    EnvUpdate:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: string
+          description: The version that was read ("" if the file doesn't exist yet).
+        set:
+          type: object
+          description: Variables to add or change. Values can't contain line breaks.
+          additionalProperties:
+            type: string
+        delete:
+          type: array
+          description: Variables to remove.
+          items:
+            type: string
+
+    EnvRevealRequest:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+
+    EnvValue:
+      type: object
+      required: [key, value]
+      properties:
+        key:
+          type: string
+        value:
+          type: string
 
     Service:
       type: object
@@ -729,6 +1102,11 @@ components:
       type: string
       enum: [start, stop, restart, update, down]
 
+    OperationAction:
+      type: string
+      description: What an operation does; the stack actions plus `delete`.
+      enum: [start, stop, restart, update, down, delete]
+
     OperationStatus:
       type: string
       enum: [running, succeeded, failed, canceled]
@@ -744,7 +1122,7 @@ components:
           type: string
           example: whoami
         action:
-          $ref: "#/components/schemas/StackAction"
+          $ref: "#/components/schemas/OperationAction"
         status:
           $ref: "#/components/schemas/OperationStatus"
         startedAt:

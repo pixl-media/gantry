@@ -30,10 +30,12 @@ const (
 	ActionRestart Action = "restart"
 	ActionUpdate  Action = "update"
 	ActionDown    Action = "down"
+	// ActionDelete is started with Manager.Delete, not Start.
+	ActionDelete Action = "delete"
 )
 
-// commands are the Compose commands of each action, run in order. down never
-// gets -v: removing volumes would delete data.
+// commands are the Compose commands of each action, run in order. None gets
+// -v: removing volumes deletes data, which only Delete does, on request.
 //
 // restart is stop + start rather than `docker compose restart`: Docker runs a
 // restart as one job (stop, then start) that it finishes even when Compose is
@@ -47,12 +49,50 @@ var commands = map[Action][][]string{
 	ActionDown:    {{"down", "--remove-orphans"}},
 }
 
-// Valid reports whether a is a known action.
+// Valid reports whether a is an action that Start runs.
 func (a Action) Valid() bool { _, ok := commands[a]; return ok }
 
 // preempts reports whether a cancels a running operation instead of being
-// rejected: stop and down work as an emergency brake.
-func (a Action) preempts() bool { return a == ActionStop || a == ActionDown }
+// rejected: stop, down and delete work as an emergency brake.
+func (a Action) preempts() bool {
+	return a == ActionStop || a == ActionDown || a == ActionDelete
+}
+
+// step is one part of an operation: a Compose command (args), or a Go
+// function (fn) announced by desc.
+type step struct {
+	args   []string
+	fn     func(ctx context.Context) error
+	desc   string
+	settle bool // a repeated command after canceling another operation
+}
+
+func composeSteps(cmds [][]string) []step {
+	steps := make([]step, len(cmds))
+	for i, c := range cmds {
+		steps[i] = step{args: c}
+	}
+	return steps
+}
+
+// withSettle repeats the last Compose command right after it. A Docker call
+// the canceled operation had already sent (e.g. a container start) can still
+// complete after that command; running stop/down once more settles it. Both
+// are idempotent.
+func withSettle(steps []step) []step {
+	last := -1
+	for i, s := range steps {
+		if s.args != nil {
+			last = i
+		}
+	}
+	if last < 0 {
+		return steps
+	}
+	out := slices.Clone(steps[:last+1])
+	out = append(out, step{args: steps[last].args, settle: true})
+	return append(out, steps[last+1:]...)
+}
 
 var (
 	// ErrNotFound means there is no operation with this ID (any more).
@@ -134,6 +174,26 @@ func (m *Manager) Start(p compose.Project, action Action) (*Operation, error) {
 	if !action.Valid() {
 		return nil, fmt.Errorf("unknown action %q", action)
 	}
+	return m.start(p, action, composeSteps(commands[action]))
+}
+
+// Delete runs `down --remove-orphans` on project p, with --volumes if
+// volumes is set, and then remove, which deletes the stack's files. Like stop
+// and down it takes precedence over a running operation. remove only runs if
+// down succeeded.
+func (m *Manager) Delete(p compose.Project, volumes bool, remove func() error) (*Operation, error) {
+	down := []string{"down", "--remove-orphans"}
+	if volumes {
+		down = append(down, "--volumes")
+	}
+	steps := []step{
+		{args: down},
+		{desc: "removing " + p.Dir, fn: func(context.Context) error { return remove() }},
+	}
+	return m.start(p, ActionDelete, steps)
+}
+
+func (m *Manager) start(p compose.Project, action Action, steps []step) (*Operation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -150,11 +210,14 @@ func (m *Manager) Start(p compose.Project, action Action) (*Operation, error) {
 	// while it waits for prev to end.
 	m.active[p.Name] = op
 
-	go m.run(ctx, op, p, prev)
+	if prev != nil {
+		steps = withSettle(steps)
+	}
+	go m.run(ctx, op, p, prev, steps)
 	return op, nil
 }
 
-func (m *Manager) run(ctx context.Context, op *Operation, p compose.Project, prev *Operation) {
+func (m *Manager) run(ctx context.Context, op *Operation, p compose.Project, prev *Operation, steps []step) {
 	defer op.cancel()
 	if prev != nil {
 		op.logf("canceling %s (%s) first", prev.id, prev.action)
@@ -168,24 +231,24 @@ func (m *Manager) run(ctx context.Context, op *Operation, p compose.Project, pre
 		}
 	}
 
-	cmds := commands[op.action]
-	if prev != nil {
-		// A Docker call the canceled operation had already sent (e.g. a
-		// container start) can still complete after our command. Running
-		// stop/down once more settles that; both are idempotent.
-		cmds = append(slices.Clone(cmds), cmds[len(cmds)-1])
-	}
 	code, err := -1, error(nil)
-	for i, args := range cmds {
+	for _, s := range steps {
 		if ctx.Err() != nil {
 			break
 		}
-		if i == len(cmds)-1 && prev != nil {
-			op.logf("$ docker compose %s (again, to settle the canceled operation)", strings.Join(args, " "))
-		} else {
-			op.logf("$ docker compose %s", strings.Join(args, " "))
+		switch {
+		case s.fn != nil:
+			op.logf("%s", s.desc)
+			if err = s.fn(ctx); err != nil {
+				op.logf("failed: %v", err)
+			}
+		case s.settle:
+			op.logf("$ docker compose %s (again, to settle the canceled operation)", strings.Join(s.args, " "))
+			code, err = m.runner.Run(ctx, p, s.args, op)
+		default:
+			op.logf("$ docker compose %s", strings.Join(s.args, " "))
+			code, err = m.runner.Run(ctx, p, s.args, op)
 		}
-		code, err = m.runner.Run(ctx, p, args, op)
 		if err != nil {
 			break
 		}

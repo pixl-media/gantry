@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/pixl-media/gantry/agent/internal/docker"
+	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 )
 
 type fakeDocker struct {
@@ -353,6 +354,67 @@ func TestTarget(t *testing.T) {
 		if _, err := m.Target(context.Background(), name); !errors.Is(err, want) {
 			t.Errorf("Target(%q) err = %v, want %v", name, err, want)
 		}
+	}
+}
+
+// volumeDocker adds volumes to fakeDocker.
+type volumeDocker struct {
+	fakeDocker
+	volumes []string
+}
+
+func (v volumeDocker) ListProjectVolumes(context.Context, string) ([]string, error) {
+	return v.volumes, nil
+}
+
+func TestGetVersionAndVolumes(t *testing.T) {
+	dir := stacksDir(t, "app")
+	m := newManager(t, dir, volumeDocker{volumes: []string{"app_data"}}, fakeCompose{})
+	d, err := m.Get(context.Background(), "app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The version stackfiles checks when saving; stacksDir writes this content.
+	if want := stackfiles.Version([]byte("services: {}\n")); d.ComposeFile.Version != want {
+		t.Errorf("version = %q, want %q", d.ComposeFile.Version, want)
+	}
+	if len(d.Volumes) != 1 || d.Volumes[0] != "app_data" {
+		t.Errorf("volumes = %v", d.Volumes)
+	}
+	// Without volume support there are simply none.
+	d, _ = newManager(t, dir, fakeDocker{}, fakeCompose{}).Get(context.Background(), "app")
+	if d.Volumes == nil || len(d.Volumes) != 0 {
+		t.Errorf("volumes without lister = %v", d.Volumes)
+	}
+}
+
+func TestRemove(t *testing.T) {
+	dir := stacksDir(t, "app")
+	writeFile(t, filepath.Join(dir, "app", "data", "db.sqlite"), "data")
+	m := newManager(t, dir, fakeDocker{}, fakeCompose{})
+	if err := m.Remove("app"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "app")); !errors.Is(err, os.ErrNotExist) {
+		t.Error("stack directory still exists")
+	}
+	if err := m.Remove("app"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("second remove: %v", err)
+	}
+	for _, bad := range []string{"..", "../x", ""} {
+		if err := m.Remove(bad); !errors.Is(err, ErrInvalidName) {
+			t.Errorf("Remove(%q) = %v", bad, err)
+		}
+	}
+	// A symlink in the stacks directory is never followed.
+	target := t.TempDir()
+	writeFile(t, filepath.Join(target, "keep"), "x")
+	os.Symlink(target, filepath.Join(dir, "linked"))
+	if err := m.Remove("linked"); err == nil {
+		t.Error("removing a symlinked stack should fail")
+	}
+	if _, err := os.Stat(filepath.Join(target, "keep")); err != nil {
+		t.Error("the symlink target was deleted")
 	}
 }
 

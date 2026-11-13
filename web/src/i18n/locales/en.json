@@ -42,7 +42,8 @@
     "confirmDownTitle": "Remove the containers of {{name}}?",
     "confirmDownText": "Containers and networks are removed; their logs are lost. Volumes and data are kept. Start the stack again to recreate them.",
     "confirm": "Remove",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "delete": "Delete"
   },
   "stacks": {
     "title": "Stacks",
@@ -76,7 +77,11 @@
     "tabOverview": "Overview",
     "tabLogs": "Logs",
     "showLogs": "Show logs",
-    "showLogsOf": "Show logs of {{name}}"
+    "showLogsOf": "Show logs of {{name}}",
+    "tabCompose": "Compose",
+    "tabEnv": "Environment",
+    "moreActions": "More actions",
+    "deleteStack": "Delete stack…"
   },
   "logs": {
     "services": "Services",
@@ -129,10 +134,73 @@
     "not_found": "Not found.",
     "origin_rejected": "Request rejected: it didn't come from this page.",
     "unauthorized": "Your session has expired. Please sign in again.",
-    "generic": "Something went wrong: {{message}}"
+    "generic": "Something went wrong: {{message}}",
+    "version_conflict": "The file was changed in the meantime. Reload and try again.",
+    "stack_exists": "A stack with this name exists."
   },
   "notFound": {
     "title": "Page not found",
     "back": "Go to stacks"
+  },
+  "compose": {
+    "editorLabel": "Compose file",
+    "save": "Save",
+    "saveAndApply": "Save & apply",
+    "discard": "Discard",
+    "unsaved": "Unsaved changes",
+    "saved": "Saved.",
+    "invalid": "Compose rejected the file:",
+    "conflict": "The file was changed in the meantime (for example via SSH or in another tab). Reload it to get the current version; your changes here are discarded.",
+    "reload": "Reload",
+    "readOnly": "This stack isn't managed by gantry, so its Compose file is read-only.",
+    "leaveTitle": "Discard unsaved changes?",
+    "leaveText": "Your changes to the Compose file haven't been saved.",
+    "leave": "Discard and leave",
+    "stay": "Stay"
+  },
+  "env": {
+    "hint": "Values are only shown when you ask for them, one at a time.",
+    "empty": "This stack has no variables yet.",
+    "name": "Name",
+    "value": "Value",
+    "reveal": "Show value",
+    "hide": "Hide value",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel",
+    "add": "Add variable",
+    "confirmDeleteTitle": "Delete {{key}}?",
+    "confirmDeleteText": "The variable is removed from the .env file.",
+    "applyHint": "Changes take effect when the stack is started or updated.",
+    "applyNow": "Apply now",
+    "invalidKey": "Letters, digits and _, not starting with a digit.",
+    "keyExists": "A variable with this name exists."
+  },
+  "create": {
+    "button": "New stack",
+    "title": "New stack",
+    "name": "Name",
+    "nameHelp": "Lowercase letters, digits, - and _",
+    "nameTaken": "A stack with this name exists.",
+    "compose": "Compose file",
+    "variables": "Variables (.env)",
+    "addVariable": "Add variable",
+    "removeVariable": "Remove variable",
+    "start": "Start after creating",
+    "submit": "Create",
+    "cancel": "Cancel"
+  },
+  "delete": {
+    "title": "Delete {{name}} permanently?",
+    "text": "The stack is stopped and its containers and networks are removed. Then its directory is deleted permanently, including data in it such as ./data. This can't be undone.",
+    "path": "Directory: {{path}}",
+    "volumes": "Also delete volumes",
+    "volumesHint": "These named volumes are kept unless you check this:",
+    "volumesGone": "These named volumes will be deleted too:",
+    "noVolumes": "This stack has no named volumes.",
+    "confirmLabel": "Type {{name}} to confirm",
+    "submit": "Delete permanently",
+    "cancel": "Cancel"
   }
 }

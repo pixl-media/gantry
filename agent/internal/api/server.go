@@ -22,11 +22,14 @@ type StackService interface {
 	List(ctx context.Context) (stacks.List, error)
 	Get(ctx context.Context, name string) (stacks.Detail, error)
 	Target(ctx context.Context, name string) (compose.Project, error)
+	Remove(name string) error
+	Dir() string
 }
 
 // OperationService is what the API needs from the operations package.
 type OperationService interface {
 	Start(p compose.Project, a operations.Action) (*operations.Operation, error)
+	Delete(p compose.Project, volumes bool, remove func() error) (*operations.Operation, error)
 	Get(id string) (*operations.Operation, error)
 	Cancel(id string) (operations.Snapshot, error)
 	List(stack string) []operations.Snapshot
@@ -46,6 +49,7 @@ type Config struct {
 	Stacks     StackService
 	Operations OperationService
 	Logs       LogService
+	Files      FileService
 	Logger     *slog.Logger // optional
 }
 

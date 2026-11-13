@@ -117,6 +117,24 @@ func TestListComposeContainersUnreachable(t *testing.T) {
 	}
 }
 
+func TestListProjectVolumes(t *testing.T) {
+	c := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/volumes" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		var filters map[string][]string
+		json.Unmarshal([]byte(r.URL.Query().Get("filters")), &filters)
+		if got := filters["label"]; len(got) != 1 || got[0] != LabelProject+"=app" {
+			t.Errorf("label filter = %v", got)
+		}
+		w.Write([]byte(`{"Volumes":[{"Name":"app_db"},{"Name":"app_cache"}],"Warnings":null}`))
+	})
+	got, err := c.ListProjectVolumes(context.Background(), "app")
+	if err != nil || len(got) != 2 || got[0] != "app_cache" || got[1] != "app_db" {
+		t.Errorf("volumes = %v, %v", got, err)
+	}
+}
+
 func TestNewRejectsUnsupportedHosts(t *testing.T) {
 	for _, host := range []string{"tcp://127.0.0.1:2375", "ssh://host", "unix://"} {
 		if _, err := New(host); err == nil {

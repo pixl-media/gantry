@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -105,6 +106,37 @@ func (c *Client) ListComposeContainers(ctx context.Context) ([]Container, error)
 		out = append(out, r.toContainer())
 	}
 	return out, nil
+}
+
+// ListProjectVolumes returns the names of the volumes Compose created for a
+// project, sorted.
+func (c *Client) ListProjectVolumes(ctx context.Context, project string) ([]string, error) {
+	filters := `{"label":["` + LabelProject + `=` + project + `"]}`
+	u := "http://docker/volumes?filters=" + url.QueryEscape(filters)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("list volumes: %w", unwrapURLError(err))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, statusError("list volumes", resp)
+	}
+	var body struct {
+		Volumes []struct{ Name string }
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("list volumes: decode response: %w", err)
+	}
+	names := []string{}
+	for _, v := range body.Volumes {
+		names = append(names, v.Name)
+	}
+	slices.Sort(names)
+	return names, nil
 }
 
 // apiContainer mirrors the Engine API's ContainerSummary fields we read.

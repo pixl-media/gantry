@@ -54,12 +54,22 @@ A stack's status is `running` (every service has a running container),
 ## Web UI
 
 The web UI lists all stacks with their status and runs actions with live
-output; a stack's page shows services, containers, the Compose file and
-recent operations. Its **Logs** tab shows the logs of all containers merged
-and live, with colors, a service filter, search, timestamps and a download;
-each container's logs button opens it already filtered. It is in English and
-German (from the browser's language, switchable) and follows the system's
-light or dark mode.
+output; a stack's page shows services, containers and recent operations.
+
+- **Logs:** the logs of all containers merged and live, with colors, a
+  service filter, search, timestamps and a download; each container's logs
+  button opens it already filtered.
+- **Compose:** an editor with YAML highlighting and search. Saving checks the
+  file with Compose first; *Save & apply* also starts the stack. If the file
+  was changed elsewhere in the meantime, you're asked to reload instead of
+  overwriting it.
+- **Environment:** the stack's `.env` variables by name. A value is loaded
+  only when you click to show or edit it.
+- **New stack** on the list page, **Delete stack** in a stack's menu (type
+  the name to confirm; named volumes only if you tick the box).
+
+Unmanaged stacks are read-only. The UI is in English and German (from the
+browser's language, switchable) and follows the system's light or dark mode.
 
 **Login:** enter the agent token once. The agent exchanges it for a session
 cookie that JavaScript can't read (`HttpOnly`, `SameSite=Strict`, 12 hours);
@@ -80,7 +90,13 @@ the cookie, POST and DELETE requests must come from the same origin
 | `DELETE /api/v1/session` | Log out; clears the cookie (public) |
 | `GET /api/v1/version` | Agent version |
 | `GET /api/v1/stacks` | All stacks with status; `dockerAvailable` and `warnings` |
-| `GET /api/v1/stacks/{name}` | Services, containers (state, health, ports) and the raw Compose file |
+| `POST /api/v1/stacks` | Create a managed stack from `{name, compose, env?}` |
+| `GET /api/v1/stacks/{name}` | Services, containers (state, health, ports), named volumes and the raw Compose file with its `version` |
+| `DELETE /api/v1/stacks/{name}?confirm={name}` | Delete a stack permanently, as an operation; `volumes=true` also removes its named volumes |
+| `PUT /api/v1/stacks/{name}/compose` | Replace the Compose file (`{content, version}`), validated first |
+| `GET /api/v1/stacks/{name}/env` | Names of the `.env` variables (no values) and the file's `version` |
+| `PATCH /api/v1/stacks/{name}/env` | Set and delete `.env` variables (`{version, set, delete}`) |
+| `POST /api/v1/stacks/{name}/env/reveal` | One `.env` value (`{key}`), logged without the value |
 | `GET /api/v1/stacks/{name}/logs` | Logs of all containers, merged and live, as Server-Sent Events |
 | `POST /api/v1/stacks/{name}/actions/{action}` | Run `start`, `stop`, `restart`, `update` or `down` as an operation |
 | `GET /api/v1/operations` | Recent operations (`?stack=` to filter) |
@@ -90,8 +106,10 @@ the cookie, POST and DELETE requests must come from the same origin
 
 The full contract is [`api/openapi.yaml`](api/openapi.yaml). Stack details
 return the Compose file as stored: variables like `${DB_PASSWORD}` stay
-unresolved, and `.env` files are never returned. Errors carry a
-machine-readable `code` (e.g. `stack_busy`, `stack_unmanaged`).
+unresolved. `.env` values are only returned one at a time by the reveal
+endpoint. Errors carry a machine-readable `code` (e.g. `stack_busy`,
+`stack_unmanaged`, `invalid_compose`, `version_conflict`). All `/api/`
+responses are sent with `Cache-Control: no-store`.
 
 ### Logs
 
@@ -112,6 +130,49 @@ Lines come as the programs wrote them, including ANSI color codes (the web UI
 renders them), and may contain anything the programs print. If Docker can't
 be read, a `failed` event ends the stream.
 
+### Editing stacks
+
+Only managed stacks can be edited. Every write is checked and atomic: a new
+Compose file is validated with `docker compose config` before it replaces
+the old one (`400 invalid_compose` with Compose's message otherwise), and
+files are written to a temporary file and renamed, so a crash never leaves
+half a file.
+
+**Versions** prevent lost updates. Reads return a `version` (the SHA-256 of
+the content); send it back when saving. If the file has changed since, e.g.
+over SSH or in another browser tab, the agent answers `409
+version_conflict` instead of overwriting it.
+
+```bash
+curl -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/stacks/whoami | jq -r .composeFile.version
+# 3b1f…
+curl -X PUT -H "Authorization: Bearer dev" -H "Content-Type: application/json" \
+  -d '{"version":"3b1f…","content":"services:\n  whoami:\n    image: traefik/whoami:v1.12\n"}' \
+  http://127.0.0.1:7070/api/v1/stacks/whoami/compose
+```
+
+Saving doesn't touch running containers; run `start` to apply the changes.
+
+**`.env`:** `GET …/env` lists only the names. `PATCH …/env` sets and
+deletes variables, keeping comments, blank lines and order; values are
+quoted as needed. A single value is returned by `POST …/env/reveal`, which
+the agent logs (stack, key and client, never the value). New `.env` files
+are created with mode `0600`.
+
+**Creating** a stack writes `compose.yaml` (and `.env`, if given) into a new
+directory in `GANTRY_STACKS_DIR`, after validating them. Names already used
+by a directory or a running Compose project are refused with `409
+stack_exists`.
+
+**Deleting** a stack (`DELETE /api/v1/stacks/{name}?confirm={name}`) runs as
+an operation: `down --remove-orphans`, then the stack's directory is
+removed, **including data in it such as `./data`**. This can't be undone.
+Named volumes are kept unless `volumes=true` is passed. `confirm` must repeat
+the stack name.
+
+Symlinked stack directories and files are never edited or deleted; files are
+limited to 1 MiB.
+
 ### Actions
 
 Only managed stacks can be changed; unmanaged ones answer `409
@@ -123,7 +184,7 @@ stack_unmanaged`.
 | `stop` | `stop` | Stops containers; they are kept |
 | `restart` | `stop`, then `start` | Restarts existing containers, **without** applying Compose file changes (use `start` for that) |
 | `update` | `pull --ignore-buildable`, then `up -d --remove-orphans` | Pulls new images and recreates changed containers |
-| `down` | `down --remove-orphans` | Removes containers and networks. **Volumes are never removed** |
+| `down` | `down --remove-orphans` | Removes containers and networks. **Volumes are never removed** (only deleting a stack with `volumes=true` does) |
 
 ### Operations
 
@@ -175,6 +236,12 @@ missing directory as a warning.
 
 The agent needs `docker compose` (the Compose plugin of Docker's official
 packages) on the host. The container image includes it.
+
+**Write access:** to create, edit and delete stacks, the user the agent runs
+as needs write access to `GANTRY_STACKS_DIR` and the stacks in it. For a
+systemd service that runs as a dedicated user, give that user ownership of
+the directory (e.g. `chown -R gantry: /opt/stacks`); otherwise stacks can
+only be listed and controlled. The container image runs as root.
 
 **Private registries:** Compose uses the Docker credentials of the user the
 agent runs as (`~/.docker/config.json`, from `docker login`). In container
@@ -300,7 +367,11 @@ them afterwards; other containers on the host are not touched.
 - Swagger UI (`make docs`) can't display the event stream; use `curl -N`.
 - One shared login (the agent token); there are no user accounts.
 - The web UI refreshes every 5 seconds instead of receiving push events.
-- Compose files are read-only in the web UI.
+- Stacks can't be renamed (named volumes carry the project name).
+- There is no history or undo for Compose files; validation and version
+  checks protect against mistakes and lost updates.
+- Validation checks the structure of a Compose file, not whether images
+  exist or variables are set.
 - Logs exist only as long as Docker keeps them; with log drivers such as
   `none` or `syslog` Docker returns none.
 - The web UI keeps at most 10,000 log lines and searches only those, in the

@@ -42,7 +42,8 @@
     "confirmDownTitle": "Container von {{name}} entfernen?",
     "confirmDownText": "Container und Netzwerke werden entfernt, ihre Logs gehen verloren. Volumes und Daten bleiben erhalten. Ein erneuter Start legt alles wieder an.",
     "confirm": "Entfernen",
-    "cancel": "Abbrechen"
+    "cancel": "Abbrechen",
+    "delete": "Löschen"
   },
   "stacks": {
     "title": "Stacks",
@@ -76,7 +77,11 @@
     "tabOverview": "Übersicht",
     "tabLogs": "Logs",
     "showLogs": "Logs anzeigen",
-    "showLogsOf": "Logs von {{name}} anzeigen"
+    "showLogsOf": "Logs von {{name}} anzeigen",
+    "tabCompose": "Compose",
+    "tabEnv": "Umgebung",
+    "moreActions": "Weitere Aktionen",
+    "deleteStack": "Stack löschen…"
   },
   "logs": {
     "services": "Services",
@@ -129,10 +134,73 @@
     "not_found": "Nicht gefunden.",
     "origin_rejected": "Anfrage abgelehnt: Sie kam nicht von dieser Seite.",
     "unauthorized": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.",
-    "generic": "Etwas ist schiefgelaufen: {{message}}"
+    "generic": "Etwas ist schiefgelaufen: {{message}}",
+    "version_conflict": "Die Datei wurde zwischenzeitlich geändert. Lade neu und versuch es noch einmal.",
+    "stack_exists": "Einen Stack mit diesem Namen gibt es schon."
   },
   "notFound": {
     "title": "Seite nicht gefunden",
     "back": "Zu den Stacks"
+  },
+  "compose": {
+    "editorLabel": "Compose-Datei",
+    "save": "Speichern",
+    "saveAndApply": "Speichern & anwenden",
+    "discard": "Verwerfen",
+    "unsaved": "Ungespeicherte Änderungen",
+    "saved": "Gespeichert.",
+    "invalid": "Compose hat die Datei abgelehnt:",
+    "conflict": "Die Datei wurde zwischenzeitlich geändert (zum Beispiel per SSH oder in einem anderen Tab). Lade sie neu, um den aktuellen Stand zu sehen; deine Änderungen hier gehen dabei verloren.",
+    "reload": "Neu laden",
+    "readOnly": "Dieser Stack wird nicht von gantry verwaltet, deshalb ist seine Compose-Datei nur lesbar.",
+    "leaveTitle": "Ungespeicherte Änderungen verwerfen?",
+    "leaveText": "Deine Änderungen an der Compose-Datei sind noch nicht gespeichert.",
+    "leave": "Verwerfen und verlassen",
+    "stay": "Bleiben"
+  },
+  "env": {
+    "hint": "Werte werden nur angezeigt, wenn du sie ausdrücklich anforderst, einzeln.",
+    "empty": "Dieser Stack hat noch keine Variablen.",
+    "name": "Name",
+    "value": "Wert",
+    "reveal": "Wert anzeigen",
+    "hide": "Wert verbergen",
+    "edit": "Bearbeiten",
+    "delete": "Löschen",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "add": "Variable hinzufügen",
+    "confirmDeleteTitle": "{{key}} löschen?",
+    "confirmDeleteText": "Die Variable wird aus der .env-Datei entfernt.",
+    "applyHint": "Änderungen wirken erst, wenn der Stack gestartet oder aktualisiert wird.",
+    "applyNow": "Jetzt anwenden",
+    "invalidKey": "Buchstaben, Ziffern und _, nicht mit einer Ziffer beginnend.",
+    "keyExists": "Eine Variable mit diesem Namen gibt es schon."
+  },
+  "create": {
+    "button": "Neuer Stack",
+    "title": "Neuer Stack",
+    "name": "Name",
+    "nameHelp": "Kleinbuchstaben, Ziffern, - und _",
+    "nameTaken": "Einen Stack mit diesem Namen gibt es schon.",
+    "compose": "Compose-Datei",
+    "variables": "Variablen (.env)",
+    "addVariable": "Variable hinzufügen",
+    "removeVariable": "Variable entfernen",
+    "start": "Nach dem Anlegen starten",
+    "submit": "Anlegen",
+    "cancel": "Abbrechen"
+  },
+  "delete": {
+    "title": "{{name}} endgültig löschen?",
+    "text": "Der Stack wird gestoppt, seine Container und Netzwerke werden entfernt. Danach wird sein Ordner endgültig gelöscht, samt Daten darin wie ./data. Das lässt sich nicht rückgängig machen.",
+    "path": "Ordner: {{path}}",
+    "volumes": "Auch Volumes löschen",
+    "volumesHint": "Diese benannten Volumes bleiben erhalten, außer du setzt das Häkchen:",
+    "volumesGone": "Diese benannten Volumes werden ebenfalls gelöscht:",
+    "noVolumes": "Dieser Stack hat keine benannten Volumes.",
+    "confirmLabel": "Zum Bestätigen {{name}} eintippen",
+    "submit": "Endgültig löschen",
+    "cancel": "Abbrechen"
   }
 }

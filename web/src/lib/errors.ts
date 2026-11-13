@@ -8,6 +8,8 @@ const translated = [
   'not_found',
   'origin_rejected',
   'unauthorized',
+  'version_conflict',
+  'stack_exists',
 ] as const;
 
 type TranslatedCode = (typeof translated)[number];

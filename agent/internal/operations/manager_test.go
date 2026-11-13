@@ -188,6 +188,76 @@ func TestStopPreemptsUpdate(t *testing.T) {
 	}
 }
 
+func TestDelete(t *testing.T) {
+	for _, volumes := range []bool{false, true} {
+		r := &fakeRunner{}
+		removed := false
+		op, err := NewManager(context.Background(), r, Options{}).Delete(project, volumes, func() error {
+			removed = true
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := wait(t, op)
+		want := "app: down --remove-orphans"
+		if volumes {
+			want += " --volumes"
+		}
+		if calls := r.callList(); strings.Join(calls, "|") != want {
+			t.Errorf("volumes=%v: calls = %v, want %s", volumes, calls, want)
+		}
+		if !removed || s.Status != StatusSucceeded || s.Action != ActionDelete {
+			t.Errorf("volumes=%v: removed = %v, snapshot %+v", volumes, removed, s)
+		}
+		if !strings.Contains(op.Output(), "removing /stacks/app") {
+			t.Errorf("output = %q", op.Output())
+		}
+	}
+}
+
+func TestDeleteKeepsFilesIfDownFails(t *testing.T) {
+	r := &fakeRunner{behavior: map[string]func(context.Context, io.Writer) (int, error){
+		"down": func(context.Context, io.Writer) (int, error) { return 1, errors.New("exit status 1") },
+	}}
+	removed := false
+	op, _ := NewManager(context.Background(), r, Options{}).Delete(project, false, func() error {
+		removed = true
+		return nil
+	})
+	if s := wait(t, op); s.Status != StatusFailed || removed {
+		t.Errorf("status %s, removed %v; files must stay when down fails", s.Status, removed)
+	}
+}
+
+func TestDeletePreempts(t *testing.T) {
+	started := make(chan struct{})
+	r := &fakeRunner{behavior: map[string]func(context.Context, io.Writer) (int, error){"pull": blockUntilCanceled(started)}}
+	m := NewManager(context.Background(), r, Options{})
+	update, _ := m.Start(project, ActionUpdate)
+	<-started
+	removeErr := errors.New("disk full")
+	del, err := m.Delete(project, false, func() error { return removeErr })
+	if err != nil {
+		t.Fatalf("delete while busy: %v, want precedence", err)
+	}
+	wait(t, update)
+	s := wait(t, del)
+	// The remove step comes after the settling down, and its error fails it.
+	if calls := r.callList(); strings.Join(calls, "|") != "app: pull --ignore-buildable|app: down --remove-orphans|app: down --remove-orphans" {
+		t.Errorf("calls = %v", calls)
+	}
+	if s.Status != StatusFailed || !strings.Contains(s.Error, "disk full") {
+		t.Errorf("delete = %+v", s)
+	}
+}
+
+func TestDeleteIsNotAnAction(t *testing.T) {
+	if ActionDelete.Valid() {
+		t.Error("delete must only be started through Delete, with its confirmation")
+	}
+}
+
 func TestRestartCanceledAfterStop(t *testing.T) {
 	// Canceled during its stop step, restart must not go on to start.
 	started := make(chan struct{})

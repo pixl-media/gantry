@@ -177,6 +177,31 @@ jobs:
           curl -fsS -b cookies.txt "$web/api/v1/stacks/whoami/logs?follow=false&tail=20" | tee logs.txt
           grep -q '^event: end' logs.txt
           grep -q '"service":"whoami"' logs.txt
+
+          # Editing through the proxy: the agent in the container writes to
+          # the mounted stacks dir. Create a stack, change its compose file
+          # (a stale version is refused), then delete it.
+          web_api() { curl -fsS -b cookies.txt -H "Origin: $web" -H "Content-Type: application/json" "$@"; }
+          web_api -d '{"name":"smoke-edit","compose":"services:\n  app:\n    image: traefik/whoami:v1.12\n"}' \
+            "$web/api/v1/stacks"
+          test -f "$stacks/smoke-edit/compose.yaml"
+          version=$(web_api "$web/api/v1/stacks/smoke-edit" | jq -r .composeFile.version)
+          update() {
+            jq -n --arg v "$1" '{version: $v, content: "services:\n  app:\n    image: traefik/whoami:v1.12\n    restart: unless-stopped\n"}'
+          }
+          web_api -X PUT -d "$(update "$version")" "$web/api/v1/stacks/smoke-edit/compose"
+          grep -q 'restart: unless-stopped' "$stacks/smoke-edit/compose.yaml"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -b cookies.txt -H "Origin: $web" -H "Content-Type: application/json" \
+            -X PUT -d "$(update "$version")" "$web/api/v1/stacks/smoke-edit/compose")" = 409
+          id=$(web_api -X DELETE "$web/api/v1/stacks/smoke-edit?confirm=smoke-edit" | jq -r .id)
+          for i in $(seq 1 60); do
+            status=$(web_api "$web/api/v1/operations/$id" | jq -r .status)
+            [ "$status" != running ] && break
+            sleep 1
+          done
+          test "$status" = succeeded
+          test ! -e "$stacks/smoke-edit"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -b cookies.txt "$web/api/v1/stacks/smoke-edit")" = 404
       - name: Smoke test logs
         if: always()
         run: |
