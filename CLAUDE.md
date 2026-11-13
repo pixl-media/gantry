@@ -63,8 +63,11 @@ Web UI (`web/`, pnpm, Node 24):
   `agent/internal/api/handlers.go`. Never edit `*.gen.go` by hand.
 - Package roles: `internal/docker` (Engine API client, stdlib only),
   `internal/compose` (`docker compose` CLI), `internal/stacks` (logic,
-  depends on interfaces so tests use fakes), `internal/api` (HTTP wiring and
-  mapping to generated types).
+  depends on interfaces so tests use fakes), `internal/operations` (async
+  actions, one per stack, output buffer for live streams), `internal/logs`
+  (merged stack logs with re-attach after restarts), `internal/session`
+  (signed session cookies, login rate limit), `internal/api` (HTTP wiring,
+  auth and mapping to generated types).
 - Container state comes from the Engine API; anything that is Compose logic
   goes through the `docker compose` CLI (see `docs/decisions.md`).
 - Run Compose only through `compose.CLI` (`Run` / `Services`), which always
@@ -73,13 +76,21 @@ Web UI (`web/`, pnpm, Node 24):
 - Anything that can take longer than a moment (Compose actions, pulls) runs
   as an operation (`internal/operations`), never synchronously inside a
   request. Actions only work on managed stacks (`stacks.Target`).
-- Package roles also include `internal/operations` (async actions, one per
-  stack, output buffer for live streams), `internal/session` (signed
-  session cookies, login rate limit) and `internal/logs` (merged stack logs
-  with re-attach after restarts).
 - Long or open-ended output (operation output, logs) is streamed as
   Server-Sent Events via `startEventStream` in `agent/internal/api`; never
   buffer it in a single response.
+- Configuration through `GANTRY_*` environment variables (plus Docker's own
+  `DOCKER_HOST`), documented in the README table.
+- New API endpoints go under `/api/v1/`. The auth middleware denies by
+  default: only the entries in `publicRoutes` are public (see Security).
+- Table-driven tests next to the code (`*_test.go`), using `httptest` for
+  handlers. Integration tests use the `integration` build tag, name their
+  stacks `gantry-test-<random>-…`, clean up with `t.Cleanup`, and assert only
+  on their own stacks.
+- Tests must not depend on timing: wait for the event they need (a channel,
+  or polling with a deadline) instead of sleeping or assuming an order. For
+  streams, the response headers reach the client before the handler's work
+  has run.
 
 ## Web UI conventions
 
@@ -94,14 +105,6 @@ Web UI (`web/`, pnpm, Node 24):
   mirror the agent's rules.
 - Prettier style: single quotes, trailing commas (as in the user's other
   projects).
-- Configuration through `GANTRY_*` environment variables (plus Docker's own
-  `DOCKER_HOST`), documented in the README table.
-- Table-driven tests next to the code (`*_test.go`), using `httptest` for
-  handlers. Integration tests use the `integration` build tag, name their
-  stacks `gantry-test-<random>-…`, clean up with `t.Cleanup`, and assert only
-  on their own stacks.
-- New API endpoints go under `/api/v1/`. The token middleware denies by
-  default: only paths listed in `publicPaths` are public.
 
 ## Security
 

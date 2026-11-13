@@ -22,11 +22,22 @@ type fakeLogs struct {
 	err   error
 	opts  logs.Options
 	stack string
+	// called, if set, is closed on the first call. The response headers
+	// reach the client before Stream runs, so tests that inspect opts while
+	// the stream is open must wait for it.
+	called chan struct{}
 }
 
 func (f *fakeLogs) Stream(ctx context.Context, project string, opts logs.Options, emit func(logs.Line) error, flush func() error) error {
 	f.mu.Lock()
 	f.opts, f.stack = opts, project
+	if f.called != nil {
+		select {
+		case <-f.called:
+		default:
+			close(f.called)
+		}
+	}
 	f.mu.Unlock()
 	for _, l := range f.lines {
 		if err := emit(l); err != nil {
@@ -99,7 +110,7 @@ func TestStackLogs(t *testing.T) {
 }
 
 func TestStackLogsDefaults(t *testing.T) {
-	f := &fakeLogs{}
+	f := &fakeLogs{called: make(chan struct{})}
 	srv := httptest.NewServer(newLogsServer(f))
 	defer srv.Close()
 
@@ -113,6 +124,11 @@ func TestStackLogsDefaults(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("unmanaged stack logs = %d, want 200 (read-only is allowed)", resp.StatusCode)
+	}
+	select {
+	case <-f.called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the log service was never called")
 	}
 	cancel()
 	resp.Body.Close()
