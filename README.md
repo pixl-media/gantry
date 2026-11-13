@@ -55,8 +55,11 @@ A stack's status is `running` (every service has a running container),
 
 The web UI lists all stacks with their status and runs actions with live
 output; a stack's page shows services, containers, the Compose file and
-recent operations. It is in English and German (from the browser's language,
-switchable) and follows the system's light or dark mode.
+recent operations. Its **Logs** tab shows the logs of all containers merged
+and live, with colors, a service filter, search, timestamps and a download;
+each container's logs button opens it already filtered. It is in English and
+German (from the browser's language, switchable) and follows the system's
+light or dark mode.
 
 **Login:** enter the agent token once. The agent exchanges it for a session
 cookie that JavaScript can't read (`HttpOnly`, `SameSite=Strict`, 12 hours);
@@ -78,6 +81,7 @@ the cookie, POST and DELETE requests must come from the same origin
 | `GET /api/v1/version` | Agent version |
 | `GET /api/v1/stacks` | All stacks with status; `dockerAvailable` and `warnings` |
 | `GET /api/v1/stacks/{name}` | Services, containers (state, health, ports) and the raw Compose file |
+| `GET /api/v1/stacks/{name}/logs` | Logs of all containers, merged and live, as Server-Sent Events |
 | `POST /api/v1/stacks/{name}/actions/{action}` | Run `start`, `stop`, `restart`, `update` or `down` as an operation |
 | `GET /api/v1/operations` | Recent operations (`?stack=` to filter) |
 | `GET /api/v1/operations/{id}` | Operation status and output |
@@ -88,6 +92,25 @@ The full contract is [`api/openapi.yaml`](api/openapi.yaml). Stack details
 return the Compose file as stored: variables like `${DB_PASSWORD}` stay
 unresolved, and `.env` files are never returned. Errors carry a
 machine-readable `code` (e.g. `stack_busy`, `stack_unmanaged`).
+
+### Logs
+
+`GET /api/v1/stacks/{name}/logs` works like `docker compose logs -f`: first
+the last `tail` lines (default 200, at most 5000) of every container, merged
+by time, then new lines as they appear. Containers that are started or
+recreated meanwhile (e.g. by `restart` or `update`) are picked up without
+repeating lines. `service` and `container` filter; `follow=false` ends after
+the past lines with an `end` event. Unmanaged stacks can be read too.
+
+```bash
+curl -N -H "Authorization: Bearer dev" "http://127.0.0.1:7070/api/v1/stacks/whoami/logs?tail=20"
+# event: log
+# data: {"time":"2026-11-12T20:15:03.112Z","service":"whoami","container":"whoami-whoami-1","stream":"stdout","line":"Starting up on port 80"}
+```
+
+Lines come as the programs wrote them, including ANSI color codes (the web UI
+renders them), and may contain anything the programs print. If Docker can't
+be read, a `failed` event ends the stream.
 
 ### Actions
 
@@ -278,6 +301,10 @@ them afterwards; other containers on the host are not touched.
 - One shared login (the agent token); there are no user accounts.
 - The web UI refreshes every 5 seconds instead of receiving push events.
 - Compose files are read-only in the web UI.
+- Logs exist only as long as Docker keeps them; with log drivers such as
+  `none` or `syslog` Docker returns none.
+- The web UI keeps at most 10,000 log lines and searches only those, in the
+  browser.
 
 ## Workflow and releases
 

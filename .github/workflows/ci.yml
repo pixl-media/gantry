@@ -162,8 +162,21 @@ jobs:
           grep -q gantry_session cookies.txt
           curl -fsS -b cookies.txt "$web/api/v1/stacks" | jq -e '.stacks | length > 0'
           # ...and changing requests need the page's Origin (CSRF protection).
-          test "$(curl -s -o /dev/null -w '%{http_code}' -b cookies.txt -X POST "$web/api/v1/stacks/whoami/actions/stop")" = 403
-          curl -fsS -b cookies.txt -H "Origin: $web" -X POST "$web/api/v1/stacks/whoami/actions/stop" | jq -e '.action == "stop"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -b cookies.txt -X POST "$web/api/v1/stacks/whoami/actions/start")" = 403
+          id=$(curl -fsS -b cookies.txt -H "Origin: $web" -X POST "$web/api/v1/stacks/whoami/actions/start" | jq -r .id)
+          for i in $(seq 1 60); do
+            status=$(curl -fsS -b cookies.txt "$web/api/v1/operations/$id" | jq -r .status)
+            [ "$status" != running ] && break
+            sleep 1
+          done
+          test "$status" = succeeded
+
+          # Logs through the proxy: whoami's startup message, then the end
+          # of the past lines.
+          sleep 1
+          curl -fsS -b cookies.txt "$web/api/v1/stacks/whoami/logs?follow=false&tail=20" | tee logs.txt
+          grep -q '^event: end' logs.txt
+          grep -q '"service":"whoami"' logs.txt
       - name: Smoke test logs
         if: always()
         run: |

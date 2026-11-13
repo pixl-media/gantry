@@ -15,6 +15,7 @@ import (
 	"github.com/pixl-media/gantry/agent/internal/api"
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
+	"github.com/pixl-media/gantry/agent/internal/logs"
 	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
 )
@@ -67,6 +68,7 @@ func main() {
 			Version:    version,
 			Stacks:     manager,
 			Operations: ops,
+			Logs:       logs.New(dockerClient),
 			Logger:     logger,
 		}),
 		// No WriteTimeout: event streams stay open while an operation runs.

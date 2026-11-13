@@ -124,6 +124,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stacks/{name}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Container logs (Server-Sent Events)
+         * @description The logs of all containers of a stack in one `text/event-stream`, like
+         *     `docker compose logs -f`: first the last `tail` lines of each
+         *     container merged by time, then new lines as they appear. Works for
+         *     unmanaged stacks too (read-only).
+         *
+         *     Events:
+         *
+         *     - `log`: `data` is a `LogLine` as JSON.
+         *     - `end`: only with `follow=false`, after the past lines.
+         *     - `failed`: `data` is an `Error` as JSON, e.g. when Docker can't be
+         *       read; the stream ends after it. (Not `error`: browsers' EventSource
+         *       uses that name for connection errors.)
+         *
+         *     While following, containers that are started or recreated later
+         *     (e.g. by `start`, `restart`, `update`) are picked up without
+         *     duplicate lines. Reconnecting starts over with the past lines.
+         *
+         *     Logs are returned as the programs wrote them, including ANSI color
+         *     codes; they may contain anything the programs print.
+         */
+        get: operations["streamStackLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stacks/{name}/actions/{action}": {
         parameters: {
             query?: never;
@@ -377,6 +415,22 @@ export interface components {
             /** @example traefik/whoami:latest */
             image: string;
             ports: components["schemas"]["Port"][];
+        };
+        /** @description One log line, the `data` of a `log` event. */
+        LogLine: {
+            /**
+             * Format: date-time
+             * @description When Docker received the line.
+             */
+            time: string;
+            /** @example app */
+            service: string;
+            /** @example whoami-app-1 */
+            container: string;
+            /** @enum {string} */
+            stream: "stdout" | "stderr";
+            /** @description The text, without a trailing newline; cut off after 16 KiB. */
+            line: string;
         };
         /** @enum {string} */
         StackAction: "start" | "stop" | "restart" | "update" | "down";
@@ -645,6 +699,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StackDetail"];
+                };
+            };
+            400: components["responses"]["InvalidName"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    streamStackLogs: {
+        parameters: {
+            query?: {
+                /** @description Past lines per container. */
+                tail?: number;
+                /** @description Keep streaming new lines. With false the stream ends after the past lines. */
+                follow?: boolean;
+                /** @description Only this service's containers. */
+                service?: string;
+                /** @description Only this container (name). */
+                container?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Compose project name. */
+                name: components["parameters"]["StackName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The event stream. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
                 };
             };
             400: components["responses"]["InvalidName"];

@@ -108,13 +108,8 @@ type eventStream struct {
 }
 
 func (s eventStream) VisitStreamOperationEventsResponse(w http.ResponseWriter) error {
-	rc := http.NewResponseController(w)
-	h := w.Header()
-	h.Set("Content-Type", "text/event-stream")
-	h.Set("Cache-Control", "no-cache")
-	h.Set("X-Accel-Buffering", "no") // tell reverse proxies not to buffer
-	w.WriteHeader(http.StatusOK)
-	if err := rc.Flush(); err != nil {
+	rc, err := startEventStream(w)
+	if err != nil {
 		return err
 	}
 
@@ -137,6 +132,18 @@ func (s eventStream) VisitStreamOperationEventsResponse(w http.ResponseWriter) e
 		return nil
 	}
 	return rc.Flush()
+}
+
+// startEventStream sends the headers of a Server-Sent Events response and
+// returns a controller to flush each event with.
+func startEventStream(w http.ResponseWriter) (*http.ResponseController, error) {
+	rc := http.NewResponseController(w)
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("X-Accel-Buffering", "no") // tell reverse proxies not to buffer
+	w.WriteHeader(http.StatusOK)
+	return rc, rc.Flush()
 }
 
 func toOperation(s operations.Snapshot) Operation {

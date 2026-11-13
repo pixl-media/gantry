@@ -72,7 +72,30 @@
     "composeUnreadable": "Der Agent kann diese Datei nicht lesen.",
     "operations": "Letzte Vorgänge",
     "noOperations": "Keine Vorgänge in der letzten Stunde.",
-    "notFound": "Es gibt keinen Stack namens {{name}}."
+    "notFound": "Es gibt keinen Stack namens {{name}}.",
+    "tabOverview": "Übersicht",
+    "tabLogs": "Logs",
+    "showLogs": "Logs anzeigen",
+    "showLogsOf": "Logs von {{name}} anzeigen"
+  },
+  "logs": {
+    "services": "Services",
+    "allServices": "Alle Services",
+    "containerFilter": "Container: {{name}}",
+    "search": "Suchen…",
+    "tail": "Rückblick",
+    "tailOption_one": "Letzte {{count}} Zeile",
+    "tailOption_other": "Letzte {{count}} Zeilen",
+    "timestamps": "Zeitstempel",
+    "clear": "Ansicht leeren",
+    "download": "Als Text herunterladen",
+    "failed": "Die Logs können nicht gelesen werden: {{message}}",
+    "reconnecting": "Live-Verbindung unterbrochen, verbinde neu…",
+    "empty": "Noch keine Log-Zeilen.",
+    "noMatches": "Keine Zeilen passen zum Filter.",
+    "jumpToLatest": "Zu den neuesten",
+    "count_one": "{{count}} Zeile",
+    "count_other": "{{count}} Zeilen"
   },
   "health": {
     "healthy": "gesund",

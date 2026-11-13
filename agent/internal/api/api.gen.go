@@ -87,6 +87,24 @@ func (e ErrorCode) Valid() bool {
 	}
 }
 
+// Defines values for LogLineStream.
+const (
+	LogLineStreamStderr LogLineStream = "stderr"
+	LogLineStreamStdout LogLineStream = "stdout"
+)
+
+// Valid indicates whether the value is a known member of the LogLineStream enum.
+func (e LogLineStream) Valid() bool {
+	switch e {
+	case LogLineStreamStderr:
+		return true
+	case LogLineStreamStdout:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OperationStatus.
 const (
 	OperationStatusCanceled  OperationStatus = "canceled"
@@ -242,6 +260,25 @@ type Health struct {
 	// Status Example: ok
 	Status string `json:"status"`
 }
+
+// LogLine One log line, the `data` of a `log` event.
+type LogLine struct {
+	// Container Example: whoami-app-1
+	Container string `json:"container"`
+
+	// Line The text, without a trailing newline; cut off after 16 KiB.
+	Line string `json:"line"`
+
+	// Service Example: app
+	Service string        `json:"service"`
+	Stream  LogLineStream `json:"stream"`
+
+	// Time When Docker received the line.
+	Time time.Time `json:"time"`
+}
+
+// LogLineStream defines model for LogLine.Stream.
+type LogLineStream string
 
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
@@ -437,6 +474,21 @@ type ListOperationsParams struct {
 	Stack *string `form:"stack,omitempty" json:"stack,omitempty"`
 }
 
+// StreamStackLogsParams defines parameters for StreamStackLogs.
+type StreamStackLogsParams struct {
+	// Tail Past lines per container.
+	Tail *int `form:"tail,omitempty" json:"tail,omitempty"`
+
+	// Follow Keep streaming new lines. With false the stream ends after the past lines.
+	Follow *bool `form:"follow,omitempty" json:"follow,omitempty"`
+
+	// Service Only this service's containers.
+	Service *string `form:"service,omitempty" json:"service,omitempty"`
+
+	// Container Only this container (name).
+	Container *string `form:"container,omitempty" json:"container,omitempty"`
+}
+
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = LoginRequest
 
@@ -472,6 +524,9 @@ type ServerInterface interface {
 	// RunStackAction Run an action on a stack
 	// (POST /api/v1/stacks/{name}/actions/{action})
 	RunStackAction(w http.ResponseWriter, r *http.Request, name StackName, action StackAction)
+	// StreamStackLogs Container logs (Server-Sent Events)
+	// (GET /api/v1/stacks/{name}/logs)
+	StreamStackLogs(w http.ResponseWriter, r *http.Request, name StackName, params StreamStackLogsParams)
 	// GetVersion Agent version
 	// (GET /api/v1/version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
@@ -717,6 +772,87 @@ func (siw *ServerInterfaceWrapper) RunStackAction(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// StreamStackLogs operation middleware
+func (siw *ServerInterfaceWrapper) StreamStackLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name StackName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StreamStackLogsParams
+
+	// ------------- Optional query parameter "tail" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tail", r.URL.Query(), &params.Tail, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tail"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tail", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "follow" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "follow", r.URL.Query(), &params.Follow, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "follow"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "follow", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "service" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "service", r.URL.Query(), &params.Service, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "service"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "container" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "container", r.URL.Query(), &params.Container, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "container"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "container", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StreamStackLogs(w, r, name, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetVersion operation middleware
 func (siw *ServerInterfaceWrapper) GetVersion(w http.ResponseWriter, r *http.Request) {
 
@@ -872,6 +1008,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/session", wrapper.CreateSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks", wrapper.ListStacks)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}", wrapper.GetStack)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}/logs", wrapper.StreamStackLogs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks/{name}/actions/{action}", wrapper.RunStackAction)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/operations", wrapper.ListOperations)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/operations/{id}", wrapper.GetOperation)
@@ -1452,6 +1589,100 @@ func (response RunStackAction409JSONResponse) VisitRunStackActionResponse(w http
 	return err
 }
 
+type StreamStackLogsRequestObject struct {
+	Name   StackName `json:"name"`
+	Params StreamStackLogsParams
+}
+
+type StreamStackLogsResponseObject interface {
+	VisitStreamStackLogsResponse(w http.ResponseWriter) error
+}
+
+type StreamStackLogs200TexteventStreamResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response StreamStackLogs200TexteventStreamResponse) VisitStreamStackLogsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// If w doesn't support flushing, fall back to io.Copy.
+		_, err := io.Copy(w, response.Body)
+		return err
+	}
+	// text/event-stream messages are typically small; use a
+	// modest buffer and flush after each chunk so clients see
+	// events immediately instead of waiting on OS buffering.
+	buf := make([]byte, 4096)
+	for {
+		n, err := response.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+			flusher.Flush()
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
+}
+
+type StreamStackLogs400JSONResponse struct{ InvalidNameJSONResponse }
+
+func (response StreamStackLogs400JSONResponse) VisitStreamStackLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamStackLogs401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StreamStackLogs401JSONResponse) VisitStreamStackLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamStackLogs404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response StreamStackLogs404JSONResponse) VisitStreamStackLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetVersionRequestObject struct {
 }
 
@@ -1540,6 +1771,9 @@ type StrictServerInterface interface {
 	// RunStackAction Run an action on a stack
 	// (POST /api/v1/stacks/{name}/actions/{action})
 	RunStackAction(ctx context.Context, request RunStackActionRequestObject) (RunStackActionResponseObject, error)
+	// StreamStackLogs Container logs (Server-Sent Events)
+	// (GET /api/v1/stacks/{name}/logs)
+	StreamStackLogs(ctx context.Context, request StreamStackLogsRequestObject) (StreamStackLogsResponseObject, error)
 	// GetVersion Agent version
 	// (GET /api/v1/version)
 	GetVersion(ctx context.Context, request GetVersionRequestObject) (GetVersionResponseObject, error)
@@ -1840,6 +2074,33 @@ func (sh *strictHandler) RunStackAction(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RunStackActionResponseObject); ok {
 		if err := validResponse.VisitRunStackActionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StreamStackLogs operation middleware
+func (sh *strictHandler) StreamStackLogs(w http.ResponseWriter, r *http.Request, name StackName, params StreamStackLogsParams) {
+	var request StreamStackLogsRequestObject
+
+	request.Name = name
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StreamStackLogs(ctx, request.(StreamStackLogsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StreamStackLogs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StreamStackLogsResponseObject); ok {
+		if err := validResponse.VisitStreamStackLogsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
