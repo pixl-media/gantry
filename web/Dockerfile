@@ -2,7 +2,7 @@
 
 # The static files are the same for every platform: build them once, on the
 # native platform, without emulation.
-FROM --platform=$BUILDPLATFORM node:24-alpine AS build
+FROM --platform=$BUILDPLATFORM node:26-alpine AS build
 WORKDIR /app
 RUN npm install -g pnpm@10.18.3
 COPY package.json pnpm-lock.yaml ./
