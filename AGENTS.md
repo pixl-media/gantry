@@ -27,6 +27,7 @@ This file holds what applies everywhere. Details for one part are in
 | `api.http` | Example requests (token from `.env`) |
 | `dev/stacks/` | Example stacks for `make run` |
 | `.github/` | CI (`workflows/ci.yml`) and Dependabot |
+| `LICENSE` | AGPLv3 (decision 22) |
 
 ## Architecture rules
 
@@ -63,6 +64,10 @@ Run from the repo root:
 - Releases are tags `vX.Y.Z` on `main`; CI publishes the images. Don't create
   tags unless asked.
 - Commit messages, code, comments and docs in English.
+- **No outside code contributions** without a contributor license agreement;
+  every line comes from the copyright holder (decision 22). Copy code or add
+  runtime dependencies only under permissive licenses (MIT, BSD, ISC,
+  Apache-2.0), never GPL or similar.
 
 ## Security
 

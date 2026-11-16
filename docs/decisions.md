@@ -436,8 +436,35 @@ Not done: TLS in the agent itself (a proxy does it, and the refusal above
 already keeps plain HTTP from working), a global failure budget, and pinning
 images and actions by digest.
 
+## 22. License: AGPLv3
+
+**Decided 2026-11-16.** gantry is licensed under the GNU AGPLv3
+(`AGPL-3.0-only`, full text in `LICENSE`).
+
+- **AGPL, not GPL:** gantry is a network service. Under the GPL, a modified
+  version offered as a hosted service never counts as distributed, so its
+  source could stay closed. The AGPL requires offering the source to the
+  service's users too. Plain use, also commercial and internal, has no
+  obligations under either.
+- **Not MIT or Apache-2.0:** they would allow closed products and services
+  built on gantry without anything in return.
+- **`-only`, not `-or-later`:** a later AGPL version only applies if the
+  copyright holder chooses it.
+- **No outside code contributions for now:** all code stays with the
+  copyright holder, which keeps the licensing in one hand. Contributions
+  would need a contributor license agreement first. Dependency updates
+  (version numbers only) are unaffected.
+- **Dependencies:** everything built into the agent binary and the web UI
+  is under MIT, BSD, ISC or Apache-2.0, which are compatible with AGPLv3.
+  Development tools (linters, generators) aren't shipped and don't matter
+  here.
+- The infrastructure app is unaffected: it talks to gantry only over the
+  HTTP API, which doesn't make it a derived work, and the copyright holder
+  isn't bound by their own license anyway.
+- Open point: much of the code was written with an AI assistant, and how
+  far such code is protected by copyright is legally unsettled.
+
 ## Open questions
 
 - **Release distribution:** GoReleaser for binaries, `.deb`/`.rpm` and images.
   While the repo is private, downloads need a token.
-- **License**, before publishing.

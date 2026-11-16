@@ -365,6 +365,7 @@ beyond your own machine:
 | `agent/tools/devdocs/` | Dev-only Swagger UI server (`make docs`) |
 | `.github/workflows/ci.yml` | Tests, image builds and releases |
 | `AGENTS.md`, `agent/AGENTS.md`, `web/AGENTS.md` | Conventions for contributors and coding agents |
+| `LICENSE` | GNU AGPLv3 |
 
 ## Development
 
@@ -465,3 +466,12 @@ Release: test `:edge`, then `git tag v0.1.0 && git push origin v0.1.0`.
 
 Planned: release binaries and `.deb`/`.rpm` packages with a systemd unit
 for amd64 and arm64.
+
+## License
+
+gantry is licensed under the [GNU Affero General Public License v3.0](LICENSE)
+(`AGPL-3.0-only`). You may use, modify and share it, also commercially.
+If you distribute a modified version, or let others use a modified version
+over a network, you have to offer its source code under the same license.
+
+Issues and ideas are welcome. Code contributions are not accepted for now.
