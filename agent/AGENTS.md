@@ -33,6 +33,8 @@ Run from the repo root:
   (merged stack logs with re-attach after restarts), `internal/session`
   (in-memory sessions, login rate limit), `internal/stackfiles` (stack
   files: validated atomic writes, versions, layout-preserving `.env`),
+  `internal/tlscert` (the TLS certificate from files, reloaded when they
+  change),
   `internal/api` (HTTP wiring, auth and mapping to generated types).
 - Container state comes from the Engine API; anything that is Compose logic
   goes through the `docker compose` CLI (see `docs/decisions.md`).
@@ -101,4 +103,6 @@ The root `AGENTS.md` has the rules for both parts. In the agent:
 - **Assume exposure to the internet** (decision 21): credentials over plain
   HTTP from internet addresses are refused (`network.insecure`), client
   addresses come from `network.client` (trusted proxies only), the binary
-  listens on 127.0.0.1 by default. Keep new endpoints behind these checks.
+  listens on 127.0.0.1 by default. Whether a request came over HTTPS is
+  `network.secureTransport`: behind a trusted or private proxy its
+  `X-Forwarded-Proto`, not `r.TLS` (decision 27). Keep new endpoints behind these checks.

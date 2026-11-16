@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,6 +26,7 @@ import (
 	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
+	"github.com/pixl-media/gantry/agent/internal/tlscert"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -148,6 +150,8 @@ type config struct {
 	publicOrigin      string
 	trustedProxies    []netip.Prefix
 	allowInsecureHTTP bool
+	// tlsCert and tlsKey are PEM files; both empty means plain HTTP.
+	tlsCert, tlsKey string
 }
 
 func loadConfig() (config, error) {
@@ -168,7 +172,25 @@ func loadConfig() (config, error) {
 			return c, fmt.Errorf("GANTRY_ALLOW_INSECURE_HTTP: want true or false, not %q", v)
 		}
 	}
+	c.tlsCert, c.tlsKey = os.Getenv("GANTRY_TLS_CERT"), os.Getenv("GANTRY_TLS_KEY")
+	if (c.tlsCert == "") != (c.tlsKey == "") {
+		return c, errors.New("set both GANTRY_TLS_CERT and GANTRY_TLS_KEY, or neither")
+	}
 	return c, nil
+}
+
+// tlsConfig returns the TLS configuration for the certificate and key files,
+// reloaded when they change, and a warning, if any.
+func tlsConfig(certFile, keyFile string, logger *slog.Logger) (*tls.Config, string, error) {
+	certs, err := tlscert.New(certFile, keyFile, logger)
+	if err != nil {
+		return nil, "", fmt.Errorf("GANTRY_TLS_CERT, GANTRY_TLS_KEY: %w", err)
+	}
+	var warning string
+	if info, err := os.Stat(keyFile); err == nil && info.Mode().Perm()&0o077 != 0 {
+		warning = fmt.Sprintf("GANTRY_TLS_KEY %s can be read by other users; make it readable only by the agent (chmod 600)", keyFile)
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: certs.GetCertificate}, warning, nil
 }
 
 // loopbackOnly reports whether listen only accepts connections from this
@@ -210,8 +232,18 @@ func main() {
 	if cfg.allowInsecureHTTP {
 		logger.Warn("GANTRY_ALLOW_INSECURE_HTTP is set: tokens and session cookies from internet addresses are accepted over plain HTTP, where anyone on the way can read them")
 	}
-	if !loopbackOnly(cfg.listen) && !strings.HasPrefix(cfg.publicOrigin, "https://") {
-		logger.Info("reachable from other hosts over plain HTTP; logins and tokens from internet addresses are refused, use HTTPS in front (see README)",
+	var tlsConf *tls.Config
+	if cfg.tlsCert != "" {
+		var warning string
+		if tlsConf, warning, err = tlsConfig(cfg.tlsCert, cfg.tlsKey, logger); err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		if warning != "" {
+			logger.Warn(warning)
+		}
+	} else if !loopbackOnly(cfg.listen) && !strings.HasPrefix(cfg.publicOrigin, "https://") {
+		logger.Info("reachable from other hosts over plain HTTP; logins and tokens from internet addresses are refused, use HTTPS in front or GANTRY_TLS_CERT (see README)",
 			"addr", cfg.listen)
 	}
 
@@ -256,12 +288,20 @@ func main() {
 		AllowInsecureHTTP: cfg.allowInsecureHTTP,
 	}))
 
+	srv.TLSConfig = tlsConf
+
 	errc := make(chan error, 1)
 	go func() {
-		logger.Info("gantry agent listening", "addr", addr, "version", version, "stacks_dir", manager.Dir())
+		logger.Info("gantry agent listening", "addr", addr, "tls", tlsConf != nil, "version", version, "stacks_dir", manager.Dir())
 		ln, err := api.Listen(addr, cfg.trustedProxies)
 		if err != nil {
 			errc <- err
+			return
+		}
+		if tlsConf != nil {
+			// The certificate comes from TLSConfig.GetCertificate. ServeTLS
+			// also sets up HTTP/2.
+			errc <- srv.ServeTLS(ln, "", "")
 			return
 		}
 		errc <- srv.Serve(ln)
