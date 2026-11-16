@@ -70,7 +70,8 @@ output; a stack's page shows services, containers and recent operations.
   the name to confirm; named volumes only if you tick the box).
 
 Unmanaged stacks are read-only. The UI is in English and German (from the
-browser's language, switchable) and follows the system's light or dark mode.
+browser's language, switchable) and has a light and a dark mode (following
+the system by default, switchable in the app bar).
 
 **Login:** enter the agent token once. The agent exchanges it for a session
 cookie that JavaScript can't read (`HttpOnly`, `SameSite=Strict`, 12 hours);
