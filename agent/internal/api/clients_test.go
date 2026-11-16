@@ -124,7 +124,7 @@ func TestInsecure(t *testing.T) {
 // Credentials over plain HTTP from the internet are refused before they are
 // checked: no answer tells whether they were right, and nothing is counted.
 func TestPlainHTTPFromTheInternet(t *testing.T) {
-	h := New(Config{Token: "the-token", Stacks: fakeStacks{}})
+	h := New(Config{Token: "the-token", UIToken: testUIToken, Stacks: fakeStacks{}})
 	for range maxFailedAttempts + 2 {
 		r := req("203.0.113.9:5000", "Authorization", "Bearer the-token")
 		rec := serve(h, r)
@@ -149,7 +149,7 @@ func TestPlainHTTPFromTheInternet(t *testing.T) {
 		t.Errorf("healthz = %d", rec.Code)
 	}
 
-	allowed := New(Config{Token: "the-token", Stacks: fakeStacks{}, AllowInsecureHTTP: true})
+	allowed := New(Config{Token: "the-token", UIToken: testUIToken, Stacks: fakeStacks{}, AllowInsecureHTTP: true})
 	if rec := serve(allowed, req("203.0.113.9:5000", "Authorization", "Bearer the-token")); rec.Code != http.StatusOK {
 		t.Errorf("with GANTRY_ALLOW_INSECURE_HTTP = %d, want 200", rec.Code)
 	}
@@ -158,7 +158,7 @@ func TestPlainHTTPFromTheInternet(t *testing.T) {
 // Behind a trusted proxy, every client has its own limit.
 func TestLimitPerClientBehindTrustedProxy(t *testing.T) {
 	trusted, _ := ParseTrustedProxies("10.0.0.2")
-	h := New(Config{Token: "the-token", Stacks: fakeStacks{}, TrustedProxies: trusted})
+	h := New(Config{Token: "the-token", UIToken: testUIToken, Stacks: fakeStacks{}, TrustedProxies: trusted})
 	via := func(client, token string) int {
 		return serve(h, req("10.0.0.2:5000", "X-Forwarded-For", client, "Authorization", "Bearer "+token)).Code
 	}
@@ -175,7 +175,7 @@ func TestLimitPerClientBehindTrustedProxy(t *testing.T) {
 
 // Addresses of one IPv6 network share the limit.
 func TestIPv6NetworkSharesLimit(t *testing.T) {
-	h := New(Config{Token: "the-token", Stacks: fakeStacks{}})
+	h := New(Config{Token: "the-token", UIToken: testUIToken, Stacks: fakeStacks{}})
 	for i := range maxFailedAttempts {
 		serve(h, req(fmt.Sprintf("[fd12:3456:789a:1::%x]:5000", i+1), "Authorization", "Bearer wrong"))
 	}
@@ -217,7 +217,7 @@ func TestOriginSchemeAndHSTS(t *testing.T) {
 		}
 	}
 
-	secure := New(Config{Token: "the-token", Stacks: fakeStacks{}, PublicOrigin: "https://gantry.example.com"})
+	secure := New(Config{Token: "the-token", UIToken: testUIToken, Stacks: fakeStacks{}, PublicOrigin: "https://gantry.example.com"})
 	r := newRequest(http.MethodGet, "/api/v1/version", nil)
 	r.Header.Set("Authorization", "Bearer the-token")
 	if hsts := serve(secure, r).Header().Get("Strict-Transport-Security"); !strings.HasPrefix(hsts, "max-age=") {

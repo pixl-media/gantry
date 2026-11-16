@@ -14,8 +14,8 @@ Run from the repo root:
   on either)
 - `make generate` – regenerate `agent/internal/api/api.gen.go` from
   `api/openapi.yaml` (CI fails if it's out of date)
-- `make run` – agent on 127.0.0.1:7070, stacks dir `dev/stacks`, token from
-  `.env` (git-ignored, created with a random token on first run)
+- `make run` – agent on 127.0.0.1:7070, stacks dir `dev/stacks`, tokens
+  from `.env` (git-ignored; `make dev-env` creates it or adds a missing token)
 - `make docs` – dev-only Swagger UI on 127.0.0.1:8082, forwarding to the agent
   (`agent/tools/devdocs`, never part of the agent binary or image)
 - `make image` – build the Docker image
@@ -76,6 +76,10 @@ The root `AGENTS.md` has the rules for both parts. In the agent:
 - **Public routes are explicit:** the middleware denies by default; only the
   method + path entries in `publicRoutes` (`agent/internal/api/auth.go`) are
   public. Add one only deliberately.
+- **Two tokens, strictly separate** (decision 26): `GANTRY_TOKEN` only as
+  bearer (`validAPIToken`), `GANTRY_UI_TOKEN` only at the login
+  (`validUIToken`). Never accept one in the other's place; an empty one
+  turns its way in off.
 - **Sessions live in memory** (`session.Store`); logout revokes them. Wrong
   tokens, by login or bearer header, count against one limiter; never let
   the right token past it while a client is blocked.
@@ -89,7 +93,8 @@ The root `AGENTS.md` has the rules for both parts. In the agent:
   only through the reveal endpoint, one value per explicit request
   (decision 18). Read Compose data with `--no-interpolate`.
 - **Never log values:** audit logs name the stack, file and keys, never
-  `.env` values or file contents.
+  `.env` values or file contents. The auth middleware logs every changing
+  request with `via=token|session`, never its body.
 - Validate stack names with `stacks.ValidName` before using them in paths or
   commands. Symlinked stack directories and Compose files are never managed;
   file access goes through `os.Root`.

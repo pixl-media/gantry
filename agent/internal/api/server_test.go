@@ -84,7 +84,7 @@ func do(t *testing.T, h http.Handler, path, token string) *httptest.ResponseReco
 }
 
 func TestHealthzIsPublic(t *testing.T) {
-	h := New(Config{Token: "secret", Version: "test"})
+	h := New(Config{Token: "secret", UIToken: testUIToken, Version: "test"})
 	if rec := do(t, h, "/healthz", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok"`) {
 		t.Fatalf("GET /healthz = %d %s", rec.Code, rec.Body)
 	}
@@ -108,7 +108,7 @@ func TestAuth(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := New(Config{Token: tt.token, Version: "test", Stacks: fakeStacks{}})
+			h := New(Config{Token: tt.token, UIToken: testUIToken, Version: "test", Stacks: fakeStacks{}})
 			req := newRequest(http.MethodGet, tt.path, nil)
 			if tt.header != "" {
 				req.Header.Set("Authorization", tt.header)
@@ -123,7 +123,7 @@ func TestAuth(t *testing.T) {
 }
 
 func TestListStacks(t *testing.T) {
-	h := New(Config{Token: "t", Stacks: fakeStacks{list: stacks.List{
+	h := New(Config{Token: "t", UIToken: testUIToken, Stacks: fakeStacks{list: stacks.List{
 		DockerAvailable: true,
 		Stacks: []stacks.Summary{
 			{Name: "whoami", Managed: true, Status: stacks.StatusRunning, ServicesTotal: 1, ServicesRunning: 1, Path: "/s/whoami"},
@@ -158,7 +158,7 @@ func TestGetStack(t *testing.T) {
 			Ports: []docker.Port{{IP: "127.0.0.1", PrivatePort: 80, PublicPort: 8081, Type: "tcp"}, {PrivatePort: 443, Type: "tcp"}},
 		}}}},
 	}
-	h := New(Config{Token: "t", Stacks: fakeStacks{detail: detail}})
+	h := New(Config{Token: "t", UIToken: testUIToken, Stacks: fakeStacks{detail: detail}})
 
 	rec := do(t, h, "/api/v1/stacks/whoami", "t")
 	if rec.Code != http.StatusOK {
@@ -182,7 +182,7 @@ func TestGetStack(t *testing.T) {
 }
 
 func TestGetStackInvalidName(t *testing.T) {
-	h := New(Config{Token: "t", Stacks: fakeStacks{err: stacks.ErrInvalidName}})
+	h := New(Config{Token: "t", UIToken: testUIToken, Stacks: fakeStacks{err: stacks.ErrInvalidName}})
 	if rec := do(t, h, "/api/v1/stacks/Bad.Name", "t"); rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
@@ -192,9 +192,10 @@ func TestGetStackInvalidName(t *testing.T) {
 func TestInternalError(t *testing.T) {
 	var logs bytes.Buffer
 	h := New(Config{
-		Token:  "t",
-		Stacks: fakeStacks{err: errors.New("reading stacks directory /opt/stacks: permission denied")},
-		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		Token:   "t",
+		UIToken: testUIToken,
+		Stacks:  fakeStacks{err: errors.New("reading stacks directory /opt/stacks: permission denied")},
+		Logger:  slog.New(slog.NewTextHandler(&logs, nil)),
 	})
 	rec := do(t, h, "/api/v1/stacks", "t")
 	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "/opt/stacks") {

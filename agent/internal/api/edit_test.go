@@ -95,6 +95,7 @@ func newEditEnv(t *testing.T) editEnv {
 	rl := &recordingLive{Hub: live.New(nil, live.Options{})}
 	h := New(Config{
 		Token:      "t",
+		UIToken:    testUIToken,
 		Stacks:     manager,
 		Operations: ops,
 		Files:      stackfiles.New(validatorStub{}),
@@ -315,7 +316,7 @@ func TestCreateStackDockerUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := New(Config{Token: "t", Stacks: manager, Files: stackfiles.New(validatorStub{})})
+	h := New(Config{Token: "t", UIToken: testUIToken, Stacks: manager, Files: stackfiles.New(validatorStub{})})
 	rec := send(t, h, http.MethodPost, "/api/v1/stacks", StackCreate{Name: "fresh", Compose: "services: {}\n"})
 	if e := decode[Error](t, rec); rec.Code != http.StatusServiceUnavailable || *e.Code != ErrorCodeDockerUnavailable {
 		t.Errorf("create = %d %+v", rec.Code, e)

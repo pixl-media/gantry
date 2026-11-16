@@ -41,27 +41,24 @@ const minTokenChars = 8
 
 const tokenAdvice = "use at least 24 random characters, e.g. from `openssl rand -hex 24`"
 
-// checkToken rejects a missing token and tokens that are obviously weak:
-// short, made of few characters, or one piece repeated. It can't tell a
-// random token from a chosen one, so the advice stays: generate it. Errors
-// never contain the token.
-func checkToken(token string) error {
-	if token == "" {
-		return fmt.Errorf("set GANTRY_TOKEN or GANTRY_TOKEN_FILE; %s", tokenAdvice)
-	}
+// checkToken rejects tokens that are obviously weak: short, made of few
+// characters, or one piece repeated. It can't tell a random token from a
+// chosen one, so the advice stays: generate it. name is the variable, for
+// the error. Errors never contain the token.
+func checkToken(name, token string) error {
 	if len(token) < minTokenLength {
-		return fmt.Errorf("the token is too short (%d characters, at least %d); %s", len(token), minTokenLength, tokenAdvice)
+		return fmt.Errorf("%s is too short (%d characters, at least %d); %s", name, len(token), minTokenLength, tokenAdvice)
 	}
 	chars := map[rune]bool{}
 	for _, r := range token {
 		chars[r] = true
 	}
 	if len(chars) < minTokenChars {
-		return fmt.Errorf("the token uses only %d different characters; %s", len(chars), tokenAdvice)
+		return fmt.Errorf("%s uses only %d different characters; %s", name, len(chars), tokenAdvice)
 	}
 	for period := 1; period <= len(token)/2; period++ {
 		if repeats(token, period) {
-			return fmt.Errorf("the token repeats a piece of %d characters; %s", period, tokenAdvice)
+			return fmt.Errorf("%s repeats a piece of %d characters; %s", name, period, tokenAdvice)
 		}
 	}
 	return nil
@@ -77,29 +74,72 @@ func repeats(s string, n int) bool {
 	return true
 }
 
-// loadToken returns the token from GANTRY_TOKEN, or from the file that
-// GANTRY_TOKEN_FILE names (for systemd credentials or Docker secrets, which
-// keep it out of the process environment), and a warning, if any.
-func loadToken() (token, warning string, err error) {
-	value, file := os.Getenv("GANTRY_TOKEN"), os.Getenv("GANTRY_TOKEN_FILE")
+// loadTokens returns the API token (GANTRY_TOKEN, bearer only) and the web
+// login token (GANTRY_UI_TOKEN, login only), and warnings. Each is optional,
+// which turns its way in off, but at least one is needed. Both are checked,
+// and they must differ: the point of two is replacing one without the other
+// (decision 26).
+func loadTokens() (apiToken, uiToken string, warnings []string, err error) {
+	apiToken, warning, err := loadToken("GANTRY_TOKEN")
+	if err != nil {
+		return "", "", nil, err
+	}
+	if warning != "" {
+		warnings = append(warnings, warning)
+	}
+	uiToken, warning, err = loadToken("GANTRY_UI_TOKEN")
+	if err != nil {
+		return "", "", nil, err
+	}
+	if warning != "" {
+		warnings = append(warnings, warning)
+	}
+	if apiToken == "" && uiToken == "" {
+		return "", "", nil, fmt.Errorf("set GANTRY_TOKEN (API), GANTRY_UI_TOKEN (web login), or both; %s", tokenAdvice)
+	}
+	for name, token := range map[string]string{"GANTRY_TOKEN": apiToken, "GANTRY_UI_TOKEN": uiToken} {
+		if token == "" {
+			continue
+		}
+		if err := checkToken(name, token); err != nil {
+			return "", "", nil, err
+		}
+	}
+	if apiToken == uiToken {
+		return "", "", nil, errors.New("GANTRY_TOKEN and GANTRY_UI_TOKEN are the same; generate a separate one for each")
+	}
+	return apiToken, uiToken, warnings, nil
+}
+
+// loadToken returns the token from the variable name, or from the file that
+// name_FILE names (for systemd credentials or Docker secrets, which keep it
+// out of the process environment), and a warning, if any. Neither set is
+// "".
+func loadToken(name string) (token, warning string, err error) {
+	fileVar := name + "_FILE"
+	value, file := os.Getenv(name), os.Getenv(fileVar)
 	switch {
 	case value != "" && file != "":
-		return "", "", errors.New("set GANTRY_TOKEN or GANTRY_TOKEN_FILE, not both")
+		return "", "", fmt.Errorf("set %s or %s, not both", name, fileVar)
 	case file == "":
 		return value, "", nil
 	}
 	info, err := os.Stat(file)
 	if err != nil {
-		return "", "", fmt.Errorf("GANTRY_TOKEN_FILE: %w", err)
+		return "", "", fmt.Errorf("%s: %w", fileVar, err)
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return "", "", fmt.Errorf("GANTRY_TOKEN_FILE: %w", err)
+		return "", "", fmt.Errorf("%s: %w", fileVar, err)
 	}
 	if info.Mode().Perm()&0o077 != 0 {
-		warning = fmt.Sprintf("GANTRY_TOKEN_FILE %s can be read by other users; make it readable only by the agent (chmod 600)", file)
+		warning = fmt.Sprintf("%s %s can be read by other users; make it readable only by the agent (chmod 600)", fileVar, file)
 	}
-	return strings.TrimSpace(string(data)), warning, nil
+	token = strings.TrimSpace(string(data))
+	if token == "" {
+		return "", "", fmt.Errorf("%s: %s is empty", fileVar, file)
+	}
+	return token, warning, nil
 }
 
 // config is the agent's network-facing configuration from the environment.
@@ -148,16 +188,19 @@ func loopbackOnly(listen string) bool {
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	token, warning, err := loadToken()
-	if err == nil {
-		err = checkToken(token)
-	}
+	apiToken, uiToken, warnings, err := loadTokens()
 	if err != nil {
 		logger.Error(err.Error())
 		os.Exit(1)
 	}
-	if warning != "" {
-		logger.Warn(warning)
+	for _, w := range warnings {
+		logger.Warn(w)
+	}
+	if apiToken == "" {
+		logger.Info("API tokens are off: GANTRY_TOKEN is not set")
+	}
+	if uiToken == "" {
+		logger.Info("web login is off: GANTRY_UI_TOKEN is not set")
 	}
 	cfg, err := loadConfig()
 	if err != nil {
@@ -198,7 +241,8 @@ func main() {
 
 	addr := cfg.listen
 	srv := api.NewServer(addr, api.New(api.Config{
-		Token:             token,
+		Token:             apiToken,
+		UIToken:           uiToken,
 		Version:           version,
 		Stacks:            manager,
 		Operations:        ops,

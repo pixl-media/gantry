@@ -62,7 +62,7 @@ func newOpsServer(t *testing.T, r runner) (http.Handler, *operations.Manager) {
 		list:   stacks.List{DockerAvailable: true, Stacks: []stacks.Summary{{Name: "app", Managed: true, Status: stacks.StatusStopped}}},
 		detail: stacks.Detail{Summary: stacks.Summary{Name: "app", Managed: true}},
 	}
-	return New(Config{Token: "t", Stacks: st, Operations: ops}), ops
+	return New(Config{Token: "t", UIToken: testUIToken, Stacks: st, Operations: ops}), ops
 }
 
 func request(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {

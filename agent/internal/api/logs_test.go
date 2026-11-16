@@ -58,7 +58,7 @@ func (f *fakeLogs) Stream(ctx context.Context, project string, opts logs.Options
 }
 
 func newLogsServer(f *fakeLogs) http.Handler {
-	return New(Config{Token: "t", Stacks: fakeStacks{unmanaged: []string{"ext"}}, Logs: f})
+	return New(Config{Token: "t", UIToken: testUIToken, Stacks: fakeStacks{unmanaged: []string{"ext"}}, Logs: f})
 }
 
 // sseEvents parses a Server-Sent Events body into (event, data) pairs.

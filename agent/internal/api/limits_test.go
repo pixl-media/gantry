@@ -13,7 +13,7 @@ import (
 )
 
 func TestBodyLimits(t *testing.T) {
-	h := New(Config{Token: "secret-token", Stacks: fakeStacks{}})
+	h := New(Config{Token: "secret-token", UIToken: testUIToken, Stacks: fakeStacks{}})
 	tests := []struct {
 		name, method, path, body string
 		bearer                   bool
