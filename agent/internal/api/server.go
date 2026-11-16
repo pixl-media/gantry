@@ -87,8 +87,9 @@ func New(cfg Config) http.Handler {
 			writeJSON(w, http.StatusBadRequest, Error{Error: err.Error(), Code: &invalid})
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			// The details (paths, commands) go to the log, not the client.
 			cfg.Logger.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
-			writeJSON(w, http.StatusInternalServerError, Error{Error: err.Error()})
+			writeJSON(w, http.StatusInternalServerError, Error{Error: "internal error; the agent's log has the details"})
 		},
 	})
 	mux := http.NewServeMux()

@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -167,10 +169,22 @@ func TestGetStackInvalidName(t *testing.T) {
 	}
 }
 
+// Unexpected errors go to the log; the client gets no paths or commands.
 func TestInternalError(t *testing.T) {
-	h := New(Config{Token: "t", Stacks: fakeStacks{err: errors.New("reading stacks directory: permission denied")}})
+	var logs bytes.Buffer
+	h := New(Config{
+		Token:  "t",
+		Stacks: fakeStacks{err: errors.New("reading stacks directory /opt/stacks: permission denied")},
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
 	rec := do(t, h, "/api/v1/stacks", "t")
-	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "permission denied") {
+	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "/opt/stacks") {
 		t.Errorf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(logs.String(), "permission denied") {
+		t.Errorf("the log lacks the details:\n%s", logs.String())
+	}
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Error("X-Content-Type-Options: nosniff missing")
 	}
 }

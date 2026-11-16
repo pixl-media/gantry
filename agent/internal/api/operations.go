@@ -140,8 +140,8 @@ func startEventStream(w http.ResponseWriter) (*http.ResponseController, error) {
 	rc := http.NewResponseController(w)
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
-	h.Set("Cache-Control", "no-cache")
-	h.Set("X-Accel-Buffering", "no") // tell reverse proxies not to buffer
+	h.Set("Cache-Control", "no-store") // logs and output may hold secrets
+	h.Set("X-Accel-Buffering", "no")   // tell reverse proxies not to buffer
 	w.WriteHeader(http.StatusOK)
 	return rc, rc.Flush()
 }

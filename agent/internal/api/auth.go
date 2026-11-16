@@ -132,9 +132,12 @@ func (a *authenticator) middleware(next http.Handler) http.Handler {
 			limit = maxLoginBody
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
+		// Responses are JSON or event streams; never let a browser guess
+		// another type.
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			// API data is live and may include secrets (env reveal): never
-			// cache it. Event streams set their own value.
+			// cache it.
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		if publicRoutes[r.Method+" "+r.URL.Path] {

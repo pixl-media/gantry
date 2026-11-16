@@ -1,5 +1,7 @@
 {
 	admin off
+	# Nothing to remember between starts.
+	persist_config off
 	# TLS is left to a reverse proxy in front, if any.
 	auto_https off
 	servers {

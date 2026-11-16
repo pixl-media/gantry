@@ -103,6 +103,9 @@ func TestEventStreamOutlivesReadTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store (streams may hold secrets)", cc)
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)

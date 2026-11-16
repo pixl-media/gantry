@@ -4,9 +4,10 @@ Lightweight Docker Compose manager: a small headless **agent** that runs on a
 Docker host and exposes an HTTP API for managing Compose stacks, plus an
 optional **web UI** that runs as its own container.
 
-> Early stage. The agent lists stacks, shows their details and starts, stops,
-> restarts, updates and removes them; the web UI does all of that in the
-> browser, in English and German. Editing stacks comes next.
+> Early stage. The agent lists stacks, shows their details and logs, starts,
+> stops, restarts, updates and removes them, and edits, creates and deletes
+> managed stacks; the web UI does all of that in the browser, in English and
+> German.
 
 ## Architecture
 
@@ -84,8 +85,9 @@ such limit.
 
 Routes under `/api/` require authentication: `Authorization: Bearer
 <GANTRY_TOKEN>` for API clients, or the session cookie for the web UI. With
-the cookie, POST and DELETE requests must come from the same origin
-(`Origin` header), which protects against cross-site request forgery.
+the cookie, changing requests (POST, PUT, PATCH, DELETE) must come from the
+same origin (`Origin` header), which protects against cross-site request
+forgery.
 
 | Route | Description |
 |---|---|
