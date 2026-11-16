@@ -392,7 +392,49 @@ gaps at the edges.
   as `nobody`.
 
 Not done yet: per-browser login limits behind the proxy (would need trusted
-proxy settings) and pinning images and actions by digest.
+proxy settings) and pinning images and actions by digest. *Extended by
+decision 21.*
+
+## 21. Safe even when exposed to the internet
+
+**Decided 2026-11-16**, after a second independent review that asked what
+happens when someone puts the agent or the web UI on the internet directly.
+gantry should stay safe even then; the operator's mistakes shouldn't be
+enough to lose the host.
+
+- **No credentials over plain HTTP from the internet.** Tokens and session
+  cookies from an internet address over plain HTTP are refused with `403
+  https_required`, before they are checked, by the agent and by the web UI's
+  Caddy. Private networks, VPN address space (100.64.0.0/10) and loopback are
+  allowed, as is HTTPS (directly or via `X-Forwarded-Proto` from a trusted or
+  private proxy). `GANTRY_ALLOW_INSECURE_HTTP=true` turns it off. Refusing
+  can't stop the first request from crossing the wire, but no such setup ever
+  works, so nobody relies on it.
+- **Only this host by default:** the binary listens on `127.0.0.1:7070`; the
+  image sets `:7070` (inside a container, the published ports decide). The
+  README's compose example publishes no agent port and the web UI on
+  `127.0.0.1` only, because Docker's published ports bypass host firewalls.
+- **Strong tokens:** at least 24 characters, at least 8 different ones, not
+  one repeated piece; `GANTRY_TOKEN_FILE` keeps it out of the environment.
+  With a random token, guessing stays hopeless even for a botnet that the
+  per-client limit can't stop.
+- **The limit itself:** IPv6 clients count per /64; at most 10,000 tracked
+  keys, then one shared bucket (during an attack from that many addresses,
+  new clients may have to wait; guessing stays limited); pruning now and
+  then, not per attempt. Only the `Bearer` scheme is a token attempt.
+  `GANTRY_TRUSTED_PROXIES` names proxies whose `X-Forwarded-For` counts, so
+  every browser behind the web UI has its own limit. No proxy is trusted by
+  default: behind NAT that would let anyone forge their address.
+- **Less to exhaust:** at most 1024 connections, 128 per client (proxies
+  only count toward the total), 16 KiB of headers; failed attempts are
+  logged one by one up to 10 a minute, then summarized.
+- **Smaller:** token comparison by SHA-256 digest (no length leak), the
+  Origin check compares the scheme over HTTPS, HSTS with an https public URL,
+  event streams end with the session that opened them.
+
+Not done: TLS in the agent itself (a proxy does it, and the refusal above
+already keeps plain HTTP from working), a global failure budget, and pinning
+images and actions by digest.
 
 ## Open questions
 

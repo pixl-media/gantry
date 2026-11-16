@@ -117,7 +117,7 @@ const (
 	readHeaderTimeout = 10 * time.Second
 	readTimeout       = time.Minute
 	idleTimeout       = 2 * time.Minute
-	maxHeaderBytes    = 64 << 10
+	maxHeaderBytes    = 16 << 10
 )
 
 // NewServer returns the HTTP server for handler with the agent's limits, so

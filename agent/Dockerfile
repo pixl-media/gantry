@@ -22,5 +22,9 @@ FROM alpine:3.24
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 COPY --from=build /out/gantry-agent /usr/local/bin/gantry-agent
+# In a container the agent listens on all of its interfaces (the binary's
+# default is 127.0.0.1); which of them are reachable is decided by the ports
+# you publish.
+ENV GANTRY_LISTEN=:7070
 EXPOSE 7070
 ENTRYPOINT ["gantry-agent"]

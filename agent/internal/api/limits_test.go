@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -112,5 +113,68 @@ func TestEventStreamOutlivesReadTimeout(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "data: alive") {
 		t.Errorf("stream = %q, want it alive past the read timeout", body)
+	}
+}
+
+// Connections beyond the per-host limit are closed at once; closing one
+// frees its slot.
+func TestConnectionLimits(t *testing.T) {
+	inner, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln := newLimitListener(inner, nil, 10, 2)
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() { io.Copy(io.Discard, c); c.Close() }()
+		}
+	}()
+	dial := func() net.Conn {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	// closedWithin reports whether the server closes c within d. Waiting
+	// long for a close that is expected keeps the test free of timing
+	// assumptions; a kept connection simply never sees EOF.
+	closedWithin := func(c net.Conn, d time.Duration) bool {
+		c.SetReadDeadline(time.Now().Add(d))
+		_, err := c.Read(make([]byte, 1))
+		return err == io.EOF
+	}
+	a, b := dial(), dial()
+	if closedWithin(a, 200*time.Millisecond) || closedWithin(b, 200*time.Millisecond) {
+		t.Fatal("connections within the limit were closed")
+	}
+	if c := dial(); !closedWithin(c, 5*time.Second) {
+		t.Error("the third connection from one host was kept")
+	}
+	a.Close()
+	waitFor(t, func() bool {
+		ln.mu.Lock()
+		defer ln.mu.Unlock()
+		return ln.open == 1
+	})
+	if d := dial(); closedWithin(d, 200*time.Millisecond) {
+		t.Error("a freed slot wasn't reused")
+	}
+	b.Close()
+}
+
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition not met in time")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

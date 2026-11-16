@@ -234,9 +234,12 @@ curl -N -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/op
 
 | Variable | Default | Description |
 |---|---|---|
-| `GANTRY_TOKEN` | (required) | Token for the API and the web UI login; use at least 24 random characters (`openssl rand -hex 24`). Shorter than 16 characters: the agent refuses to start |
+| `GANTRY_TOKEN` | (required) | Token for the API and the web UI login. Generate it: `openssl rand -hex 24`. The agent refuses tokens shorter than 24 characters, with fewer than 8 different characters, or made of one repeated piece |
+| `GANTRY_TOKEN_FILE` | (none) | Instead of `GANTRY_TOKEN`: a file holding the token, e.g. a systemd credential (`LoadCredential=`) or a Docker secret, so it isn't in the process environment |
 | `GANTRY_STACKS_DIR` | `/opt/stacks` | Directory with the managed stacks (same default as Dockge) |
-| `GANTRY_LISTEN` | `:7070` | Listen address |
+| `GANTRY_LISTEN` | `127.0.0.1:7070` (image: `:7070`) | Listen address. The binary only accepts local connections by default; set e.g. `:7070` to reach it from other hosts |
+| `GANTRY_TRUSTED_PROXIES` | (none) | Reverse proxies (IP addresses or CIDR prefixes, comma-separated) whose `X-Forwarded-For` and `X-Forwarded-Proto` the agent believes, such as the web UI's container. Then every client behind them has its own login limit |
+| `GANTRY_ALLOW_INSECURE_HTTP` | `false` | Accept tokens and session cookies over plain HTTP from internet addresses. Only if you know why: anyone on the way can read them. Also understood by the web UI's container |
 | `GANTRY_PUBLIC_URL` | (none) | Address of the web UI, e.g. `https://gantry.example.com`. If set, cookie-authenticated requests must come from exactly this origin, and with `https` the session cookie is `Secure` and named `__Host-gantry_session` |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker socket (only `unix://` is supported) |
 
@@ -272,33 +275,66 @@ services:
     environment:
       GANTRY_TOKEN: ${GANTRY_TOKEN}
       GANTRY_STACKS_DIR: /opt/stacks
-      # The web UI's address, see "Exposing the web UI" below.
+      # The web UI below is a trusted proxy: every browser gets its own
+      # login limit.
+      GANTRY_TRUSTED_PROXIES: 172.30.250.0/24
+      # The web UI's address, see "Exposing gantry" below.
       # GANTRY_PUBLIC_URL: https://gantry.example.com
-    ports:
-      - "7070:7070"
+    # No published port: the web UI reaches the agent over the network
+    # below. For API clients on other hosts, publish it deliberately, e.g.
+    # "127.0.0.1:7070:7070" for this host only.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/stacks:/opt/stacks
+    logging:
+      options:
+        max-size: 10m
     restart: unless-stopped
 
-  # Optional web UI on port 8080. It forwards /api to the agent.
+  # Optional web UI. It forwards /api to the agent.
   gantry-web:
     image: ghcr.io/pixl-media/gantry-web:edge
     environment:
       GANTRY_AGENT_URL: http://gantry-agent:7070
     ports:
-      - "8080:8080"
+      # This host only. Docker's published ports bypass host firewalls
+      # (ufw, firewalld), so open it to others deliberately, behind HTTPS.
+      - "127.0.0.1:8080:8080"
+    logging:
+      options:
+        max-size: 10m
     restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        # Fixed, so GANTRY_TRUSTED_PROXIES can name it; pick another range
+        # if it collides with one of your networks.
+        - subnet: 172.30.250.0/24
 ```
 
 The web UI speaks plain HTTP on port 8080. The web container also works with
-an agent running as a systemd service: point `GANTRY_AGENT_URL` at it.
+an agent running as a systemd service: point `GANTRY_AGENT_URL` at it, and
+set the agent's `GANTRY_LISTEN` so the container can reach it.
 
-**Exposing the web UI.** For access beyond your own machine:
+**Exposing gantry.** The agent controls Docker, which is root on the host.
+gantry is built to stay safe even when exposed carelessly, but for access
+beyond your own machine:
 
-- Put it behind a reverse proxy with HTTPS (e.g. Caddy, Traefik). Proxies in
+- **HTTPS is required from the internet.** Tokens and session cookies sent
+  over plain HTTP from an internet address are refused (`403
+  https_required`), by the agent and by the web UI's container; private
+  networks, VPN address space (100.64.0.0/10) and this host are fine. Put
+  gantry behind a reverse proxy with HTTPS (e.g. Caddy, Traefik). Proxies in
   private networks are trusted for `X-Forwarded-Proto`, so the session cookie
   is then marked `Secure`.
+- Publish ports deliberately: the agent's not at all if only the web UI
+  uses it, the web UI's on `127.0.0.1` or behind your proxy. Published
+  Docker ports bypass host firewalls.
+- Use a random token (`openssl rand -hex 24`); the agent refuses obviously
+  weak ones. Logins and bearer tokens are limited to 10 wrong attempts per
+  minute per client (per /64 for IPv6).
 - Give it **its own hostname**, such as `gantry.example.com`. Browsers send
   cookies to every port of a host, so with the UI at `http://nas:8080`, the
   session cookie also reaches every other web app on `http://nas:<port>`,
@@ -327,9 +363,9 @@ Requirements: Go 1.27+, Docker with the Compose plugin; for the web UI
 Node 24 and pnpm 10.
 
 ```bash
-make run               # agent on http://127.0.0.1:7070, token "dev", managing dev/stacks
+make run               # agent on http://127.0.0.1:7070, token from .env, managing dev/stacks
 make web-install       # once: install the web UI's dependencies
-make web               # web UI on http://127.0.0.1:5173 (in a second terminal), log in with "dev"
+make web               # web UI on http://127.0.0.1:5173 (in a second terminal), log in with the token from .env
 make docs              # Swagger UI on http://127.0.0.1:8082 (in a second terminal)
 make test              # unit tests, no Docker needed
 make test-integration  # unit + integration tests against the local Docker daemon
@@ -368,8 +404,8 @@ token from `.env`.
 `make docs` serves Swagger UI for `api/openapi.yaml` on
 http://127.0.0.1:8082 and forwards API requests to the agent on port 7070
 (`make run` or `docker compose up`). Everything comes from one address, so
-"Try it out" works without CORS: click "Authorize", enter the token (`dev`
-for `make run`), and send requests. The spec is re-read on every page load.
+"Try it out" works without CORS: click "Authorize", enter the token (from
+`.env` for `make run`), and send requests. The spec is re-read on every page load.
 This is a development tool only; the agent doesn't serve docs itself.
 
 Integration tests create their own stacks named `gantry-test-…` and remove

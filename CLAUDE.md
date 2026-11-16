@@ -150,4 +150,8 @@ session cookie), never log the token, and keep the dev setup bound to
 - Validate stack names with `stacks.ValidName` before using them in paths or
   commands. Symlinked stack directories and Compose files are never managed;
   file access goes through `os.Root`.
-- Settled hardening decisions are in `docs/decisions.md` (20).
+- **Assume exposure to the internet** (decision 21): credentials over plain
+  HTTP from internet addresses are refused (`network.insecure`), client
+  addresses come from `network.client` (trusted proxies only), the binary
+  listens on 127.0.0.1 by default. Keep new endpoints behind these checks.
+- Settled hardening decisions are in `docs/decisions.md` (20, 21).
