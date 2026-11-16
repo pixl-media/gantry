@@ -418,6 +418,72 @@ func TestRemove(t *testing.T) {
 	}
 }
 
+func TestRemoveKeepsComposeFileUntilLast(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can delete read-only directories")
+	}
+	dir := stacksDir(t, "app")
+	locked := filepath.Join(dir, "app", "data", "locked")
+	writeFile(t, filepath.Join(locked, "db"), "data")
+	os.Chmod(locked, 0o500)
+	t.Cleanup(func() { os.Chmod(locked, 0o700) })
+
+	if err := newManager(t, dir, fakeDocker{}, fakeCompose{}).Remove("app"); err == nil {
+		t.Fatal("Remove succeeded although data couldn't be deleted")
+	}
+	// The stack is still a stack, so the delete can be retried.
+	if _, err := os.Stat(filepath.Join(dir, "app", "compose.yaml")); err != nil {
+		t.Errorf("compose file gone after a failed remove: %v", err)
+	}
+}
+
+func TestSymlinksAreNotManaged(t *testing.T) {
+	dir := stacksDir(t, "real")
+	outside := normPath(t.TempDir())
+	writeFile(t, filepath.Join(outside, "compose.yaml"), "services: {}\n")
+	os.Symlink(outside, filepath.Join(dir, "linked"))
+	// A real directory whose Compose file is a link.
+	writeFile(t, filepath.Join(dir, "linkfile", "README.md"), "x\n")
+	os.Symlink(filepath.Join(outside, "compose.yaml"), filepath.Join(dir, "linkfile", "compose.yaml"))
+	m := newManager(t, dir, fakeDocker{}, fakeCompose{})
+
+	l, err := m.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Stacks) != 1 || l.Stacks[0].Name != "real" {
+		t.Errorf("stacks = %+v, want only real", l.Stacks)
+	}
+	joined := strings.Join(l.Warnings, "\n")
+	if !strings.Contains(joined, `"linked": a symbolic link`) || !strings.Contains(joined, "compose.yaml is a symbolic link") {
+		t.Errorf("warnings = %v", l.Warnings)
+	}
+	for _, name := range []string{"linked", "linkfile"} {
+		if _, err := m.Target(context.Background(), name); !errors.Is(err, ErrNotFound) {
+			t.Errorf("Target(%s) = %v, want ErrNotFound", name, err)
+		}
+	}
+}
+
+func TestUnmanagedComposeFileSymlinkIsNotRead(t *testing.T) {
+	ext := normPath(t.TempDir())
+	secret := filepath.Join(ext, "secret.yaml")
+	writeFile(t, secret, "password: hunter2\n")
+	link := filepath.Join(ext, "compose.yaml")
+	os.Symlink(secret, link)
+	c := ctr("ext", "x", "running", ext)
+	c.Labels[docker.LabelConfigFiles] = link
+	m := newManager(t, stacksDir(t), fakeDocker{containers: []docker.Container{c}}, fakeCompose{})
+
+	got, err := m.Get(context.Background(), "ext")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ComposeFile.Content != nil {
+		t.Errorf("content of a symlinked Compose file returned: %q", *got.ComposeFile.Content)
+	}
+}
+
 func TestComposeFileTooLarge(t *testing.T) {
 	dir := normPath(t.TempDir())
 	writeFile(t, filepath.Join(dir, "big", "compose.yaml"), strings.Repeat("#", maxComposeFileSize+1))
