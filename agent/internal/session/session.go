@@ -1,17 +1,15 @@
-// Package session issues and verifies the web UI's session cookie and limits
-// failed logins.
+// Package session keeps the web UI's sessions and limits failed logins.
 //
-// Sessions are stateless: the cookie carries its expiry and an HMAC over it,
-// keyed with a key derived from the agent token. Sessions survive agent
-// restarts, and changing the token invalidates all of them.
+// Sessions live in the agent's memory: logging out ends a session at once,
+// and restarting the agent ends all of them. A session ID is 256 random bits;
+// the store keeps only its SHA-256, so the IDs exist only in the browsers'
+// cookies.
 package session
 
 import (
-	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -22,111 +20,184 @@ const CookieName = "gantry_session"
 // DefaultTTL is how long a session is valid.
 const DefaultTTL = 12 * time.Hour
 
-// Signer issues and verifies session cookie values.
-type Signer struct {
-	key []byte
+// maxSessions caps the store; beyond it the session expiring first is
+// dropped. Only logins with the right token create sessions.
+const maxSessions = 1000
+
+// Store issues, verifies and revokes sessions.
+type Store struct {
 	ttl time.Duration
 	now func() time.Time
+
+	mu       sync.Mutex
+	sessions map[[sha256.Size]byte]*entry // hash of the ID -> session
 }
 
-// NewSigner returns a Signer whose key is derived from token. A zero ttl
-// means DefaultTTL.
-func NewSigner(token string, ttl time.Duration) *Signer {
+type entry struct {
+	exp  time.Time
+	done chan struct{} // closed when the session is revoked or dropped
+}
+
+// NewStore returns an empty Store. A zero ttl means DefaultTTL.
+func NewStore(ttl time.Duration) *Store {
 	if ttl == 0 {
 		ttl = DefaultTTL
 	}
-	mac := hmac.New(sha256.New, []byte(token))
-	mac.Write([]byte("gantry session key v1"))
-	return &Signer{key: mac.Sum(nil), ttl: ttl, now: time.Now}
+	return &Store{ttl: ttl, now: time.Now, sessions: map[[sha256.Size]byte]*entry{}}
 }
 
 // TTL returns how long issued sessions are valid.
-func (s *Signer) TTL() time.Duration { return s.ttl }
+func (s *Store) TTL() time.Duration { return s.ttl }
 
-// Issue returns a new cookie value and its expiry.
-func (s *Signer) Issue() (string, time.Time) {
+// Issue starts a session and returns its cookie value and expiry.
+func (s *Store) Issue() (string, time.Time) {
+	var id [32]byte
+	rand.Read(id[:]) // never fails (crypto/rand)
+	value := base64.RawURLEncoding.EncodeToString(id[:])
 	exp := s.now().Add(s.ttl).Truncate(time.Second)
-	payload := "v1." + strconv.FormatInt(exp.Unix(), 10)
-	return payload + "." + s.sign(payload), exp
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	for k, e := range s.sessions {
+		if !now.Before(e.exp) {
+			s.endLocked(k, e)
+		}
+	}
+	if len(s.sessions) >= maxSessions {
+		var first [sha256.Size]byte
+		var firstEntry *entry
+		for k, e := range s.sessions {
+			if firstEntry == nil || e.exp.Before(firstEntry.exp) {
+				first, firstEntry = k, e
+			}
+		}
+		s.endLocked(first, firstEntry)
+	}
+	s.sessions[sha256.Sum256([]byte(value))] = &entry{exp: exp, done: make(chan struct{})}
+	return value, exp
 }
 
-// Verify checks a cookie value and returns its expiry.
-func (s *Signer) Verify(value string) (time.Time, bool) {
-	version, rest, ok := strings.Cut(value, ".")
-	if !ok || version != "v1" {
-		return time.Time{}, false
-	}
-	expStr, sig, ok := strings.Cut(rest, ".")
+// Verify reports whether value is a live session, and its expiry.
+func (s *Store) Verify(value string) (time.Time, bool) {
+	e, ok := s.live(value)
 	if !ok {
 		return time.Time{}, false
 	}
-	payload := "v1." + expStr
-	if !hmac.Equal([]byte(sig), []byte(s.sign(payload))) {
-		return time.Time{}, false
-	}
-	unix, err := strconv.ParseInt(expStr, 10, 64)
-	if err != nil {
-		return time.Time{}, false
-	}
-	exp := time.Unix(unix, 0)
-	if !s.now().Before(exp) {
-		return time.Time{}, false
-	}
-	return exp, true
+	return e.exp, true
 }
 
-func (s *Signer) sign(payload string) string {
-	mac := hmac.New(sha256.New, s.key)
-	mac.Write([]byte(payload))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+// Done returns a channel that is closed when the session value is revoked
+// or dropped, and its expiry, for work that must end with the session (such
+// as event streams). ok is false if value isn't a live session.
+func (s *Store) Done(value string) (done <-chan struct{}, exp time.Time, ok bool) {
+	e, ok := s.live(value)
+	if !ok {
+		return nil, time.Time{}, false
+	}
+	return e.done, e.exp, true
+}
+
+func (s *Store) live(value string) (*entry, bool) {
+	key := sha256.Sum256([]byte(value))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.sessions[key]
+	if !ok {
+		return nil, false
+	}
+	if !s.now().Before(e.exp) {
+		s.endLocked(key, e)
+		return nil, false
+	}
+	return e, true
+}
+
+// Revoke ends the session value, if there is one.
+func (s *Store) Revoke(value string) {
+	key := sha256.Sum256([]byte(value))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e, ok := s.sessions[key]; ok {
+		s.endLocked(key, e)
+	}
+}
+
+func (s *Store) endLocked(key [sha256.Size]byte, e *entry) {
+	close(e.done)
+	delete(s.sessions, key)
 }
 
 // Limiter counts failed attempts per key (e.g. client address) in a sliding
-// window.
+// window. It tracks at most maxKeys keys, so many addresses can't make it
+// grow without bound; once full, failures from new keys share one bucket.
 type Limiter struct {
-	max    int
-	window time.Duration
-	now    func() time.Time
+	max     int
+	window  time.Duration
+	now     func() time.Time
+	maxKeys int
 
-	mu       sync.Mutex
-	failures map[string][]time.Time
+	mu        sync.Mutex
+	failures  map[string][]time.Time
+	lastPrune time.Time
 }
+
+// DefaultMaxKeys is how many keys a Limiter tracks.
+const DefaultMaxKeys = 10_000
+
+// overflowKey is the shared bucket for keys a full Limiter can't track.
+const overflowKey = "\x00overflow"
 
 // NewLimiter allows at most max failures per key within window.
 func NewLimiter(max int, window time.Duration) *Limiter {
-	return &Limiter{max: max, window: window, now: time.Now, failures: map[string][]time.Time{}}
+	return &Limiter{max: max, window: window, now: time.Now, maxKeys: DefaultMaxKeys, failures: map[string][]time.Time{}}
 }
 
-// Allowed reports whether key may try again, and if not, how long it has to
-// wait.
-func (l *Limiter) Allowed(key string) (bool, time.Duration) {
+// Attempt records an attempt by key that succeeded or failed (the caller has
+// already checked the token) and reports whether it may proceed; if not, how
+// long key has to wait. While key has max failures within the window, every
+// attempt is refused, a correct one too: otherwise the answer would tell
+// which guess was right. Refused attempts aren't counted; a successful one
+// clears key's failures. Checking and counting happen under one lock, so
+// parallel attempts can't slip past the limit.
+//
+// When the Limiter is full, keys it doesn't track share one bucket: during
+// an attack from very many addresses, new clients may then have to wait,
+// but guessing stays limited.
+func (l *Limiter) Attempt(key string, success bool) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	now := l.now()
+	// Pruning costs a pass over all keys; do it now and then, not on every
+	// attempt.
+	if now.Sub(l.lastPrune) >= l.window/10 {
+		l.pruneLocked()
+		l.lastPrune = now
+	}
+	if _, tracked := l.failures[key]; !tracked && len(l.failures) >= l.maxKeys {
+		key = overflowKey
+	}
 	recent := l.recentLocked(key)
-	if len(recent) < l.max {
+	if len(recent) >= l.max {
+		return false, recent[0].Add(l.window).Sub(now)
+	}
+	if success {
+		if key != overflowKey {
+			delete(l.failures, key)
+		}
 		return true, 0
 	}
-	return false, recent[0].Add(l.window).Sub(l.now())
+	l.failures[key] = append(recent, now)
+	return true, 0
 }
 
-// Fail records a failed attempt.
-func (l *Limiter) Fail(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.failures[key] = append(l.recentLocked(key), l.now())
-	// Drop keys without recent failures, so the map can't grow unbounded.
+// pruneLocked drops keys without recent failures.
+func (l *Limiter) pruneLocked() {
 	for k := range l.failures {
 		if len(l.recentLocked(k)) == 0 {
 			delete(l.failures, k)
 		}
 	}
-}
-
-// Reset forgets the failures of key, e.g. after a successful login.
-func (l *Limiter) Reset(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.failures, key)
 }
 
 // recentLocked returns key's failures within the window, oldest first.

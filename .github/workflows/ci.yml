@@ -111,9 +111,10 @@ jobs:
       - name: Smoke test
         run: |
           stacks="$PWD/dev/stacks"
+          token=$(openssl rand -hex 24)
           docker network create gantry-smoke
           docker run -d --name gantry-smoke --network gantry-smoke --network-alias agent \
-            -e GANTRY_TOKEN=smoke -e GANTRY_STACKS_DIR="$stacks" \
+            -e GANTRY_TOKEN="$token" -e GANTRY_STACKS_DIR="$stacks" \
             -v /var/run/docker.sock:/var/run/docker.sock -v "$stacks:$stacks" \
             -p 127.0.0.1:7070:7070 gantry-agent:smoke
           docker run -d --name gantry-web-smoke --network gantry-smoke \
@@ -121,12 +122,12 @@ jobs:
             -p 127.0.0.1:8080:8080 gantry-web:smoke
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:7070/healthz && break; sleep 1; done
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7070/api/v1/stacks)" = 401
-          curl -fsS -H "Authorization: Bearer smoke" http://127.0.0.1:7070/api/v1/stacks | tee stacks.json
+          curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:7070/api/v1/stacks | tee stacks.json
           # servicesTotal comes from `docker compose config` inside the image.
           jq -e '.dockerAvailable and (.stacks[] | select(.name == "whoami") | .servicesTotal == 1)' stacks.json
 
           # Actions: the agent in the container runs `docker compose` itself.
-          api() { curl -fsS -H "Authorization: Bearer smoke" "$@"; }
+          api() { curl -fsS -H "Authorization: Bearer $token" "$@"; }
           run_action() {
             id=$(api -X POST "http://127.0.0.1:7070/api/v1/stacks/$1/actions/$2" | jq -r .id)
             for i in $(seq 1 120); do
@@ -158,7 +159,7 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' "$web/api/v1/stacks")" = 401
           # ...log in, then the session cookie works...
           curl -fsS -c cookies.txt -H "Origin: $web" -H "Content-Type: application/json" \
-            -d '{"token":"smoke"}' "$web/api/v1/session"
+            -d "{\"token\":\"$token\"}" "$web/api/v1/session"
           grep -q gantry_session cookies.txt
           curl -fsS -b cookies.txt "$web/api/v1/stacks" | jq -e '.stacks | length > 0'
           # ...and changing requests need the page's Origin (CSRF protection).

@@ -1,14 +1,17 @@
 // Package stackfiles reads and writes the files of managed stacks: the
 // Compose file and the .env file.
 //
-// Writes are atomic (temporary file, fsync, rename), never follow symbolic
-// links, and are guarded by versions: a writer sends the version it read and
-// gets ErrConflict if the file has changed since. .env values only leave
-// this package one at a time through RevealEnv.
+// All access goes through an os.Root on the stack directory, so no path can
+// lead outside it, even if files are swapped for links meanwhile. Symbolic
+// links are never read, written or followed. Writes are atomic (temporary
+// file, fsync, rename) and guarded by versions: a writer sends the version it
+// read and gets ErrConflict if the file has changed since. .env values only
+// leave this package one at a time through RevealEnv.
 package stackfiles
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -85,10 +88,53 @@ func Version(content []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// readFile reads a regular file of at most MaxSize. A missing file returns
-// nil content and no error.
-func readFile(path string) ([]byte, os.FileMode, error) {
-	info, err := os.Lstat(path)
+// errChanged means a file or directory was replaced while it was opened.
+var errChanged = errors.New("changed while it was opened")
+
+// openDir opens dir as an os.Root. dir itself must be a real directory, not
+// a symbolic link; its parent may be reached through links (configuration).
+func openDir(dir string) (*os.Root, error) {
+	parent, err := os.OpenRoot(filepath.Dir(dir))
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	name := filepath.Base(dir)
+	info, err := parent.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return nil, ErrSymlink
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", name)
+	}
+	root, err := parent.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	// Opened what was checked, not something swapped in meanwhile.
+	if opened, err := root.Stat("."); err != nil || !os.SameFile(info, opened) {
+		root.Close()
+		return nil, fmt.Errorf("%s: %w", name, errChanged)
+	}
+	return root, nil
+}
+
+// fileIn returns the name of file within dir; the agent only works on files
+// directly in a stack directory.
+func fileIn(dir, file string) (string, error) {
+	if filepath.Dir(file) != filepath.Clean(dir) {
+		return "", fmt.Errorf("%s is not in the stack directory", file)
+	}
+	return filepath.Base(file), nil
+}
+
+// readFile reads the regular file name in root, of at most MaxSize. A
+// missing file returns nil content and no error.
+func readFile(root *os.Root, name string) ([]byte, os.FileMode, error) {
+	info, err := root.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, 0, nil
 	}
@@ -99,19 +145,25 @@ func readFile(path string) ([]byte, os.FileMode, error) {
 		return nil, 0, ErrSymlink
 	}
 	if !info.Mode().IsRegular() {
-		return nil, 0, fmt.Errorf("%s is not a regular file", filepath.Base(path))
+		return nil, 0, fmt.Errorf("%s is not a regular file", name)
 	}
 	if info.Size() > MaxSize {
 		return nil, 0, ErrTooLarge
 	}
-	file, err := os.Open(path)
+	file, err := root.Open(name)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer file.Close()
+	if opened, err := file.Stat(); err != nil || !os.SameFile(info, opened) {
+		return nil, 0, fmt.Errorf("%s: %w", name, errChanged)
+	}
 	data, err := io.ReadAll(io.LimitReader(file, MaxSize+1))
 	if err != nil {
 		return nil, 0, err
+	}
+	if len(data) > MaxSize {
+		return nil, 0, ErrTooLarge
 	}
 	if data == nil {
 		data = []byte{}
@@ -119,38 +171,45 @@ func readFile(path string) ([]byte, os.FileMode, error) {
 	return data, info.Mode().Perm(), nil
 }
 
-// writeTemp writes content to a new hidden temporary file in dir.
-func writeTemp(dir, pattern string, content []byte, mode os.FileMode) (string, error) {
-	tmp, err := os.CreateTemp(dir, pattern)
+// writeNew writes content to the new file name in root, failing if it
+// exists, with exactly mode (not reduced by the umask).
+func writeNew(root *os.Root, name string, content []byte, mode os.FileMode) error {
+	file, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return "", err
+		return err
 	}
-	name := tmp.Name()
-	_, err = tmp.Write(content)
+	_, err = file.Write(content)
 	if err == nil {
-		err = tmp.Chmod(mode)
+		err = file.Chmod(mode)
 	}
 	if err == nil {
-		err = tmp.Sync()
+		err = file.Sync()
 	}
-	if cerr := tmp.Close(); err == nil {
+	if cerr := file.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
-		os.Remove(name)
-		return "", err
+		root.Remove(name)
 	}
-	return name, nil
+	return err
 }
 
-// replace moves tmp over path and syncs the directory, so the change
-// survives a crash.
-func replace(tmp, path string) error {
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+// writeTemp writes content to a new hidden temporary file in root and
+// returns its name.
+func writeTemp(root *os.Root, prefix, suffix string, content []byte, mode os.FileMode) (string, error) {
+	name := prefix + rand.Text() + suffix
+	return name, writeNew(root, name, content, mode)
+}
+
+// replace moves tmp over name in root and syncs the directory, so the change
+// survives a crash. Renaming replaces a symbolic link at name, never its
+// target.
+func replace(root *os.Root, tmp, name string) error {
+	if err := root.Rename(tmp, name); err != nil {
+		root.Remove(tmp)
 		return err
 	}
-	if d, err := os.Open(filepath.Dir(path)); err == nil {
+	if d, err := root.Open("."); err == nil {
 		d.Sync()
 		d.Close()
 	}
@@ -165,28 +224,37 @@ func (f *Files) ReplaceCompose(ctx context.Context, p compose.Project, version s
 		return "", ErrTooLarge
 	}
 	defer f.lock(p.Dir)()
+	name, err := fileIn(p.Dir, p.File)
+	if err != nil {
+		return "", err
+	}
+	root, err := openDir(p.Dir)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
 
-	current, mode, err := readFile(p.File)
+	current, mode, err := readFile(root, name)
 	if err != nil {
 		return "", err
 	}
 	if current == nil {
-		return "", fmt.Errorf("compose file %s: %w", filepath.Base(p.File), fs.ErrNotExist)
+		return "", fmt.Errorf("compose file %s: %w", name, fs.ErrNotExist)
 	}
 	if Version(current) != version {
 		return "", ErrConflict
 	}
 
-	tmp, err := writeTemp(p.Dir, ".gantry-compose-*.yaml", content, mode)
+	tmp, err := writeTemp(root, ".gantry-compose-", ".yaml", content, mode)
 	if err != nil {
 		return "", err
 	}
-	check := compose.Project{Name: p.Name, Dir: p.Dir, File: tmp}
-	if err := f.validator.Validate(ctx, check, filepath.Base(p.File)); err != nil {
-		os.Remove(tmp)
+	check := compose.Project{Name: p.Name, Dir: p.Dir, File: filepath.Join(p.Dir, tmp)}
+	if err := f.validator.Validate(ctx, check, name); err != nil {
+		root.Remove(tmp)
 		return "", err
 	}
-	if err := replace(tmp, p.File); err != nil {
+	if err := replace(root, tmp, name); err != nil {
 		return "", err
 	}
 	return Version(content), nil
@@ -201,7 +269,7 @@ type EnvInfo struct {
 
 // Env returns the variable names of a stack's .env file.
 func (f *Files) Env(p compose.Project) (EnvInfo, error) {
-	data, _, err := readFile(filepath.Join(p.Dir, EnvFileName))
+	data, err := readEnv(p)
 	if err != nil {
 		return EnvInfo{}, err
 	}
@@ -221,8 +289,12 @@ func envInfo(data []byte) EnvInfo {
 // it is. A new file gets mode 0600.
 func (f *Files) UpdateEnv(p compose.Project, version string, set map[string]string, del []string) (EnvInfo, error) {
 	defer f.lock(p.Dir)()
-	path := filepath.Join(p.Dir, EnvFileName)
-	data, mode, err := readFile(path)
+	root, err := openDir(p.Dir)
+	if err != nil {
+		return EnvInfo{}, err
+	}
+	defer root.Close()
+	data, mode, err := readFile(root, EnvFileName)
 	if err != nil {
 		return EnvInfo{}, err
 	}
@@ -235,6 +307,11 @@ func (f *Files) UpdateEnv(p compose.Project, version string, set map[string]stri
 
 	env := parseEnv(data)
 	for _, key := range del {
+		// Lines without a variable (comments, blank lines) have no key;
+		// an invalid one must not match them.
+		if !ValidKey(key) {
+			return EnvInfo{}, &InvalidVariableError{Key: key, Reason: "not a valid name (letters, digits and _, not starting with a digit)"}
+		}
 		env.remove(key)
 	}
 	// Sorted, so new variables are appended in a stable order.
@@ -253,11 +330,11 @@ func (f *Files) UpdateEnv(p compose.Project, version string, set map[string]stri
 		return EnvInfo{}, ErrTooLarge
 	}
 
-	tmp, err := writeTemp(p.Dir, ".gantry-env-*", out, mode)
+	tmp, err := writeTemp(root, ".gantry-env-", "", out, mode)
 	if err != nil {
 		return EnvInfo{}, err
 	}
-	if err := replace(tmp, path); err != nil {
+	if err := replace(root, tmp, EnvFileName); err != nil {
 		return EnvInfo{}, err
 	}
 	return envInfo(out), nil
@@ -266,7 +343,7 @@ func (f *Files) UpdateEnv(p compose.Project, version string, set map[string]stri
 // RevealEnv returns one variable's value as written in the .env file
 // (quotes removed, escapes decoded, variables not expanded).
 func (f *Files) RevealEnv(p compose.Project, key string) (string, error) {
-	data, _, err := readFile(filepath.Join(p.Dir, EnvFileName))
+	data, err := readEnv(p)
 	if err != nil {
 		return "", err
 	}
@@ -275,6 +352,17 @@ func (f *Files) RevealEnv(p compose.Project, key string) (string, error) {
 		return "", ErrVariableNotFound
 	}
 	return v, nil
+}
+
+// readEnv reads a stack's .env file; nil if there is none.
+func readEnv(p compose.Project) ([]byte, error) {
+	root, err := openDir(p.Dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	data, _, err := readFile(root, EnvFileName)
+	return data, err
 }
 
 // Create creates the stack directory stacksDir/name with a Compose file and,
@@ -291,23 +379,32 @@ func (f *Files) Create(ctx context.Context, stacksDir, name string, composeConte
 	if err := os.MkdirAll(stacksDir, 0o755); err != nil {
 		return "", err
 	}
-	if _, err := os.Lstat(final); err == nil {
+	root, err := os.OpenRoot(stacksDir)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	if _, err := root.Lstat(name); err == nil {
 		return "", ErrExists
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return "", err
 	}
 
-	staging, err := os.MkdirTemp(stacksDir, ".gantry-new-"+name+"-")
+	staging := ".gantry-new-" + name + "-" + rand.Text()
+	if err := root.Mkdir(staging, 0o700); err != nil {
+		return "", err
+	}
+	defer root.RemoveAll(staging) // a no-op after the rename
+	if err := root.Chmod(staging, 0o755); err != nil {
+		return "", err
+	}
+	dir, err := root.OpenRoot(staging)
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(staging) // a no-op after the rename
-	if err := os.Chmod(staging, 0o755); err != nil {
-		return "", err
-	}
+	defer dir.Close()
 
-	composePath := filepath.Join(staging, ComposeFileName)
-	if err := os.WriteFile(composePath, composeContent, 0o644); err != nil {
+	if err := writeNew(dir, ComposeFileName, composeContent, 0o644); err != nil {
 		return "", err
 	}
 	if len(env) > 0 {
@@ -322,20 +419,23 @@ func (f *Files) Create(ctx context.Context, stacksDir, name string, composeConte
 				return "", err
 			}
 		}
-		if err := os.WriteFile(filepath.Join(staging, EnvFileName), file.bytes(), 0o600); err != nil {
+		if err := writeNew(dir, EnvFileName, file.bytes(), 0o600); err != nil {
 			return "", err
 		}
 	}
-	check := compose.Project{Name: name, Dir: staging, File: composePath}
+	stagingDir := filepath.Join(stacksDir, staging)
+	check := compose.Project{Name: name, Dir: stagingDir, File: filepath.Join(stagingDir, ComposeFileName)}
 	if err := f.validator.Validate(ctx, check, ComposeFileName); err != nil {
 		return "", err
 	}
 
-	// Rename fails if the name was taken meanwhile; never overwrite.
-	if _, err := os.Lstat(final); err == nil {
+	// Check again: the name may have been taken meanwhile. Rename never
+	// replaces a non-empty directory; an empty one created in this instant
+	// would be replaced, which loses nothing.
+	if _, err := root.Lstat(name); err == nil {
 		return "", ErrExists
 	}
-	if err := os.Rename(staging, final); err != nil {
+	if err := root.Rename(staging, name); err != nil {
 		return "", err
 	}
 	return final, nil

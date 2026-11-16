@@ -91,6 +91,7 @@ func up(t *testing.T, project, file string) {
 func get(t *testing.T, h http.Handler, path string, v any) int {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -193,6 +194,7 @@ func TestStacksAgainstDocker(t *testing.T) {
 func post(t *testing.T, h http.Handler, path string) (int, []byte) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

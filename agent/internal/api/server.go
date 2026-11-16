@@ -6,8 +6,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/pixl-media/gantry/agent/internal/compose"
@@ -51,6 +55,14 @@ type Config struct {
 	Logs       LogService
 	Files      FileService
 	Logger     *slog.Logger // optional
+	// PublicOrigin is the web UI's origin (see ParsePublicURL), or "".
+	PublicOrigin string
+	// TrustedProxies are reverse proxies whose X-Forwarded-For and
+	// X-Forwarded-Proto the agent believes (see ParseTrustedProxies).
+	TrustedProxies []netip.Prefix
+	// AllowInsecureHTTP accepts credentials over plain HTTP from internet
+	// addresses.
+	AllowInsecureHTTP bool
 }
 
 // New returns the agent's HTTP handler.
@@ -58,16 +70,34 @@ func New(cfg Config) http.Handler {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	auth := &authenticator{token: cfg.Token, signer: session.NewSigner(cfg.Token, 0)}
-	h := &handlers{cfg: cfg, auth: auth, limiter: session.NewLimiter(maxFailedLogins, time.Minute)}
+	auth := &authenticator{
+		token:        cfg.Token,
+		sessions:     session.NewStore(0),
+		limiter:      session.NewLimiter(maxFailedAttempts, time.Minute),
+		failures:     newFailureLog(cfg.Logger),
+		net:          network{trusted: cfg.TrustedProxies, allowInsecureHTTP: cfg.AllowInsecureHTTP},
+		publicOrigin: cfg.PublicOrigin,
+		cookieName:   session.CookieName,
+	}
+	if strings.HasPrefix(cfg.PublicOrigin, "https://") {
+		auth.cookieName = "__Host-" + session.CookieName
+	}
+	h := &handlers{cfg: cfg, auth: auth}
 	invalid := ErrorCodeInvalidRequest
 	strict := NewStrictHandlerWithOptions(h, []StrictMiddlewareFunc{withRequest}, StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if tooLarge, ok := errors.AsType[*http.MaxBytesError](err); ok {
+				code := ErrorCodeRequestTooLarge
+				msg := fmt.Sprintf("request body larger than %d bytes", tooLarge.Limit)
+				writeJSON(w, http.StatusRequestEntityTooLarge, Error{Error: msg, Code: &code})
+				return
+			}
 			writeJSON(w, http.StatusBadRequest, Error{Error: err.Error(), Code: &invalid})
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			// The details (paths, commands) go to the log, not the client.
 			cfg.Logger.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
-			writeJSON(w, http.StatusInternalServerError, Error{Error: err.Error()})
+			writeJSON(w, http.StatusInternalServerError, Error{Error: "internal error; the agent's log has the details"})
 		},
 	})
 	mux := http.NewServeMux()
@@ -80,8 +110,33 @@ func New(cfg Config) http.Handler {
 	return auth.middleware(routes)
 }
 
-// maxFailedLogins is how many wrong tokens a client may send per minute.
-const maxFailedLogins = 10
+// Server limits. Requests are small and quick to read; only responses run
+// long. ReadTimeout doesn't cut event streams: net/http lifts the read
+// deadline once a request has been read (TestEventStreamOutlivesReadTimeout).
+const (
+	readHeaderTimeout = 10 * time.Second
+	readTimeout       = time.Minute
+	idleTimeout       = 2 * time.Minute
+	maxHeaderBytes    = 16 << 10
+)
+
+// NewServer returns the HTTP server for handler with the agent's limits, so
+// slow or endless requests can't hold connections. There is no WriteTimeout:
+// event streams stay open while an operation runs.
+func NewServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
+}
+
+// maxFailedAttempts is how many wrong tokens a client may send per minute,
+// by login or bearer header.
+const maxFailedAttempts = 10
 
 type requestKey struct{}
 

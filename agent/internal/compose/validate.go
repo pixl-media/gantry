@@ -32,10 +32,7 @@ func (c CLI) Validate(ctx context.Context, p Project, displayName string) error 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.bin(),
-		"compose", "-p", p.Name, "-f", p.File, "--project-directory", p.Dir,
-		"config", "--quiet", "--no-interpolate")
-	cmd.Dir = p.Dir
+	cmd := c.command(ctx, p, "config", "--quiet", "--no-interpolate")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err := cmd.Run()

@@ -4,9 +4,10 @@ Lightweight Docker Compose manager: a small headless **agent** that runs on a
 Docker host and exposes an HTTP API for managing Compose stacks, plus an
 optional **web UI** that runs as its own container.
 
-> Early stage. The agent lists stacks, shows their details and starts, stops,
-> restarts, updates and removes them; the web UI does all of that in the
-> browser, in English and German. Editing stacks comes next.
+> Early stage. The agent lists stacks, shows their details and logs, starts,
+> stops, restarts, updates and removes them, and edits, creates and deletes
+> managed stacks; the web UI does all of that in the browser, in English and
+> German.
 
 ## Architecture
 
@@ -73,14 +74,20 @@ browser's language, switchable) and follows the system's light or dark mode.
 
 **Login:** enter the agent token once. The agent exchanges it for a session
 cookie that JavaScript can't read (`HttpOnly`, `SameSite=Strict`, 12 hours);
-the token itself is never stored in the browser.
+the token itself is never stored in the browser. Logging out ends the
+session at once; restarting the agent ends all sessions, so you log in again
+after an update. After 10 wrong tokens
+within a minute, by login or `Authorization` header, a client has to wait
+(`429` with `Retry-After`). Behind the web UI's proxy all browsers share one
+such limit.
 
 ## API
 
 Routes under `/api/` require authentication: `Authorization: Bearer
 <GANTRY_TOKEN>` for API clients, or the session cookie for the web UI. With
-the cookie, POST and DELETE requests must come from the same origin
-(`Origin` header), which protects against cross-site request forgery.
+the cookie, changing requests (POST, PUT, PATCH, DELETE) must come from the
+same origin (`Origin` header), which protects against cross-site request
+forgery.
 
 | Route | Description |
 |---|---|
@@ -109,7 +116,10 @@ return the Compose file as stored: variables like `${DB_PASSWORD}` stay
 unresolved. `.env` values are only returned one at a time by the reveal
 endpoint. Errors carry a machine-readable `code` (e.g. `stack_busy`,
 `stack_unmanaged`, `invalid_compose`, `version_conflict`). All `/api/`
-responses are sent with `Cache-Control: no-store`.
+responses are sent with `Cache-Control: no-store`. Request bodies are limited
+to 4 MiB (4 KiB for the login); larger ones are refused with `413
+request_too_large`. Requests must arrive within a minute; responses such as
+event streams may run as long as needed.
 
 ### Logs
 
@@ -121,7 +131,7 @@ repeating lines. `service` and `container` filter; `follow=false` ends after
 the past lines with an `end` event. Unmanaged stacks can be read too.
 
 ```bash
-curl -N -H "Authorization: Bearer dev" "http://127.0.0.1:7070/api/v1/stacks/whoami/logs?tail=20"
+curl -N -H "Authorization: Bearer $GANTRY_TOKEN" "http://127.0.0.1:7070/api/v1/stacks/whoami/logs?tail=20"
 # event: log
 # data: {"time":"2026-11-12T20:15:03.112Z","service":"whoami","container":"whoami-whoami-1","stream":"stdout","line":"Starting up on port 80"}
 ```
@@ -144,9 +154,9 @@ over SSH or in another browser tab, the agent answers `409
 version_conflict` instead of overwriting it.
 
 ```bash
-curl -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/stacks/whoami | jq -r .composeFile.version
+curl -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/stacks/whoami | jq -r .composeFile.version
 # 3b1f…
-curl -X PUT -H "Authorization: Bearer dev" -H "Content-Type: application/json" \
+curl -X PUT -H "Authorization: Bearer $GANTRY_TOKEN" -H "Content-Type: application/json" \
   -d '{"version":"3b1f…","content":"services:\n  whoami:\n    image: traefik/whoami:v1.12\n"}' \
   http://127.0.0.1:7070/api/v1/stacks/whoami/compose
 ```
@@ -192,10 +202,10 @@ Actions can take minutes (image pulls), so they run as operations: the
 request returns `202` with the operation at once, and you follow it.
 
 ```bash
-curl -X POST -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/stacks/whoami/actions/update
+curl -X POST -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/stacks/whoami/actions/update
 # {"id":"op_3f9c2a71b0de","stack":"whoami","action":"update","status":"running",...}
 
-curl -N -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/operations/op_3f9c2a71b0de/events
+curl -N -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/operations/op_3f9c2a71b0de/events
 # event: output
 # data: $ docker compose pull --ignore-buildable
 # ...
@@ -224,9 +234,13 @@ curl -N -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/operations/o
 
 | Variable | Default | Description |
 |---|---|---|
-| `GANTRY_TOKEN` | (required) | Token for the API and the web UI login; use at least 24 random characters (`openssl rand -hex 24`) |
+| `GANTRY_TOKEN` | (required) | Token for the API and the web UI login. Generate it: `openssl rand -hex 24`. The agent refuses tokens shorter than 24 characters, with fewer than 8 different characters, or made of one repeated piece |
+| `GANTRY_TOKEN_FILE` | (none) | Instead of `GANTRY_TOKEN`: a file holding the token, e.g. a systemd credential (`LoadCredential=`) or a Docker secret, so it isn't in the process environment |
 | `GANTRY_STACKS_DIR` | `/opt/stacks` | Directory with the managed stacks (same default as Dockge) |
-| `GANTRY_LISTEN` | `:7070` | Listen address |
+| `GANTRY_LISTEN` | `127.0.0.1:7070` (image: `:7070`) | Listen address. The binary only accepts local connections by default; set e.g. `:7070` to reach it from other hosts |
+| `GANTRY_TRUSTED_PROXIES` | (none) | Reverse proxies (IP addresses or CIDR prefixes, comma-separated) whose `X-Forwarded-For` and `X-Forwarded-Proto` the agent believes, such as the web UI's container. Then every client behind them has its own login limit |
+| `GANTRY_ALLOW_INSECURE_HTTP` | `false` | Accept tokens and session cookies over plain HTTP from internet addresses. Only if you know why: anyone on the way can read them. Also understood by the web UI's container |
+| `GANTRY_PUBLIC_URL` | (none) | Address of the web UI, e.g. `https://gantry.example.com`. If set, cookie-authenticated requests must come from exactly this origin, and with `https` the session cookie is `Secure` and named `__Host-gantry_session` |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker socket (only `unix://` is supported) |
 
 The stacks directory uses the same default and layout as Dockge, so gantry
@@ -261,28 +275,73 @@ services:
     environment:
       GANTRY_TOKEN: ${GANTRY_TOKEN}
       GANTRY_STACKS_DIR: /opt/stacks
-    ports:
-      - "7070:7070"
+      # The web UI below is a trusted proxy: every browser gets its own
+      # login limit.
+      GANTRY_TRUSTED_PROXIES: 172.30.250.0/24
+      # The web UI's address, see "Exposing gantry" below.
+      # GANTRY_PUBLIC_URL: https://gantry.example.com
+    # No published port: the web UI reaches the agent over the network
+    # below. For API clients on other hosts, publish it deliberately, e.g.
+    # "127.0.0.1:7070:7070" for this host only.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/stacks:/opt/stacks
+    logging:
+      options:
+        max-size: 10m
     restart: unless-stopped
 
-  # Optional web UI on port 8080. It forwards /api to the agent.
+  # Optional web UI. It forwards /api to the agent.
   gantry-web:
     image: ghcr.io/pixl-media/gantry-web:edge
     environment:
       GANTRY_AGENT_URL: http://gantry-agent:7070
     ports:
-      - "8080:8080"
+      # This host only. Docker's published ports bypass host firewalls
+      # (ufw, firewalld), so open it to others deliberately, behind HTTPS.
+      - "127.0.0.1:8080:8080"
+    logging:
+      options:
+        max-size: 10m
     restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        # Fixed, so GANTRY_TRUSTED_PROXIES can name it; pick another range
+        # if it collides with one of your networks.
+        - subnet: 172.30.250.0/24
 ```
 
-The web UI speaks plain HTTP on port 8080. For access beyond your own
-machine, put it behind a reverse proxy with HTTPS (e.g. Caddy, Traefik);
-proxies in private networks are trusted for `X-Forwarded-Proto`, so the
-session cookie is then marked `Secure`. The web container also works with an
-agent running as a systemd service: point `GANTRY_AGENT_URL` at it.
+The web UI speaks plain HTTP on port 8080. The web container also works with
+an agent running as a systemd service: point `GANTRY_AGENT_URL` at it, and
+set the agent's `GANTRY_LISTEN` so the container can reach it.
+
+**Exposing gantry.** The agent controls Docker, which is root on the host.
+gantry is built to stay safe even when exposed carelessly, but for access
+beyond your own machine:
+
+- **HTTPS is required from the internet.** Tokens and session cookies sent
+  over plain HTTP from an internet address are refused (`403
+  https_required`), by the agent and by the web UI's container; private
+  networks, VPN address space (100.64.0.0/10) and this host are fine. Put
+  gantry behind a reverse proxy with HTTPS (e.g. Caddy, Traefik). Proxies in
+  private networks are trusted for `X-Forwarded-Proto`, so the session cookie
+  is then marked `Secure`.
+- Publish ports deliberately: the agent's not at all if only the web UI
+  uses it, the web UI's on `127.0.0.1` or behind your proxy. Published
+  Docker ports bypass host firewalls.
+- Use a random token (`openssl rand -hex 24`); the agent refuses obviously
+  weak ones. Logins and bearer tokens are limited to 10 wrong attempts per
+  minute per client (per /64 for IPv6).
+- Give it **its own hostname**, such as `gantry.example.com`. Browsers send
+  cookies to every port of a host, so with the UI at `http://nas:8080`, the
+  session cookie also reaches every other web app on `http://nas:<port>`,
+  including the containers gantry manages, and any of them could use it.
+- Set `GANTRY_PUBLIC_URL` on the agent to that address. Changing requests from
+  the browser must then come from exactly this origin, and with HTTPS the
+  cookie is always `Secure` and can't be set by other hosts (`__Host-`).
 
 ## Layout
 
@@ -304,9 +363,9 @@ Requirements: Go 1.27+, Docker with the Compose plugin; for the web UI
 Node 24 and pnpm 10.
 
 ```bash
-make run               # agent on http://127.0.0.1:7070, token "dev", managing dev/stacks
+make run               # agent on http://127.0.0.1:7070, token from .env, managing dev/stacks
 make web-install       # once: install the web UI's dependencies
-make web               # web UI on http://127.0.0.1:5173 (in a second terminal), log in with "dev"
+make web               # web UI on http://127.0.0.1:5173 (in a second terminal), log in with the token from .env
 make docs              # Swagger UI on http://127.0.0.1:8082 (in a second terminal)
 make test              # unit tests, no Docker needed
 make test-integration  # unit + integration tests against the local Docker daemon
@@ -328,20 +387,25 @@ Try it: start an example stack with `docker compose up -d` in
 [`api.http`](api.http) (VS Code extension "REST Client"), or:
 
 ```bash
-curl -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/stacks
+export GANTRY_TOKEN=$(sed -n 's/^GANTRY_TOKEN=//p' .env)
+curl -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/stacks
 ```
 
-Agent and web UI in containers: `cp .env.example .env && docker compose up
---build` (run from the repo root), then open http://127.0.0.1:8080 and log in
-with the token from `.env`.
+`make run` takes the token from `.env` (git-ignored) and creates that file
+with a random token on first use, so the dev agent never runs with a token
+anyone could guess. The agent refuses tokens shorter than 16 characters.
+
+Agent and web UI in containers: `make .env && docker compose up --build`
+(run from the repo root), then open http://127.0.0.1:8080 and log in with the
+token from `.env`.
 
 ### API docs
 
 `make docs` serves Swagger UI for `api/openapi.yaml` on
 http://127.0.0.1:8082 and forwards API requests to the agent on port 7070
 (`make run` or `docker compose up`). Everything comes from one address, so
-"Try it out" works without CORS: click "Authorize", enter the token (`dev`
-for `make run`), and send requests. The spec is re-read on every page load.
+"Try it out" works without CORS: click "Authorize", enter the token (from
+`.env` for `make run`), and send requests. The spec is re-read on every page load.
 This is a development tool only; the agent doesn't serve docs itself.
 
 Integration tests create their own stacks named `gantry-test-…` and remove

@@ -10,6 +10,9 @@ const translated = [
   'unauthorized',
   'version_conflict',
   'stack_exists',
+  'request_too_large',
+  'docker_unavailable',
+  'https_required',
 ] as const;
 
 type TranslatedCode = (typeof translated)[number];

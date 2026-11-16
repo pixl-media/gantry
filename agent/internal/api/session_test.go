@@ -1,6 +1,9 @@
 package api
 
 import (
+	"bytes"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +17,7 @@ const sameOriginHeader = "http://example.com"
 
 func login(t *testing.T, h http.Handler, token string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/session", strings.NewReader(`{"token":"`+token+`"}`))
+	req := newRequest(http.MethodPost, "/api/v1/session", strings.NewReader(`{"token":"`+token+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -41,7 +44,7 @@ func sessionCookieFrom(t *testing.T, h http.Handler) *http.Cookie {
 }
 
 func withCookie(method, path string, c *http.Cookie, origin string) *http.Request {
-	req := httptest.NewRequest(method, path, nil)
+	req := newRequest(method, path, nil)
 	req.AddCookie(c)
 	if origin != "" {
 		req.Header.Set("Origin", origin)
@@ -62,7 +65,7 @@ func TestLoginSetsSecureCookie(t *testing.T) {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
 	}
 	set := rec.Header().Get("Set-Cookie")
-	for _, want := range []string{"gantry_session=v1.", "HttpOnly", "SameSite=Strict", "Path=/", "Max-Age=43200"} {
+	for _, want := range []string{"gantry_session=", "HttpOnly", "SameSite=Strict", "Path=/", "Max-Age=43200"} {
 		if !strings.Contains(set, want) {
 			t.Errorf("Set-Cookie = %q, missing %q", set, want)
 		}
@@ -93,9 +96,9 @@ func TestCookieAuthentication(t *testing.T) {
 		t.Errorf("session with bearer = %+v", s)
 	}
 
-	// A tampered cookie is rejected.
+	// An unknown or altered cookie is rejected.
 	bad := *c
-	bad.Value = strings.Replace(c.Value, "v1.", "v1.9", 1)
+	bad.Value = c.Value + "x"
 	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", &bad, "")); rec.Code != http.StatusUnauthorized {
 		t.Errorf("tampered cookie = %d", rec.Code)
 	}
@@ -151,7 +154,7 @@ func TestLoginFailures(t *testing.T) {
 		t.Errorf("login from another site = %d", rec.Code)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/session", strings.NewReader("{not json"))
+	req := newRequest(http.MethodPost, "/api/v1/session", strings.NewReader("{not json"))
 	req.Header.Set("Content-Type", "application/json")
 	if rec := serve(h, req); rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid JSON = %d", rec.Code)
@@ -159,30 +162,138 @@ func TestLoginFailures(t *testing.T) {
 
 	// The wrong attempt above counts; after 10 in total the client is blocked,
 	// even with the right token.
-	for range maxFailedLogins - 1 {
+	for range maxFailedAttempts - 1 {
 		login(t, h, "wrong", nil)
 	}
 	rec = login(t, h, "t", nil)
 	if e := decode[Error](t, rec); rec.Code != http.StatusTooManyRequests || *e.Code != ErrorCodeTooManyAttempts || rec.Header().Get("Retry-After") == "" {
-		t.Errorf("after %d failures = %d %+v, Retry-After %q", maxFailedLogins, rec.Code, e, rec.Header().Get("Retry-After"))
+		t.Errorf("after %d failures = %d %+v, Retry-After %q", maxFailedAttempts, rec.Code, e, rec.Header().Get("Retry-After"))
+	}
+}
+
+// Guessing the token with bearer headers is limited like logins, and shares
+// the limit with them.
+func TestBearerGuessingIsLimited(t *testing.T) {
+	var logs bytes.Buffer
+	h := New(Config{Token: "the-token", Stacks: fakeStacks{}, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	get := func(token, remote string) *httptest.ResponseRecorder {
+		req := newRequest(http.MethodGet, "/api/v1/version", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		if remote != "" {
+			req.RemoteAddr = remote
+		}
+		return serve(h, req)
+	}
+
+	for i := range maxFailedAttempts {
+		if rec := get(fmt.Sprintf("guess-%d", i), ""); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("guess %d = %d", i, rec.Code)
+		}
+	}
+	rec := get("the-token", "")
+	if e := decode[Error](t, rec); rec.Code != http.StatusTooManyRequests || *e.Code != ErrorCodeTooManyAttempts || rec.Header().Get("Retry-After") == "" {
+		t.Errorf("right token while blocked = %d %+v, Retry-After %q", rec.Code, e, rec.Header().Get("Retry-After"))
+	}
+	if rec := login(t, h, "the-token", nil); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("login while blocked = %d, want 429 (shared limit)", rec.Code)
+	}
+	if rec := get("the-token", "10.0.0.7:4000"); rec.Code != http.StatusOK {
+		t.Errorf("another client = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(logs.String(), "failed authentication") || strings.Contains(logs.String(), "guess-") {
+		t.Errorf("logs must record failures without the token sent:\n%s", logs.String())
+	}
+}
+
+func TestParsePublicURL(t *testing.T) {
+	good := map[string]string{
+		"":                                "",
+		"https://gantry.example.com":      "https://gantry.example.com",
+		"https://Gantry.Example.com:443/": "https://gantry.example.com",
+		"http://nas.local:8080":           "http://nas.local:8080",
+	}
+	for in, want := range good {
+		if got, err := ParsePublicURL(in); err != nil || got != want {
+			t.Errorf("ParsePublicURL(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"ftp://x", "gantry.example.com", "https://", "https://x/sub", "https://x?a=1", "https://user@x"} {
+		if _, err := ParsePublicURL(bad); err == nil {
+			t.Errorf("ParsePublicURL(%q) accepted", bad)
+		}
+	}
+}
+
+// With an https public URL, the cookie gets the __Host- prefix and Secure,
+// and cookie requests must come from exactly that origin.
+func TestPublicOrigin(t *testing.T) {
+	const origin = "https://gantry.example.com"
+	h := New(Config{Token: "the-token", Stacks: fakeStacks{}, PublicOrigin: origin})
+
+	rec := login(t, h, "the-token", map[string]string{"Origin": origin})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("login = %d: %s", rec.Code, rec.Body)
+	}
+	set := rec.Header().Get("Set-Cookie")
+	for _, want := range []string{"__Host-gantry_session=", "Secure", "Path=/"} {
+		if !strings.Contains(set, want) {
+			t.Errorf("Set-Cookie = %q, missing %q", set, want)
+		}
+	}
+	if strings.Contains(set, "Domain=") {
+		t.Errorf("Set-Cookie = %q: __Host- cookies must not have a Domain", set)
+	}
+	c := rec.Result().Cookies()[0]
+
+	if rec := login(t, h, "the-token", map[string]string{"Origin": "http://gantry.example.com"}); rec.Code != http.StatusForbidden {
+		t.Errorf("login from the http origin = %d, want 403", rec.Code)
+	}
+	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", c, "")); rec.Code != http.StatusOK {
+		t.Errorf("GET with cookie = %d", rec.Code)
+	}
+	// Changing requests: the host alone isn't enough, the scheme must match.
+	for o, want := range map[string]int{origin: http.StatusBadRequest, "http://gantry.example.com": http.StatusForbidden} {
+		rec := serve(h, withCookie(http.MethodPost, "/api/v1/stacks/app/actions/explode", c, o))
+		if rec.Code != want {
+			t.Errorf("POST from %s = %d, want %d", o, rec.Code, want)
+		}
+	}
+	// The same value under the unprefixed name isn't a session.
+	plain := &http.Cookie{Name: "gantry_session", Value: c.Value}
+	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", plain, "")); rec.Code != http.StatusUnauthorized {
+		t.Errorf("unprefixed cookie = %d, want 401", rec.Code)
 	}
 }
 
 func TestLogout(t *testing.T) {
 	h, _ := newOpsServer(t, runner{})
 	// Public, so it works without (or with an expired) session.
-	rec := serve(h, httptest.NewRequest(http.MethodDelete, "/api/v1/session", nil))
+	rec := serve(h, newRequest(http.MethodDelete, "/api/v1/session", nil))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("logout = %d", rec.Code)
 	}
 	if set := rec.Header().Get("Set-Cookie"); !strings.Contains(set, "gantry_session=;") || !strings.Contains(set, "Max-Age=0") {
 		t.Errorf("Set-Cookie = %q, want an expired cookie", set)
 	}
+
+	// Logging out ends the session in the agent too: a copy of the cookie
+	// (say, captured by someone else) stops working at once.
+	c := sessionCookieFrom(t, h)
+	other := sessionCookieFrom(t, h)
+	if rec := serve(h, withCookie(http.MethodDelete, "/api/v1/session", c, sameOriginHeader)); rec.Code != http.StatusNoContent {
+		t.Fatalf("logout with cookie = %d", rec.Code)
+	}
+	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", c, "")); rec.Code != http.StatusUnauthorized {
+		t.Errorf("cookie after logout = %d, want 401", rec.Code)
+	}
+	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", other, "")); rec.Code != http.StatusOK {
+		t.Errorf("another session after logout = %d, want 200", rec.Code)
+	}
 }
 
 func TestSessionNeedsAuthentication(t *testing.T) {
 	h, _ := newOpsServer(t, runner{})
-	if rec := serve(h, httptest.NewRequest(http.MethodGet, "/api/v1/session", nil)); rec.Code != http.StatusUnauthorized {
+	if rec := serve(h, newRequest(http.MethodGet, "/api/v1/session", nil)); rec.Code != http.StatusUnauthorized {
 		t.Errorf("GET /api/v1/session without auth = %d", rec.Code)
 	}
 }

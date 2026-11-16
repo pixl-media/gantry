@@ -33,7 +33,8 @@ Run from the repo root:
   on either)
 - `make generate` – regenerate `agent/internal/api/api.gen.go` from
   `api/openapi.yaml` (CI fails if it's out of date)
-- `make run` – agent on 127.0.0.1:7070, token `dev`, stacks dir `dev/stacks`
+- `make run` – agent on 127.0.0.1:7070, stacks dir `dev/stacks`, token from
+  `.env` (git-ignored, created with a random token on first run)
 - `make docs` – dev-only Swagger UI on 127.0.0.1:8082, forwarding to the agent
   (`agent/tools/devdocs`, never part of the agent binary or image)
 - `make image` – build the Docker image
@@ -66,13 +67,14 @@ Web UI (`web/`, pnpm, Node 24):
   depends on interfaces so tests use fakes), `internal/operations` (async
   actions, one per stack, output buffer for live streams), `internal/logs`
   (merged stack logs with re-attach after restarts), `internal/session`
-  (signed session cookies, login rate limit), `internal/stackfiles` (stack
+  (in-memory sessions, login rate limit), `internal/stackfiles` (stack
   files: validated atomic writes, versions, layout-preserving `.env`),
   `internal/api` (HTTP wiring, auth and mapping to generated types).
 - Container state comes from the Engine API; anything that is Compose logic
   goes through the `docker compose` CLI (see `docs/decisions.md`).
 - Run Compose only through `compose.CLI` (`Run` / `Services` / `Validate`),
-  which always passes `-p`, `-f` and `--project-directory`. Never use
+  which always passes `-p`, `-f` and `--project-directory` and removes
+  `GANTRY_*` variables (the token) from Compose's environment. Never use
   `down -v` or any other volume removal; the only exception is the `delete`
   operation with `volumes=true` (decision 19).
 - Read and write stack files only through `internal/stackfiles` (validated,
@@ -129,6 +131,15 @@ session cookie), never log the token, and keep the dev setup bound to
   or `HttpOnly`.
 - **Never store tokens in the browser** (`localStorage`, `sessionStorage`,
   JS-readable cookies). The web UI only uses the `HttpOnly` session cookie.
+  Mutations whose variables hold the token or `.env` values use `gcTime: 0`.
+- **Sessions live in memory** (`session.Store`); logout revokes them. Wrong
+  tokens, by login or bearer header, count against one limiter; never let
+  the right token past it while a client is blocked.
+- **Request bodies are limited** in the auth middleware (`maxBody`,
+  `maxLoginBody`); raise them only deliberately.
+- **Errors:** unexpected errors (500) are logged, never returned with
+  details. Never show raw Compose output where it isn't asked for: it can
+  quote `.env` lines.
 
 - **Never expose secrets from stacks:** return Compose files as stored, never
   the resolved configuration (`docker compose config` output). `.env` values
@@ -137,4 +148,10 @@ session cookie), never log the token, and keep the dev setup bound to
 - **Never log values:** audit logs name the stack, file and keys, never
   `.env` values or file contents.
 - Validate stack names with `stacks.ValidName` before using them in paths or
-  commands.
+  commands. Symlinked stack directories and Compose files are never managed;
+  file access goes through `os.Root`.
+- **Assume exposure to the internet** (decision 21): credentials over plain
+  HTTP from internet addresses are refused (`network.insecure`), client
+  addresses come from `network.client` (trusted proxies only), the binary
+  listens on 127.0.0.1 by default. Keep new endpoints behind these checks.
+- Settled hardening decisions are in `docs/decisions.md` (20, 21).

@@ -307,3 +307,27 @@ func TestEmitErrorStops(t *testing.T) {
 		t.Errorf("err = %v, want %v", err, boom)
 	}
 }
+
+// Long past lines are limited by size too, keeping the newest.
+func TestBacklogByteLimit(t *testing.T) {
+	f := newFake(ctr("a", "app", "web", "running"))
+	long := strings.Repeat("x", 4<<10)
+	n := 2 * maxBacklogBytes / len(long)
+	for i := range n {
+		f.past["a"] = append(f.past["a"], entry(i, fmt.Sprintf("%d %s", i, long)))
+	}
+	var r recorder
+	if err := New(f).Stream(context.Background(), "app", Options{Tail: MaxTail}, r.emit, r.flush); err != nil {
+		t.Fatal(err)
+	}
+	size := 0
+	for _, l := range r.lines {
+		size += len(l.Text)
+	}
+	if size > maxBacklogBytes || len(r.lines) == 0 {
+		t.Fatalf("%d lines, %d bytes; limit %d bytes", len(r.lines), size, maxBacklogBytes)
+	}
+	if last := r.lines[len(r.lines)-1].Text; !strings.HasPrefix(last, fmt.Sprintf("%d ", n-1)) {
+		t.Errorf("the newest line is missing; last = %.20q", last)
+	}
+}

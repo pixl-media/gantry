@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
 	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 )
@@ -28,11 +29,11 @@ type fakeCompose struct {
 	err      error
 }
 
-func (f fakeCompose) Services(_ context.Context, dir, _ string) ([]string, error) {
+func (f fakeCompose) Services(_ context.Context, p compose.Project) ([]string, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	return f.services[filepath.Base(dir)], nil
+	return f.services[filepath.Base(p.Dir)], nil
 }
 
 // stacksDir creates a stacks directory with a compose.yaml per name.
@@ -253,7 +254,9 @@ func TestComposeErrorFallsBackToContainers(t *testing.T) {
 	if app.ServicesTotal != 1 || app.Status != StatusRunning {
 		t.Errorf("app = %+v, want 1 service from containers", app)
 	}
-	if len(l.Warnings) != 1 || !strings.Contains(l.Warnings[0], "compose not installed") {
+	// A general warning, not Compose's message, which can quote lines of
+	// the .env file.
+	if len(l.Warnings) != 1 || !strings.Contains(l.Warnings[0], "Compose can't read") || strings.Contains(l.Warnings[0], "compose not installed") {
 		t.Errorf("warnings = %v", l.Warnings)
 	}
 }
@@ -418,6 +421,72 @@ func TestRemove(t *testing.T) {
 	}
 }
 
+func TestRemoveKeepsComposeFileUntilLast(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can delete read-only directories")
+	}
+	dir := stacksDir(t, "app")
+	locked := filepath.Join(dir, "app", "data", "locked")
+	writeFile(t, filepath.Join(locked, "db"), "data")
+	os.Chmod(locked, 0o500)
+	t.Cleanup(func() { os.Chmod(locked, 0o700) })
+
+	if err := newManager(t, dir, fakeDocker{}, fakeCompose{}).Remove("app"); err == nil {
+		t.Fatal("Remove succeeded although data couldn't be deleted")
+	}
+	// The stack is still a stack, so the delete can be retried.
+	if _, err := os.Stat(filepath.Join(dir, "app", "compose.yaml")); err != nil {
+		t.Errorf("compose file gone after a failed remove: %v", err)
+	}
+}
+
+func TestSymlinksAreNotManaged(t *testing.T) {
+	dir := stacksDir(t, "real")
+	outside := normPath(t.TempDir())
+	writeFile(t, filepath.Join(outside, "compose.yaml"), "services: {}\n")
+	os.Symlink(outside, filepath.Join(dir, "linked"))
+	// A real directory whose Compose file is a link.
+	writeFile(t, filepath.Join(dir, "linkfile", "README.md"), "x\n")
+	os.Symlink(filepath.Join(outside, "compose.yaml"), filepath.Join(dir, "linkfile", "compose.yaml"))
+	m := newManager(t, dir, fakeDocker{}, fakeCompose{})
+
+	l, err := m.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Stacks) != 1 || l.Stacks[0].Name != "real" {
+		t.Errorf("stacks = %+v, want only real", l.Stacks)
+	}
+	joined := strings.Join(l.Warnings, "\n")
+	if !strings.Contains(joined, `"linked": a symbolic link`) || !strings.Contains(joined, "compose.yaml is a symbolic link") {
+		t.Errorf("warnings = %v", l.Warnings)
+	}
+	for _, name := range []string{"linked", "linkfile"} {
+		if _, err := m.Target(context.Background(), name); !errors.Is(err, ErrNotFound) {
+			t.Errorf("Target(%s) = %v, want ErrNotFound", name, err)
+		}
+	}
+}
+
+func TestUnmanagedComposeFileSymlinkIsNotRead(t *testing.T) {
+	ext := normPath(t.TempDir())
+	secret := filepath.Join(ext, "secret.yaml")
+	writeFile(t, secret, "password: hunter2\n")
+	link := filepath.Join(ext, "compose.yaml")
+	os.Symlink(secret, link)
+	c := ctr("ext", "x", "running", ext)
+	c.Labels[docker.LabelConfigFiles] = link
+	m := newManager(t, stacksDir(t), fakeDocker{containers: []docker.Container{c}}, fakeCompose{})
+
+	got, err := m.Get(context.Background(), "ext")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ComposeFile.Content != nil {
+		t.Errorf("content of a symlinked Compose file returned: %q", *got.ComposeFile.Content)
+	}
+}
+
 func TestComposeFileTooLarge(t *testing.T) {
 	dir := normPath(t.TempDir())
 	writeFile(t, filepath.Join(dir, "big", "compose.yaml"), strings.Repeat("#", maxComposeFileSize+1))
@@ -466,5 +535,16 @@ func TestMissingStacksDirectory(t *testing.T) {
 	writeFile(t, filepath.Join(missing, "app", "compose.yaml"), "services: {}\n")
 	if l, _ := m.List(context.Background()); len(l.Stacks) != 2 || len(l.Warnings) != 0 {
 		t.Errorf("after creating the directory: stacks = %+v, warnings = %v", l.Stacks, l.Warnings)
+	}
+}
+
+// Whether a Compose project uses a name can't be told without Docker.
+func TestTargetDockerUnavailable(t *testing.T) {
+	m := newManager(t, stacksDir(t, "app"), fakeDocker{err: errors.New("connection refused")}, fakeCompose{})
+	if _, err := m.Target(context.Background(), "app"); err != nil {
+		t.Errorf("managed stack: %v, want it found without Docker", err)
+	}
+	if _, err := m.Target(context.Background(), "other"); !errors.Is(err, ErrDockerUnavailable) {
+		t.Errorf("unknown name: %v, want ErrDockerUnavailable", err)
 	}
 }

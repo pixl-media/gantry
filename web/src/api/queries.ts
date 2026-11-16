@@ -8,9 +8,14 @@ export function useSession() {
   return $api.useQuery('get', '/api/v1/session', {}, { retry: false });
 }
 
+// gcTime 0 on mutations whose variables hold the token or .env values:
+// TanStack keeps a finished mutation, variables included, for 5 minutes by
+// default; this drops it once the component is gone.
+
 export function useLogin() {
   const queryClient = useQueryClient();
   return $api.useMutation('post', '/api/v1/session', {
+    gcTime: 0,
     onSuccess: () => queryClient.invalidateQueries(),
   });
 }
@@ -97,6 +102,7 @@ export function useEnv(name: string, enabled = true) {
 export function useUpdateEnv(name: string) {
   const queryClient = useQueryClient();
   return $api.useMutation('patch', '/api/v1/stacks/{name}/env', {
+    gcTime: 0,
     // The answer is the new state: keep the version current for the next
     // change.
     onSuccess: (data) =>
@@ -109,8 +115,6 @@ export function useUpdateEnv(name: string) {
 
 /** Reads one value on purpose. Never cached: the result stays in the caller. */
 export function useRevealEnv() {
-  // gcTime 0: the revealed value doesn't linger in the mutation cache after
-  // the tab is left.
   return $api.useMutation('post', '/api/v1/stacks/{name}/env/reveal', {
     gcTime: 0,
   });
@@ -118,7 +122,10 @@ export function useRevealEnv() {
 
 export function useCreateStack() {
   const invalidate = useInvalidateState();
-  return $api.useMutation('post', '/api/v1/stacks', { onSettled: invalidate });
+  return $api.useMutation('post', '/api/v1/stacks', {
+    gcTime: 0,
+    onSettled: invalidate,
+  });
 }
 
 export function useDeleteStack() {

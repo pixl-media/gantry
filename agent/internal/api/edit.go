@@ -182,7 +182,7 @@ func (h *handlers) RevealEnvValue(ctx context.Context, req RevealEnvValueRequest
 		if value, err = h.cfg.Files.RevealEnv(p, key); err == nil {
 			// Who saw which variable, never the value.
 			h.cfg.Logger.Info("env value revealed", "stack", req.Name, "key", key,
-				"client", clientAddr(requestFrom(ctx)))
+				"client", h.auth.net.client(requestFrom(ctx)).String())
 			return RevealEnvValue200JSONResponse{Key: key, Value: value}, nil
 		}
 		f = fileFailure(err)
@@ -213,6 +213,10 @@ func (h *handlers) CreateStack(ctx context.Context, req CreateStackRequestObject
 	switch _, err := h.cfg.Stacks.Target(ctx, name); {
 	case err == nil, errors.Is(err, stacks.ErrUnmanaged):
 		return CreateStack409JSONResponse(apiError(stackfiles.ErrExists, ErrorCodeStackExists)), nil
+	case errors.Is(err, stacks.ErrDockerUnavailable):
+		// Can't check for an existing project of that name, whose
+		// containers the new stack would take over.
+		return CreateStack503JSONResponse(apiError(errors.New("docker is unavailable, so it can't be checked whether the name is in use"), ErrorCodeDockerUnavailable)), nil
 	case !errors.Is(err, stacks.ErrNotFound):
 		return nil, err
 	}

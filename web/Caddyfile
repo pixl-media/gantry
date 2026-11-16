@@ -1,5 +1,7 @@
 {
 	admin off
+	# Nothing to remember between starts.
+	persist_config off
 	# TLS is left to a reverse proxy in front, if any.
 	auto_https off
 	servers {
@@ -16,6 +18,27 @@
 	# and no CORS is needed. The Host header is passed through, which the
 	# agent's same-origin check relies on. Event streams are flushed at once.
 	handle /api/* {
+		# The agent has its own, smaller limits (4 MiB, 4 KiB for the login);
+		# this one only keeps oversized uploads from reaching it.
+		request_body {
+			max_size 5MiB
+		}
+
+		# Tokens and session cookies must not cross the internet unencrypted:
+		# API requests from internet addresses over plain HTTP are refused.
+		# A reverse proxy with HTTPS in front sets X-Forwarded-Proto: https.
+		# GANTRY_ALLOW_INSECURE_HTTP=true turns this off, at your own risk.
+		@insecure {
+			not client_ip private_ranges 100.64.0.0/10
+			not header X-Forwarded-Proto https
+			expression `"{$GANTRY_ALLOW_INSECURE_HTTP:false}" != "true"`
+		}
+		header @insecure Content-Type application/json
+		respond @insecure `{"error":"refusing credentials sent over plain HTTP from an internet address: put gantry behind HTTPS (see the README), or set GANTRY_ALLOW_INSECURE_HTTP=true at your own risk","code":"https_required"}` 403
+
+		# The client's address goes to the agent in X-Forwarded-For; set
+		# GANTRY_TRUSTED_PROXIES on the agent to this container's address to
+		# give every browser its own login limit.
 		reverse_proxy {$GANTRY_AGENT_URL:http://agent:7070}
 	}
 

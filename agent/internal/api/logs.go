@@ -41,12 +41,13 @@ func (h *handlers) StreamStackLogs(ctx context.Context, req StreamStackLogsReque
 	if p.Container != nil {
 		opts.Container = *p.Container
 	}
-	return logStream{ctx: ctx, logs: h.cfg.Logs, stack: req.Name, opts: opts, logger: h.cfg.Logger}, nil
+	return logStream{ctx: ctx, bind: h.auth.sessionBound, logs: h.cfg.Logs, stack: req.Name, opts: opts, logger: h.cfg.Logger}, nil
 }
 
 // logStream writes a stack's logs as Server-Sent Events.
 type logStream struct {
 	ctx    context.Context
+	bind   func(context.Context) (context.Context, context.CancelFunc)
 	logs   LogService
 	stack  string
 	opts   logs.Options
@@ -54,6 +55,9 @@ type logStream struct {
 }
 
 func (s logStream) VisitStreamStackLogsResponse(w http.ResponseWriter) error {
+	ctx, cancel := s.bind(s.ctx)
+	defer cancel()
+	s.ctx = ctx
 	rc, err := startEventStream(w)
 	if err != nil {
 		return err

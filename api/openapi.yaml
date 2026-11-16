@@ -91,8 +91,8 @@ paths:
       description: |
         Exchanges the agent token for a session cookie (`HttpOnly`,
         `SameSite=Strict`, valid for 12 hours). Browsers never need to store
-        the token itself. The cookie is signed with a key derived from the
-        token, so changing `GANTRY_TOKEN` ends all sessions.
+        the token itself. Sessions live in the agent's memory: logging out
+        ends a session at once, and restarting the agent ends all of them.
 
         At most 10 failed attempts per minute and client address; after
         that, `429 too_many_attempts` with `Retry-After`.
@@ -129,6 +129,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/TooLarge"
         "429":
           description: "`too_many_attempts`: wait `Retry-After` seconds."
           headers:
@@ -212,6 +214,14 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           description: "`stack_exists`: a directory or Compose project with this name exists."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "503":
+          description: "`docker_unavailable`: Docker can't be reached, so it can't be checked whether a Compose project already uses the name."
           content:
             application/json:
               schema:
@@ -340,6 +350,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/TooLarge"
 
   /api/v1/stacks/{name}/env:
     get:
@@ -411,6 +423,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/TooLarge"
 
   /api/v1/stacks/{name}/env/reveal:
     post:
@@ -458,6 +472,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/TooLarge"
 
   /api/v1/stacks/{name}/logs:
     get:
@@ -714,12 +730,17 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: The agent's `GANTRY_TOKEN`.
+      description: >-
+        The agent's `GANTRY_TOKEN`. Wrong tokens count against the same limit
+        as failed logins: after 10 within a minute, a client gets
+        `429 too_many_attempts` with `Retry-After`, even with the right token.
     cookieAuth:
       type: apiKey
       in: cookie
       name: gantry_session
-      description: Session cookie from `POST /api/v1/session`.
+      description: >-
+        Session cookie from `POST /api/v1/session`. With an `https`
+        `GANTRY_PUBLIC_URL` it is named `__Host-gantry_session`.
 
   responses:
     Unauthorized:
@@ -736,6 +757,13 @@ components:
             $ref: "#/components/schemas/Error"
     NotFound:
       description: "`not_found`: no such stack or operation."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    TooLarge:
+      description: "`request_too_large`: the request body exceeds the agent's limit."
       content:
         application/json:
           schema:
@@ -758,6 +786,7 @@ components:
             - too_many_attempts
             - origin_rejected
             - invalid_request
+            - request_too_large
             - invalid_name
             - invalid_action
             - invalid_compose
@@ -767,6 +796,8 @@ components:
             - not_found
             - stack_busy
             - stack_unmanaged
+            - docker_unavailable
+            - https_required
             - operation_finished
         operation:
           type: string

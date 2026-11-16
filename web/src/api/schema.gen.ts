@@ -61,8 +61,8 @@ export interface paths {
          * Log in
          * @description Exchanges the agent token for a session cookie (`HttpOnly`,
          *     `SameSite=Strict`, valid for 12 hours). Browsers never need to store
-         *     the token itself. The cookie is signed with a key derived from the
-         *     token, so changing `GANTRY_TOKEN` ends all sessions.
+         *     the token itself. Sessions live in the agent's memory: logging out
+         *     ends a session at once, and restarting the agent ends all of them.
          *
          *     At most 10 failed attempts per minute and client address; after
          *     that, `429 too_many_attempts` with `Retry-After`.
@@ -393,7 +393,7 @@ export interface components {
              * @description Machine-readable reason, for clients to act on.
              * @enum {string}
              */
-            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "invalid_name" | "invalid_action" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "stack_busy" | "stack_unmanaged" | "operation_finished";
+            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "request_too_large" | "invalid_name" | "invalid_action" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "stack_busy" | "stack_unmanaged" | "docker_unavailable" | "https_required" | "operation_finished";
             /** @description For `stack_busy`, the ID of the running operation. */
             operation?: string;
         };
@@ -660,6 +660,15 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description `request_too_large`: the request body exceeds the agent's limit. */
+        TooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         /** @description Compose project name. */
@@ -783,6 +792,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            413: components["responses"]["TooLarge"];
             /** @description `too_many_attempts`: wait `Retry-After` seconds. */
             429: {
                 headers: {
@@ -873,6 +883,16 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             /** @description `stack_exists`: a directory or Compose project with this name exists. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            413: components["responses"]["TooLarge"];
+            /** @description `docker_unavailable`: Docker can't be reached, so it can't be checked whether a Compose project already uses the name. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1003,6 +1023,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            413: components["responses"]["TooLarge"];
         };
     };
     getEnv: {
@@ -1085,6 +1106,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            413: components["responses"]["TooLarge"];
         };
     };
     revealEnvValue: {
@@ -1140,6 +1162,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            413: components["responses"]["TooLarge"];
         };
     };
     streamStackLogs: {

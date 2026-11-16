@@ -118,6 +118,68 @@ func TestSymlinksAreNotEdited(t *testing.T) {
 	}
 }
 
+// A stack directory that is a symlink is not edited either: everything below
+// it would land in the link's target.
+func TestSymlinkedStackDirectoryIsNotEdited(t *testing.T) {
+	outside := t.TempDir()
+	os.WriteFile(filepath.Join(outside, "compose.yaml"), []byte("services: {}\n"), 0o644)
+	os.WriteFile(filepath.Join(outside, EnvFileName), []byte("TOKEN=x\n"), 0o600)
+	stacks := t.TempDir()
+	dir := filepath.Join(stacks, "linked")
+	if err := os.Symlink(outside, dir); err != nil {
+		t.Fatal(err)
+	}
+	p := compose.Project{Name: "linked", Dir: dir, File: filepath.Join(dir, "compose.yaml")}
+	f := New(&fakeValidator{})
+
+	if _, err := f.Env(p); !errors.Is(err, ErrSymlink) {
+		t.Errorf("Env: %v, want ErrSymlink", err)
+	}
+	if _, err := f.RevealEnv(p, "TOKEN"); !errors.Is(err, ErrSymlink) {
+		t.Errorf("RevealEnv: %v, want ErrSymlink", err)
+	}
+	if _, err := f.UpdateEnv(p, Version([]byte("TOKEN=x\n")), map[string]string{"A": "1"}, nil); !errors.Is(err, ErrSymlink) {
+		t.Errorf("UpdateEnv: %v, want ErrSymlink", err)
+	}
+	if _, err := f.ReplaceCompose(context.Background(), p, Version([]byte("services: {}\n")), []byte("services: {a: {}}\n")); !errors.Is(err, ErrSymlink) {
+		t.Errorf("ReplaceCompose: %v, want ErrSymlink", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(outside, "compose.yaml")); string(got) != "services: {}\n" {
+		t.Error("the Compose file behind the link was changed")
+	}
+	if got, _ := os.ReadFile(filepath.Join(outside, EnvFileName)); string(got) != "TOKEN=x\n" {
+		t.Error("the .env file behind the link was changed")
+	}
+	noTempFiles(t, outside)
+}
+
+func TestSymlinkedComposeFileIsNotEdited(t *testing.T) {
+	p := project(t, "services: {}\n")
+	outside := filepath.Join(t.TempDir(), "compose.yaml")
+	os.WriteFile(outside, []byte("services: {}\n"), 0o644)
+	link := filepath.Join(p.Dir, "compose.yaml")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	p.File = link
+	_, err := New(&fakeValidator{}).ReplaceCompose(context.Background(), p, Version([]byte("services: {}\n")), []byte("services: {a: {}}\n"))
+	if !errors.Is(err, ErrSymlink) {
+		t.Errorf("ReplaceCompose: %v, want ErrSymlink", err)
+	}
+	if got, _ := os.ReadFile(outside); string(got) != "services: {}\n" {
+		t.Error("the link's target was changed")
+	}
+}
+
+func TestComposeFileOutsideStackDirectory(t *testing.T) {
+	p := project(t, "services: {}\n")
+	p.File = filepath.Join(t.TempDir(), "compose.yaml")
+	os.WriteFile(p.File, []byte("services: {}\n"), 0o644)
+	if _, err := New(&fakeValidator{}).ReplaceCompose(context.Background(), p, Version([]byte("services: {}\n")), []byte("x: 1\n")); err == nil {
+		t.Error("ReplaceCompose wrote a file outside the stack directory")
+	}
+}
+
 func TestEnvLifecycle(t *testing.T) {
 	p := project(t, "services: {}\n")
 	f := New(&fakeValidator{})
@@ -200,5 +262,23 @@ func TestCreate(t *testing.T) {
 	entries, _ := os.ReadDir(stacksDir)
 	if len(entries) != 1 || entries[0].Name() != "app" {
 		t.Errorf("stacks dir after failed create: %v", entries)
+	}
+}
+
+// Lines without a variable have no key; deleting "" must not remove them.
+func TestUpdateEnvRejectsInvalidDeleteKeys(t *testing.T) {
+	p := project(t, "services: {}\n")
+	original := "# database\n\nDB_USER=admin\n"
+	path := filepath.Join(p.Dir, EnvFileName)
+	os.WriteFile(path, []byte(original), 0o600)
+	f := New(&fakeValidator{})
+	for _, key := range []string{"", "1BAD", "A B"} {
+		_, err := f.UpdateEnv(p, Version([]byte(original)), nil, []string{key})
+		if _, ok := errors.AsType[*InvalidVariableError](err); !ok {
+			t.Errorf("delete %q: %v, want InvalidVariableError", key, err)
+		}
+	}
+	if got, _ := os.ReadFile(path); string(got) != original {
+		t.Errorf(".env = %q, want it unchanged", got)
 	}
 }

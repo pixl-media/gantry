@@ -47,7 +47,7 @@ func newOpsServer(t *testing.T, r runner) (http.Handler, *operations.Manager) {
 
 func request(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(method, path, nil)
+	req := newRequest(method, path, nil)
 	req.Header.Set("Authorization", "Bearer t")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -257,7 +257,7 @@ func TestOperationEndpointsNeedToken(t *testing.T) {
 		{http.MethodPost, "/api/v1/operations/op_x/cancel"},
 	} {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(r.method, r.path, nil))
+		h.ServeHTTP(rec, newRequest(r.method, r.path, nil))
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s %s without token = %d", r.method, r.path, rec.Code)
 		}

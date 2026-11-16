@@ -1,9 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -53,7 +56,7 @@ func (f fakeStacks) Get(_ context.Context, name string) (stacks.Detail, error) {
 
 func do(t *testing.T, h http.Handler, path, token string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req := newRequest(http.MethodGet, path, nil)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -88,7 +91,7 @@ func TestAuth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := New(Config{Token: tt.token, Version: "test", Stacks: fakeStacks{}})
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := newRequest(http.MethodGet, tt.path, nil)
 			if tt.header != "" {
 				req.Header.Set("Authorization", tt.header)
 			}
@@ -167,10 +170,31 @@ func TestGetStackInvalidName(t *testing.T) {
 	}
 }
 
+// Unexpected errors go to the log; the client gets no paths or commands.
 func TestInternalError(t *testing.T) {
-	h := New(Config{Token: "t", Stacks: fakeStacks{err: errors.New("reading stacks directory: permission denied")}})
+	var logs bytes.Buffer
+	h := New(Config{
+		Token:  "t",
+		Stacks: fakeStacks{err: errors.New("reading stacks directory /opt/stacks: permission denied")},
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
 	rec := do(t, h, "/api/v1/stacks", "t")
-	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "permission denied") {
+	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "/opt/stacks") {
 		t.Errorf("status = %d, body = %s", rec.Code, rec.Body)
 	}
+	if !strings.Contains(logs.String(), "permission denied") {
+		t.Errorf("the log lacks the details:\n%s", logs.String())
+	}
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Error("X-Content-Type-Options: nosniff missing")
+	}
+}
+
+// newRequest is httptest.NewRequest from a local address. httptest's default
+// (192.0.2.1) is an internet address, from which plain HTTP with credentials
+// is refused; TestPlainHTTPFromTheInternet covers that.
+func newRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	req.RemoteAddr = "127.0.0.1:1234"
+	return req
 }

@@ -31,6 +31,9 @@ var (
 	// ErrUnmanaged means the stack is a Compose project outside the stacks
 	// directory. gantry shows it but doesn't change it.
 	ErrUnmanaged = errors.New("stack is not managed by gantry")
+	// ErrDockerUnavailable means Docker couldn't be asked, so it is unknown
+	// whether a Compose project of that name exists.
+	ErrDockerUnavailable = errors.New("docker is unavailable")
 )
 
 // DefaultDir is the default stacks directory. It's the same as Dockge's, and
@@ -117,7 +120,7 @@ type ContainerLister interface {
 
 // ServiceLister lists the services a Compose file defines.
 type ServiceLister interface {
-	Services(ctx context.Context, dir, file string) ([]string, error)
+	Services(ctx context.Context, p compose.Project) ([]string, error)
 }
 
 // Manager finds stacks in a stacks directory and on the Docker host.
@@ -214,30 +217,66 @@ func (m *Manager) Get(ctx context.Context, name string) (Detail, error) {
 
 // Remove permanently deletes the directory of the managed stack called name.
 // Callers must have stopped the stack first (the delete operation runs
-// `down` before this).
+// `down` before this). It works through an os.Root on the stacks directory,
+// so it never follows a symbolic link out of it, and removes the Compose
+// file last: if deleting the data fails partway (files the agent may not
+// delete), the stack stays listed and the delete can be retried.
 func (m *Manager) Remove(name string) error {
 	if !ValidName(name) {
 		return ErrInvalidName
 	}
-	dir := filepath.Join(m.dir, name)
-	// ValidName rules out separators and dots, so dir is a direct child of
-	// the stacks directory; still, never follow a symlink out of it.
-	info, err := os.Lstat(dir)
+	root, err := os.OpenRoot(m.dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() {
+	defer root.Close()
+	info, err := root.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() { // also for a symbolic link
 		return fmt.Errorf("stack %s: not a directory", name)
 	}
-	return os.RemoveAll(dir)
+	dir, err := root.OpenRoot(name)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	if opened, err := dir.Stat("."); err != nil || !os.SameFile(info, opened) {
+		return fmt.Errorf("stack %s: the directory changed while it was opened", name)
+	}
+	entries, err := fs.ReadDir(dir.FS(), ".")
+	if err != nil {
+		return err
+	}
+	var last []string
+	for _, e := range entries {
+		if slices.Contains(composeFileNames, e.Name()) {
+			last = append(last, e.Name())
+			continue
+		}
+		if err := dir.RemoveAll(e.Name()); err != nil {
+			return err
+		}
+	}
+	for _, name := range last {
+		if err := dir.Remove(name); err != nil {
+			return err
+		}
+	}
+	return root.Remove(name)
 }
 
 // Target returns the Compose project of the managed stack called name, to run
 // actions on. It returns ErrUnmanaged for Compose projects outside the stacks
-// directory and ErrNotFound if there is no such stack at all.
+// directory, ErrNotFound if there is no such stack at all, and
+// ErrDockerUnavailable if that can't be told because Docker is unreachable.
 func (m *Manager) Target(ctx context.Context, name string) (compose.Project, error) {
 	if !ValidName(name) {
 		return compose.Project{}, ErrInvalidName
@@ -251,7 +290,10 @@ func (m *Manager) Target(ctx context.Context, name string) (compose.Project, err
 		return compose.Project{Name: st.name, Dir: st.path, File: st.composeFile}, nil
 	}
 	containers, err := m.docker.ListComposeContainers(ctx)
-	if err == nil && slices.ContainsFunc(containers, func(c docker.Container) bool {
+	if err != nil {
+		return compose.Project{}, fmt.Errorf("%w: %v", ErrDockerUnavailable, err)
+	}
+	if slices.ContainsFunc(containers, func(c docker.Container) bool {
 		return c.Labels[docker.LabelProject] == name
 	}) {
 		return compose.Project{}, ErrUnmanaged
@@ -353,17 +395,31 @@ func (m *Manager) scan(only string) ([]*stack, []string, error) {
 			continue
 		}
 		path := filepath.Join(m.dir, name)
-		info, err := os.Stat(path) // follows symlinks
-		if err != nil || !info.IsDir() {
+		info, err := os.Lstat(path)
+		if err != nil {
+			continue
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			// Editing it would change files outside the stacks directory.
+			// Its containers still show up as an unmanaged stack.
+			if target, err := os.Stat(path); err == nil && target.IsDir() {
+				warnings = append(warnings, fmt.Sprintf("skipping %q: a symbolic link; gantry only manages real directories", name))
+			}
+			continue
+		}
+		if !info.IsDir() {
 			continue
 		}
 		if !ValidName(name) {
 			warnings = append(warnings, fmt.Sprintf("skipping directory %q: not a valid Compose project name (lowercase letters, digits, - and _)", name))
 			continue
 		}
-		file := findComposeFile(path)
+		file, problem := findComposeFile(path)
 		if file == "" {
-			warnings = append(warnings, fmt.Sprintf("skipping directory %q: no Compose file", name))
+			if problem == "" {
+				problem = "no Compose file"
+			}
+			warnings = append(warnings, fmt.Sprintf("skipping directory %q: %s", name, problem))
 			continue
 		}
 		stacks = append(stacks, &stack{name: name, managed: true, path: path, composeFile: file})
@@ -380,9 +436,12 @@ func (m *Manager) loadServices(ctx context.Context, stacks []*stack) {
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			services, err := m.compose.Services(ctx, st.path, st.composeFile)
+			services, err := m.compose.Services(ctx, compose.Project{Name: st.name, Dir: st.path, File: st.composeFile})
 			if err != nil {
-				st.warnings = append(st.warnings, fmt.Sprintf("reading services: %v", err))
+				// Not Compose's message: it can quote lines of the .env file,
+				// and this warning is shown on every refresh, unaudited.
+				// Saving the Compose file in the editor shows why it fails.
+				st.warnings = append(st.warnings, "Compose can't read this stack's files; run `docker compose config` in its directory, or save the Compose file in the editor, to see why")
 				services = containerServices(st.containers)
 			}
 			st.services = services
@@ -489,27 +548,51 @@ func containerServices(cs []docker.Container) []string {
 	return services
 }
 
-func findComposeFile(dir string) string {
+// findComposeFile returns the Compose file in dir, the one Compose itself
+// would use. If that one is a symbolic link, it returns "" and the reason.
+func findComposeFile(dir string) (string, string) {
 	for _, name := range composeFileNames {
 		p := filepath.Join(dir, name)
-		if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
-			return p
+		info, err := os.Lstat(p)
+		if err != nil {
+			continue
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return "", fmt.Sprintf("%s is a symbolic link; gantry only manages regular files", name)
+		}
+		if info.Mode().IsRegular() {
+			return p, ""
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // readComposeFile returns the raw content of a Compose file, or nil and a
-// warning if it can't or shouldn't be returned.
+// warning if it can't or shouldn't be returned. For unmanaged stacks the
+// path comes from container labels, which anyone who can start a container
+// can set, so only regular .yaml/.yml files are read, never symbolic links.
 func readComposeFile(path string) (*string, string) {
 	if ext := filepath.Ext(path); ext != ".yaml" && ext != ".yml" {
 		return nil, fmt.Sprintf("not returning %s: not a .yaml or .yml file", path)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Sprintf("can't read Compose file: %v", err)
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return nil, fmt.Sprintf("not returning %s: a symbolic link", path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Sprintf("not returning %s: not a regular file", path)
 	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Sprintf("can't read Compose file: %v", err)
 	}
 	defer f.Close()
+	if opened, err := f.Stat(); err != nil || !os.SameFile(info, opened) {
+		return nil, fmt.Sprintf("not returning %s: it changed while it was opened", path)
+	}
 	data, err := io.ReadAll(io.LimitReader(f, maxComposeFileSize+1))
 	if err != nil {
 		return nil, fmt.Sprintf("can't read Compose file: %v", err)

@@ -158,12 +158,52 @@ func TestStackLogsErrors(t *testing.T) {
 		t.Errorf("invalid name = %d", rec.Code)
 	}
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/stacks/app/logs", nil))
+	h.ServeHTTP(rec, newRequest(http.MethodGet, "/api/v1/stacks/app/logs", nil))
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("without token = %d", rec.Code)
 	}
 	body, _ := io.ReadAll(rec.Body)
 	if strings.Contains(string(body), "event:") {
 		t.Error("unauthorized request got a stream")
+	}
+}
+
+// A stream opened with a session ends when the session does, so a copy of
+// the cookie can't keep reading logs after the user logged out.
+func TestStreamEndsWithSession(t *testing.T) {
+	f := &fakeLogs{called: make(chan struct{})}
+	h := newLogsServer(f)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	c := sessionCookieFrom(t, h)
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/stacks/ext/logs", nil)
+	req.AddCookie(c)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	select {
+	case <-f.called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream never started")
+	}
+
+	logout, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/v1/session", nil)
+	logout.AddCookie(c)
+	if lr, err := http.DefaultClient.Do(logout); err != nil || lr.StatusCode != http.StatusNoContent {
+		t.Fatalf("logout: %v %v", lr, err)
+	}
+
+	ended := make(chan struct{})
+	go func() {
+		io.Copy(io.Discard, resp.Body)
+		close(ended)
+	}()
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream outlived the logout")
 	}
 }
