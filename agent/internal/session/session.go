@@ -1,17 +1,15 @@
-// Package session issues and verifies the web UI's session cookie and limits
-// failed logins.
+// Package session keeps the web UI's sessions and limits failed logins.
 //
-// Sessions are stateless: the cookie carries its expiry and an HMAC over it,
-// keyed with a key derived from the agent token. Sessions survive agent
-// restarts, and changing the token invalidates all of them.
+// Sessions live in the agent's memory: logging out ends a session at once,
+// and restarting the agent ends all of them. A session ID is 256 random bits;
+// the store keeps only its SHA-256, so the IDs exist only in the browsers'
+// cookies.
 package session
 
 import (
-	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -22,63 +20,81 @@ const CookieName = "gantry_session"
 // DefaultTTL is how long a session is valid.
 const DefaultTTL = 12 * time.Hour
 
-// Signer issues and verifies session cookie values.
-type Signer struct {
-	key []byte
+// maxSessions caps the store; beyond it the session expiring first is
+// dropped. Only logins with the right token create sessions.
+const maxSessions = 1000
+
+// Store issues, verifies and revokes sessions.
+type Store struct {
 	ttl time.Duration
 	now func() time.Time
+
+	mu       sync.Mutex
+	sessions map[[sha256.Size]byte]time.Time // hash of the ID -> expiry
 }
 
-// NewSigner returns a Signer whose key is derived from token. A zero ttl
-// means DefaultTTL.
-func NewSigner(token string, ttl time.Duration) *Signer {
+// NewStore returns an empty Store. A zero ttl means DefaultTTL.
+func NewStore(ttl time.Duration) *Store {
 	if ttl == 0 {
 		ttl = DefaultTTL
 	}
-	mac := hmac.New(sha256.New, []byte(token))
-	mac.Write([]byte("gantry session key v1"))
-	return &Signer{key: mac.Sum(nil), ttl: ttl, now: time.Now}
+	return &Store{ttl: ttl, now: time.Now, sessions: map[[sha256.Size]byte]time.Time{}}
 }
 
 // TTL returns how long issued sessions are valid.
-func (s *Signer) TTL() time.Duration { return s.ttl }
+func (s *Store) TTL() time.Duration { return s.ttl }
 
-// Issue returns a new cookie value and its expiry.
-func (s *Signer) Issue() (string, time.Time) {
+// Issue starts a session and returns its cookie value and expiry.
+func (s *Store) Issue() (string, time.Time) {
+	var id [32]byte
+	rand.Read(id[:]) // never fails (crypto/rand)
+	value := base64.RawURLEncoding.EncodeToString(id[:])
 	exp := s.now().Add(s.ttl).Truncate(time.Second)
-	payload := "v1." + strconv.FormatInt(exp.Unix(), 10)
-	return payload + "." + s.sign(payload), exp
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	for k, e := range s.sessions {
+		if !now.Before(e) {
+			delete(s.sessions, k)
+		}
+	}
+	if len(s.sessions) >= maxSessions {
+		var first [sha256.Size]byte
+		var firstExp time.Time
+		for k, e := range s.sessions {
+			if firstExp.IsZero() || e.Before(firstExp) {
+				first, firstExp = k, e
+			}
+		}
+		delete(s.sessions, first)
+	}
+	s.sessions[sha256.Sum256([]byte(value))] = exp
+	return value, exp
 }
 
-// Verify checks a cookie value and returns its expiry.
-func (s *Signer) Verify(value string) (time.Time, bool) {
-	version, rest, ok := strings.Cut(value, ".")
-	if !ok || version != "v1" {
-		return time.Time{}, false
-	}
-	expStr, sig, ok := strings.Cut(rest, ".")
+// Verify reports whether value is a live session, and its expiry.
+func (s *Store) Verify(value string) (time.Time, bool) {
+	key := sha256.Sum256([]byte(value))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	exp, ok := s.sessions[key]
 	if !ok {
 		return time.Time{}, false
 	}
-	payload := "v1." + expStr
-	if !hmac.Equal([]byte(sig), []byte(s.sign(payload))) {
-		return time.Time{}, false
-	}
-	unix, err := strconv.ParseInt(expStr, 10, 64)
-	if err != nil {
-		return time.Time{}, false
-	}
-	exp := time.Unix(unix, 0)
 	if !s.now().Before(exp) {
+		delete(s.sessions, key)
 		return time.Time{}, false
 	}
 	return exp, true
 }
 
-func (s *Signer) sign(payload string) string {
-	mac := hmac.New(sha256.New, s.key)
-	mac.Write([]byte(payload))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+// Revoke ends the session value, if there is one.
+func (s *Store) Revoke(value string) {
+	key := sha256.Sum256([]byte(value))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, key)
 }
 
 // Limiter counts failed attempts per key (e.g. client address) in a sliding

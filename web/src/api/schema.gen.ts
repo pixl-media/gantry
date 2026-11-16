@@ -61,8 +61,8 @@ export interface paths {
          * Log in
          * @description Exchanges the agent token for a session cookie (`HttpOnly`,
          *     `SameSite=Strict`, valid for 12 hours). Browsers never need to store
-         *     the token itself. The cookie is signed with a key derived from the
-         *     token, so changing `GANTRY_TOKEN` ends all sessions.
+         *     the token itself. Sessions live in the agent's memory: logging out
+         *     ends a session at once, and restarting the agent ends all of them.
          *
          *     At most 10 failed attempts per minute and client address; after
          *     that, `429 too_many_attempts` with `Retry-After`.

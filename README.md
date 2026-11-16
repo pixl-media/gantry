@@ -73,7 +73,9 @@ browser's language, switchable) and follows the system's light or dark mode.
 
 **Login:** enter the agent token once. The agent exchanges it for a session
 cookie that JavaScript can't read (`HttpOnly`, `SameSite=Strict`, 12 hours);
-the token itself is never stored in the browser. After 10 wrong tokens
+the token itself is never stored in the browser. Logging out ends the
+session at once; restarting the agent ends all sessions, so you log in again
+after an update. After 10 wrong tokens
 within a minute, by login or `Authorization` header, a client has to wait
 (`429` with `Retry-After`). Behind the web UI's proxy all browsers share one
 such limit.

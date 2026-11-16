@@ -67,7 +67,7 @@ Web UI (`web/`, pnpm, Node 24):
   depends on interfaces so tests use fakes), `internal/operations` (async
   actions, one per stack, output buffer for live streams), `internal/logs`
   (merged stack logs with re-attach after restarts), `internal/session`
-  (signed session cookies, login rate limit), `internal/stackfiles` (stack
+  (in-memory sessions, login rate limit), `internal/stackfiles` (stack
   files: validated atomic writes, versions, layout-preserving `.env`),
   `internal/api` (HTTP wiring, auth and mapping to generated types).
 - Container state comes from the Engine API; anything that is Compose logic

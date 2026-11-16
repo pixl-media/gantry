@@ -1,7 +1,6 @@
 package session
 
 import (
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -9,45 +8,69 @@ import (
 
 func TestIssueAndVerify(t *testing.T) {
 	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
-	s := NewSigner("secret-token", time.Hour)
+	s := NewStore(time.Hour)
 	s.now = func() time.Time { return now }
 
 	value, exp := s.Issue()
-	if !strings.HasPrefix(value, "v1.") || !exp.Equal(now.Add(time.Hour)) {
+	if len(value) < 40 || !exp.Equal(now.Add(time.Hour)) {
 		t.Fatalf("value = %q, exp = %v", value, exp)
 	}
 	if got, ok := s.Verify(value); !ok || !got.Equal(exp) {
 		t.Errorf("Verify = %v, %v", got, ok)
 	}
+	if other, _ := s.Issue(); other == value {
+		t.Error("two sessions got the same ID")
+	}
 
-	// Expired one second after the TTL.
+	// Expired at the TTL.
 	now = now.Add(time.Hour)
 	if _, ok := s.Verify(value); ok {
 		t.Error("expired session verified")
 	}
 }
 
-func TestVerifyRejectsTampering(t *testing.T) {
-	s := NewSigner("secret-token", time.Hour)
+func TestVerifyRejectsUnknownValues(t *testing.T) {
+	s := NewStore(time.Hour)
 	value, _ := s.Issue()
-	parts := strings.Split(value, ".")
-
-	// Extending the expiry invalidates the signature.
-	later := "v1.9999999999." + parts[2]
-	for _, v := range []string{"", "garbage", "v2." + parts[1] + "." + parts[2], later, value + "x", "v1." + parts[1]} {
+	for _, v := range []string{"", "garbage", value + "x", value[:len(value)-1]} {
 		if _, ok := s.Verify(v); ok {
 			t.Errorf("Verify(%q) = ok, want rejected", v)
 		}
 	}
+	// Another store (an agent restart) knows none of them.
+	if _, ok := NewStore(time.Hour).Verify(value); ok {
+		t.Error("a session survived the restart")
+	}
 }
 
-func TestTokenChangeInvalidatesSessions(t *testing.T) {
-	value, _ := NewSigner("old-token", time.Hour).Issue()
-	if _, ok := NewSigner("new-token", time.Hour).Verify(value); ok {
-		t.Error("session from the old token is still valid")
+func TestRevoke(t *testing.T) {
+	s := NewStore(time.Hour)
+	a, _ := s.Issue()
+	b, _ := s.Issue()
+	s.Revoke(a)
+	if _, ok := s.Verify(a); ok {
+		t.Error("revoked session still valid")
 	}
-	if _, ok := NewSigner("old-token", time.Hour).Verify(value); !ok {
-		t.Error("session should survive a restart with the same token")
+	if _, ok := s.Verify(b); !ok {
+		t.Error("revoking one session ended another")
+	}
+	s.Revoke("unknown") // no-op
+}
+
+func TestStoreIsBounded(t *testing.T) {
+	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	s := NewStore(time.Hour)
+	s.now = func() time.Time { return now }
+	first, _ := s.Issue()
+	for range maxSessions {
+		now = now.Add(time.Second) // later sessions expire later
+		s.Issue()
+	}
+	if len(s.sessions) != maxSessions {
+		t.Errorf("%d sessions stored, want at most %d", len(s.sessions), maxSessions)
+	}
+	if _, ok := s.Verify(first); ok {
+		t.Error("the oldest session should have been dropped")
 	}
 }
 

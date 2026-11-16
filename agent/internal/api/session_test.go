@@ -65,7 +65,7 @@ func TestLoginSetsSecureCookie(t *testing.T) {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
 	}
 	set := rec.Header().Get("Set-Cookie")
-	for _, want := range []string{"gantry_session=v1.", "HttpOnly", "SameSite=Strict", "Path=/", "Max-Age=43200"} {
+	for _, want := range []string{"gantry_session=", "HttpOnly", "SameSite=Strict", "Path=/", "Max-Age=43200"} {
 		if !strings.Contains(set, want) {
 			t.Errorf("Set-Cookie = %q, missing %q", set, want)
 		}
@@ -96,9 +96,9 @@ func TestCookieAuthentication(t *testing.T) {
 		t.Errorf("session with bearer = %+v", s)
 	}
 
-	// A tampered cookie is rejected.
+	// An unknown or altered cookie is rejected.
 	bad := *c
-	bad.Value = strings.Replace(c.Value, "v1.", "v1.9", 1)
+	bad.Value = c.Value + "x"
 	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", &bad, "")); rec.Code != http.StatusUnauthorized {
 		t.Errorf("tampered cookie = %d", rec.Code)
 	}
@@ -214,6 +214,20 @@ func TestLogout(t *testing.T) {
 	}
 	if set := rec.Header().Get("Set-Cookie"); !strings.Contains(set, "gantry_session=;") || !strings.Contains(set, "Max-Age=0") {
 		t.Errorf("Set-Cookie = %q, want an expired cookie", set)
+	}
+
+	// Logging out ends the session in the agent too: a copy of the cookie
+	// (say, captured by someone else) stops working at once.
+	c := sessionCookieFrom(t, h)
+	other := sessionCookieFrom(t, h)
+	if rec := serve(h, withCookie(http.MethodDelete, "/api/v1/session", c, sameOriginHeader)); rec.Code != http.StatusNoContent {
+		t.Fatalf("logout with cookie = %d", rec.Code)
+	}
+	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", c, "")); rec.Code != http.StatusUnauthorized {
+		t.Errorf("cookie after logout = %d, want 401", rec.Code)
+	}
+	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", other, "")); rec.Code != http.StatusOK {
+		t.Errorf("another session after logout = %d, want 200", rec.Code)
 	}
 }
 

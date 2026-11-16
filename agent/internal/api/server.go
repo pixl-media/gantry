@@ -61,10 +61,10 @@ func New(cfg Config) http.Handler {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 	auth := &authenticator{
-		token:   cfg.Token,
-		signer:  session.NewSigner(cfg.Token, 0),
-		limiter: session.NewLimiter(maxFailedAttempts, time.Minute),
-		logger:  cfg.Logger,
+		token:    cfg.Token,
+		sessions: session.NewStore(0),
+		limiter:  session.NewLimiter(maxFailedAttempts, time.Minute),
+		logger:   cfg.Logger,
 	}
 	h := &handlers{cfg: cfg, auth: auth}
 	invalid := ErrorCodeInvalidRequest

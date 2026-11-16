@@ -39,8 +39,8 @@ type authInfo struct {
 type authKey struct{}
 
 type authenticator struct {
-	token  string
-	signer *session.Signer
+	token    string
+	sessions *session.Store
 	// limiter counts wrong tokens per client, from logins and bearer
 	// headers alike.
 	limiter *session.Limiter
@@ -79,7 +79,7 @@ func (a *authenticator) authenticate(r *http.Request) (authInfo, error) {
 		return authInfo{}, errUnauthorized
 	}
 	if c, err := r.Cookie(session.CookieName); err == nil {
-		if exp, ok := a.signer.Verify(c.Value); ok {
+		if exp, ok := a.sessions.Verify(c.Value); ok {
 			return authInfo{method: authCookie, expires: exp}, nil
 		}
 	}

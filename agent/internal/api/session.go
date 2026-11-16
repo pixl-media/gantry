@@ -42,15 +42,21 @@ func (h *handlers) CreateSession(ctx context.Context, req CreateSessionRequestOb
 		return CreateSession401JSONResponse(apiError(errors.New("invalid token"), ErrorCodeInvalidToken)), nil
 	}
 
-	value, exp := h.auth.signer.Issue()
-	cookie := sessionCookie(r, value, int(h.auth.signer.TTL().Seconds()))
+	value, exp := h.auth.sessions.Issue()
+	cookie := sessionCookie(r, value, int(h.auth.sessions.TTL().Seconds()))
 	cookie.Expires = exp
 	c := cookie.String()
 	return CreateSession204Response{Headers: CreateSession204ResponseHeaders{SetCookie: &c}}, nil
 }
 
+// DeleteSession ends the session (it is public, so this also works with an
+// expired one) and clears the cookie.
 func (h *handlers) DeleteSession(ctx context.Context, _ DeleteSessionRequestObject) (DeleteSessionResponseObject, error) {
-	c := sessionCookie(requestFrom(ctx), "", -1).String()
+	r := requestFrom(ctx)
+	if old, err := r.Cookie(session.CookieName); err == nil {
+		h.auth.sessions.Revoke(old.Value)
+	}
+	c := sessionCookie(r, "", -1).String()
 	return DeleteSession204Response{Headers: DeleteSession204ResponseHeaders{SetCookie: &c}}, nil
 }
 
