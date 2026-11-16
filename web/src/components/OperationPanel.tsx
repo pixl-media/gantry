@@ -24,7 +24,7 @@ import { useOperationEvents } from '../api/events';
 import { useCancelOperation } from '../api/queries';
 import { errorMessage } from '../lib/errors';
 import { formatDateTime } from '../lib/format';
-import { monoFont } from '../theme';
+import { consoleColors, monoFont } from '../theme';
 import { useNotify } from './Notifications';
 import { OperationStatusChip } from './StatusChip';
 
@@ -141,8 +141,10 @@ export function OperationView({
           p: 1.5,
           overflow: 'auto',
           borderRadius: 1,
-          bgcolor: 'grey.900',
-          color: 'grey.100',
+          border: 1,
+          borderColor: 'divider',
+          bgcolor: consoleColors.background,
+          color: consoleColors.text,
           fontFamily: monoFont,
           fontSize: 13,
           lineHeight: 1.5,

@@ -23,7 +23,7 @@ import {
 } from '@codemirror/view';
 import { Box } from '@mui/material';
 import { useEffect, useRef } from 'react';
-import { monoFont } from '../theme';
+import { consoleColors, monoFont } from '../theme';
 
 export interface CodeEditorProps {
   value: string;
@@ -34,7 +34,8 @@ export interface CodeEditorProps {
 }
 
 /**
- * A YAML editor (CodeMirror 6), dark like the log view. Loaded lazily, so
+ * A YAML editor (CodeMirror 6), dark like the log view (One Dark's syntax
+ * colors on the console background). Loaded lazily, so
  * the main bundle doesn't carry it. Changes of `value` from outside (discard,
  * reload) replace the document.
  */
@@ -83,10 +84,24 @@ export default function CodeEditor({
           EditorView.updateListener.of((u) => {
             if (u.docChanged) latest.current.onChange?.(u.state.doc.toString());
           }),
-          EditorView.theme({
-            '&': { minHeight: `${minHeight}px`, fontSize: '13px' },
-            '.cm-scroller': { fontFamily: monoFont },
-          }),
+          EditorView.theme(
+            {
+              '&': {
+                minHeight: `${minHeight}px`,
+                fontSize: '13px',
+                backgroundColor: consoleColors.background,
+              },
+              '.cm-scroller': { fontFamily: monoFont },
+              '.cm-gutters': {
+                backgroundColor: consoleColors.background,
+                color: consoleColors.muted,
+              },
+              '.cm-activeLine, .cm-activeLineGutter': {
+                backgroundColor: consoleColors.hover,
+              },
+            },
+            { dark: true },
+          ),
         ],
       }),
     });
