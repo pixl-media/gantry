@@ -39,8 +39,28 @@ func newOpsServer(t *testing.T, r runner) (http.Handler, *operations.Manager) {
 	ops := operations.NewManager(context.Background(), r, operations.Options{})
 	st := fakeStacks{
 		unmanaged: []string{"ext"},
-		list:      stacks.List{DockerAvailable: true, Stacks: []stacks.Summary{{Name: "app", Managed: true, Status: stacks.StatusStopped}}},
-		detail:    stacks.Detail{Summary: stacks.Summary{Name: "app", Managed: true}},
+		plans: map[string]stacks.ServicePlan{
+			"solo": {
+				Service:  "solo",
+				Affected: []stacks.Affected{{Service: "solo", Effect: stacks.EffectRestart, Reason: stacks.ReasonTarget}},
+				Steps:    [][]string{{"stop", "solo"}, {"start", "solo"}},
+			},
+			"db": {
+				Service: "db",
+				Affected: []stacks.Affected{
+					{Service: "db", Effect: stacks.EffectRestart, Reason: stacks.ReasonTarget},
+					{Service: "app", Effect: stacks.EffectRestart, Reason: stacks.ReasonDependent},
+				},
+				Steps: [][]string{{"stop", "db", "app"}, {"start", "db", "app"}},
+			},
+			"blocker": {
+				Service:  "blocker",
+				Affected: []stacks.Affected{{Service: "blocker", Effect: stacks.EffectStart, Reason: stacks.ReasonTarget}},
+				Steps:    [][]string{{"up", "-d", "--no-deps", "blocker"}},
+			},
+		},
+		list:   stacks.List{DockerAvailable: true, Stacks: []stacks.Summary{{Name: "app", Managed: true, Status: stacks.StatusStopped}}},
+		detail: stacks.Detail{Summary: stacks.Summary{Name: "app", Managed: true}},
 	}
 	return New(Config{Token: "t", Stacks: st, Operations: ops}), ops
 }
@@ -262,4 +282,132 @@ func TestOperationEndpointsNeedToken(t *testing.T) {
 			t.Errorf("%s %s without token = %d", r.method, r.path, rec.Code)
 		}
 	}
+}
+
+func requestJSON(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := newRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer t")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestRunServiceAction(t *testing.T) {
+	h, ops := newOpsServer(t, runner{})
+
+	rec := request(t, h, http.MethodPost, "/api/v1/stacks/app/services/solo/actions/restart")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
+	}
+	op := decode[Operation](t, rec)
+	if op.Action != OperationActionRestart || op.Service == nil || *op.Service != "solo" ||
+		op.Services == nil || strings.Join(*op.Services, ",") != "solo" {
+		t.Errorf("operation = %+v", op)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/api/v1/operations/"+op.Id {
+		t.Errorf("Location = %q", loc)
+	}
+	waitDone(t, ops, op.Id)
+	detail := decode[OperationDetail](t, request(t, h, http.MethodGet, "/api/v1/operations/"+op.Id))
+	if !strings.Contains(detail.Output, "ran stop solo\n") || !strings.Contains(detail.Output, "ran start solo\n") ||
+		detail.Service == nil || *detail.Service != "solo" {
+		t.Errorf("detail = %+v", detail)
+	}
+}
+
+func TestServiceActionConfirmation(t *testing.T) {
+	h, ops := newOpsServer(t, runner{})
+	const path = "/api/v1/stacks/app/services/db/actions/restart"
+
+	// Without confirmation, the answer is the plan.
+	for _, body := range []string{"", `{}`, `{"confirm":["db"]}`, `{"confirm":["db","app","web"]}`, `{"confirm":["db","db"]}`} {
+		var rec *httptest.ResponseRecorder
+		if body == "" {
+			rec = request(t, h, http.MethodPost, path)
+		} else {
+			rec = requestJSON(t, h, http.MethodPost, path, body)
+		}
+		e := decode[Error](t, rec)
+		if rec.Code != http.StatusConflict || e.Code == nil || *e.Code != ErrorCodeConfirmationRequired || e.Plan == nil {
+			t.Fatalf("body %q: %d %+v", body, rec.Code, e)
+		}
+		p := *e.Plan
+		if p.Service != "db" || p.Action != ServiceActionRestart || len(p.Affected) != 2 ||
+			p.Affected[0] != (AffectedService{Service: "db", Effect: AffectedServiceEffectRestart, Reason: AffectedServiceReasonTarget}) ||
+			p.Affected[1] != (AffectedService{Service: "app", Effect: AffectedServiceEffectRestart, Reason: AffectedServiceReasonDependent}) {
+			t.Errorf("body %q: plan = %+v", body, p)
+		}
+	}
+	if got := ops.List("app"); len(got) != 0 {
+		t.Fatalf("operations started without confirmation: %+v", got)
+	}
+
+	// Confirming exactly the affected services, in any order, runs it.
+	rec := requestJSON(t, h, http.MethodPost, path, `{"confirm":["app","db"]}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("confirmed = %d: %s", rec.Code, rec.Body)
+	}
+	op := decode[Operation](t, rec)
+	if op.Services == nil || strings.Join(*op.Services, ",") != "db,app" {
+		t.Errorf("services = %v", op.Services)
+	}
+	waitDone(t, ops, op.Id)
+}
+
+func TestRunServiceActionErrors(t *testing.T) {
+	h, _ := newOpsServer(t, runner{})
+	tests := []struct {
+		path string
+		want int
+		code ErrorCode
+	}{
+		{"/api/v1/stacks/app/services/solo/actions/down", http.StatusBadRequest, ErrorCodeInvalidAction},
+		{"/api/v1/stacks/Bad.Name/services/solo/actions/start", http.StatusBadRequest, ErrorCodeInvalidName},
+		{"/api/v1/stacks/app/services/-rm/actions/start", http.StatusBadRequest, ErrorCodeInvalidService},
+		{"/api/v1/stacks/nope/services/solo/actions/start", http.StatusNotFound, ErrorCodeNotFound},
+		{"/api/v1/stacks/app/services/missing/actions/start", http.StatusNotFound, ErrorCodeServiceNotFound},
+		{"/api/v1/stacks/ext/services/solo/actions/stop", http.StatusConflict, ErrorCodeStackUnmanaged},
+	}
+	for _, tt := range tests {
+		rec := request(t, h, http.MethodPost, tt.path)
+		e := decode[Error](t, rec)
+		if rec.Code != tt.want || e.Code == nil || *e.Code != tt.code {
+			t.Errorf("%s = %d %+v, want %d %s", tt.path, rec.Code, e, tt.want, tt.code)
+		}
+	}
+}
+
+func TestServiceActionsNeverPreempt(t *testing.T) {
+	block := make(chan struct{})
+	defer close(block)
+	h, ops := newOpsServer(t, runner{block: block})
+
+	// A service action is rejected while a stack action runs, even stop.
+	start := decode[Operation](t, request(t, h, http.MethodPost, "/api/v1/stacks/app/actions/start"))
+	rec := request(t, h, http.MethodPost, "/api/v1/stacks/app/services/solo/actions/stop")
+	e := decode[Error](t, rec)
+	if rec.Code != http.StatusConflict || *e.Code != ErrorCodeStackBusy || *e.Operation != start.Id {
+		t.Errorf("service stop while busy = %d %+v", rec.Code, e)
+	}
+	stop := decode[Operation](t, request(t, h, http.MethodPost, "/api/v1/stacks/app/actions/stop"))
+	waitDone(t, ops, stop.Id)
+
+	// A running service action shows in the stack and is canceled by a
+	// stack stop.
+	svc := decode[Operation](t, request(t, h, http.MethodPost, "/api/v1/stacks/app/services/blocker/actions/start"))
+	detail := decode[StackDetail](t, request(t, h, http.MethodGet, "/api/v1/stacks/app"))
+	if a := detail.ActiveOperation; a == nil || a.Id != svc.Id || a.Service == nil || *a.Service != "blocker" {
+		t.Errorf("activeOperation = %+v", a)
+	}
+	rec = request(t, h, http.MethodPost, "/api/v1/stacks/app/actions/stop")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("stack stop = %d: %s", rec.Code, rec.Body)
+	}
+	stop = decode[Operation](t, rec)
+	if s := waitDone(t, ops, svc.Id); s.Status != operations.StatusCanceled || s.CanceledBy != stop.Id {
+		t.Errorf("service action = %+v, want canceled by %s", s, stop.Id)
+	}
+	waitDone(t, ops, stop.Id)
 }

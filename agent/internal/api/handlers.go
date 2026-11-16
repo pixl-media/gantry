@@ -129,7 +129,11 @@ func (h *handlers) activeOperation(stack string) *ActiveOperation {
 	if !ok {
 		return nil
 	}
-	return &ActiveOperation{Id: s.ID, Action: OperationAction(s.Action)}
+	a := &ActiveOperation{Id: s.ID, Action: OperationAction(s.Action)}
+	if s.Service != "" {
+		a.Service = &s.Service
+	}
+	return a
 }
 
 func apiError(err error, code ErrorCode) Error {

@@ -26,6 +26,7 @@ type StackService interface {
 	List(ctx context.Context) (stacks.List, error)
 	Get(ctx context.Context, name string) (stacks.Detail, error)
 	Target(ctx context.Context, name string) (compose.Project, error)
+	PlanService(ctx context.Context, name, service string, action stacks.ServiceAction) (compose.Project, stacks.ServicePlan, error)
 	Remove(name string) error
 	Dir() string
 }
@@ -33,6 +34,7 @@ type StackService interface {
 // OperationService is what the API needs from the operations package.
 type OperationService interface {
 	Start(p compose.Project, a operations.Action) (*operations.Operation, error)
+	StartService(p compose.Project, a operations.Action, service string, services []string, cmds [][]string) (*operations.Operation, error)
 	Delete(p compose.Project, volumes bool, remove func() error) (*operations.Operation, error)
 	Get(id string) (*operations.Operation, error)
 	Cancel(id string) (operations.Snapshot, error)

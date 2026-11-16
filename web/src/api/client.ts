@@ -12,6 +12,9 @@ export type Operation = components['schemas']['Operation'];
 export type OperationStatus = components['schemas']['OperationStatus'];
 export type ApiError = components['schemas']['Error'];
 export type Container = components['schemas']['Container'];
+export type Service = components['schemas']['Service'];
+export type ServiceAction = components['schemas']['ServiceAction'];
+export type ServiceActionPlan = components['schemas']['ServiceActionPlan'];
 
 let onUnauthorized: () => void = () => {};
 

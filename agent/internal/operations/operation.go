@@ -34,6 +34,8 @@ type Snapshot struct {
 	ExitCode   *int
 	Error      string
 	CanceledBy string
+	Service    string   // for a service action, the chosen service
+	Services   []string // for a service action, every affected service
 }
 
 // Operation is one action running or run on a stack. Its output is written
@@ -42,6 +44,8 @@ type Operation struct {
 	id        string
 	stack     string
 	action    Action
+	service   string   // set for service actions
+	services  []string // set for service actions; never changed
 	startedAt time.Time
 	maxOutput int
 	cancel    context.CancelFunc
@@ -95,6 +99,8 @@ func (o *Operation) snapshotLocked() Snapshot {
 		ExitCode:   o.exitCode,
 		Error:      o.errMsg,
 		CanceledBy: o.canceledBy,
+		Service:    o.service,
+		Services:   slices.Clone(o.services),
 	}
 	if o.status != StatusRunning {
 		t := o.finishedAt

@@ -293,6 +293,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stacks/{name}/services/{service}/actions/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run an action on one service of a stack
+         * @description Starts an action on one service as an asynchronous operation, like
+         *     the stack actions. gantry follows the service's dependencies
+         *     (`depends_on`, `network_mode: service:…`, `volumes_from`) in both
+         *     directions and hands Compose exactly the affected services, with
+         *     `--no-deps`:
+         *
+         *     | Action | Compose | Affected |
+         *     |---|---|---|
+         *     | `start` | `up -d --no-deps` | The service, and its dependencies that aren't running |
+         *     | `stop` | `stop` | The service, and the running services that depend on it |
+         *     | `restart` | `stop`, then `start` | The service and its running dependents; stopped dependencies are started first |
+         *     | `update` | `pull --ignore-buildable`, then `up -d --no-deps` | Pulls and recreates the service, starts stopped dependencies, then restarts its running dependents |
+         *
+         *     If other services than the chosen one are affected, the agent
+         *     answers `409 confirmation_required` with the `plan`. Send the
+         *     request again with `confirm` listing exactly the affected services
+         *     to run it. The plan is worked out again when the action starts; if
+         *     it changed in between, the answer is another `confirmation_required`.
+         *
+         *     Only managed stacks can be changed. Service actions never cancel a
+         *     running operation: while one runs, the answer is `stack_busy`.
+         */
+        post: operations["runServiceAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operations": {
         parameters: {
             query?: never;
@@ -393,9 +433,10 @@ export interface components {
              * @description Machine-readable reason, for clients to act on.
              * @enum {string}
              */
-            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "request_too_large" | "invalid_name" | "invalid_action" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "stack_busy" | "stack_unmanaged" | "docker_unavailable" | "https_required" | "operation_finished";
+            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "request_too_large" | "invalid_name" | "invalid_action" | "invalid_service" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "service_not_found" | "confirmation_required" | "stack_busy" | "stack_unmanaged" | "docker_unavailable" | "https_required" | "operation_finished";
             /** @description For `stack_busy`, the ID of the running operation. */
             operation?: string;
+            plan?: components["schemas"]["ServiceActionPlan"];
         };
         LoginRequest: {
             /** @description The agent's `GANTRY_TOKEN`. */
@@ -459,6 +500,8 @@ export interface components {
         ActiveOperation: {
             id: string;
             action: components["schemas"]["OperationAction"];
+            /** @description For a service action, the chosen service. */
+            service?: string;
         };
         StackList: {
             stacks: components["schemas"]["StackSummary"][];
@@ -586,6 +629,39 @@ export interface components {
         };
         /** @enum {string} */
         StackAction: "start" | "stop" | "restart" | "update" | "down";
+        /** @enum {string} */
+        ServiceAction: "start" | "stop" | "restart" | "update";
+        ServiceActionRequest: {
+            /**
+             * @description The affected services from a `confirmation_required` answer,
+             *     confirming that all of them may be changed. The order doesn't
+             *     matter.
+             */
+            confirm?: string[];
+        };
+        /** @description What a service action would change. */
+        ServiceActionPlan: {
+            service: string;
+            action: components["schemas"]["ServiceAction"];
+            /** @description Every service the action changes, the chosen one first. */
+            affected: components["schemas"]["AffectedService"][];
+        };
+        AffectedService: {
+            service: string;
+            /**
+             * @description `start`: started if it isn't running. `stop`: stopped.
+             *     `restart`: stopped and started again. `recreate`: image pulled
+             *     and container recreated if it changed.
+             * @enum {string}
+             */
+            effect: "start" | "stop" | "restart" | "recreate";
+            /**
+             * @description `target`: the chosen service. `dependency`: the chosen service
+             *     needs it. `dependent`: it needs the chosen service.
+             * @enum {string}
+             */
+            reason: "target" | "dependency" | "dependent";
+        };
         /**
          * @description What an operation does; the stack actions plus `delete`.
          * @enum {string}
@@ -610,6 +686,10 @@ export interface components {
             error?: string;
             /** @description ID of the `stop` or `down` operation that canceled this one. */
             canceledBy?: string;
+            /** @description For a service action, the chosen service. */
+            service?: string;
+            /** @description For a service action, every service it changes. */
+            services?: string[];
         };
         OperationDetail: components["schemas"]["Operation"] & {
             /**
@@ -1240,6 +1320,80 @@ export interface operations {
              *     `operation`). `stack_unmanaged`: the stack isn't managed by gantry.
              */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    runServiceAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Compose project name. */
+                name: components["parameters"]["StackName"];
+                /** @description Service name from the Compose file. */
+                service: string;
+                action: components["schemas"]["ServiceAction"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ServiceActionRequest"];
+            };
+        };
+        responses: {
+            /** @description The operation was started. */
+            202: {
+                headers: {
+                    /** @description URL of the operation. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operation"];
+                };
+            };
+            /** @description `invalid_name`, `invalid_service`, `invalid_action` or `invalid_request`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description `not_found` (no such stack) or `service_not_found`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /**
+             * @description `confirmation_required`: other services are affected; they are
+             *     listed in `plan`. `stack_busy`: another operation runs on this
+             *     stack (its ID is in `operation`). `stack_unmanaged`: the stack
+             *     isn't managed by gantry.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `docker_unavailable`: the services' state couldn't be read. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

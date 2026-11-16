@@ -131,7 +131,8 @@
     "startedAt": "Started {{time}}",
     "action": "Action",
     "started": "Started",
-    "result": "Result"
+    "result": "Result",
+    "titleService": "{{action}} · {{stack}} / {{service}}"
   },
   "errors": {
     "stack_busy": "Another operation is running on this stack.",
@@ -145,7 +146,8 @@
     "stack_exists": "A stack with this name exists.",
     "request_too_large": "The request is too large.",
     "docker_unavailable": "Docker can't be reached right now. Try again in a moment.",
-    "https_required": "For security, gantry only accepts logins from the internet over HTTPS. Put it behind a reverse proxy with HTTPS."
+    "https_required": "For security, gantry only accepts logins from the internet over HTTPS. Put it behind a reverse proxy with HTTPS.",
+    "service_not_found": "This service isn't in the Compose file (any more)."
   },
   "notFound": {
     "title": "Page not found",
@@ -211,5 +213,39 @@
     "confirmLabel": "Type {{name}} to confirm",
     "submit": "Delete permanently",
     "cancel": "Cancel"
+  },
+  "service": {
+    "actions": "Actions for {{name}}",
+    "busy": "Another operation is running on this stack",
+    "hint": {
+      "start": "Start this service and the services it needs",
+      "stop": "Stop this service and the services that need it",
+      "restart": "Restart this service and the services that need it",
+      "update": "Pull the image, recreate this service and restart the services that need it"
+    },
+    "confirmTitle": {
+      "start": "Start {{name}}?",
+      "stop": "Stop {{name}}?",
+      "restart": "Restart {{name}}?",
+      "update": "Update {{name}}?"
+    },
+    "alsoAffected": "This also affects:",
+    "effect": {
+      "start": "started",
+      "stop": "stopped",
+      "restart": "restarted",
+      "recreate": "updated"
+    },
+    "reason": {
+      "dependency": "{{name}} needs it",
+      "dependent": "needs {{name}}"
+    },
+    "confirm": {
+      "start": "Start {{n}} services",
+      "stop": "Stop {{n}} services",
+      "restart": "Restart {{n}} services",
+      "update": "Update {{n}} services"
+    },
+    "changed": "The services' state changed in the meantime. Please check the list again."
   }
 }

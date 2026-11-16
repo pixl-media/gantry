@@ -448,3 +448,51 @@ func TestLongLinesAreSplit(t *testing.T) {
 		t.Errorf("partial = %d bytes, lines = %d; want 10 and 3", partial, lines)
 	}
 }
+
+func TestStartService(t *testing.T) {
+	r := &fakeRunner{}
+	m := NewManager(context.Background(), r, Options{})
+	op, err := m.StartService(project, ActionRestart, "db", []string{"db", "app"},
+		[][]string{{"stop", "db", "app"}, {"start", "db", "app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := wait(t, op)
+	if s.Status != StatusSucceeded || s.Service != "db" || strings.Join(s.Services, ",") != "db,app" || s.Action != ActionRestart {
+		t.Errorf("snapshot = %+v", s)
+	}
+	if got := strings.Join(r.callList(), "|"); got != "app: stop db app|app: start db app" {
+		t.Errorf("calls = %s", got)
+	}
+
+	for _, cmds := range [][][]string{
+		{{"down", "-v"}},
+		{{"stop", "db"}, {"rm", "--volumes", "db"}},
+		{{"up", "-d", "--remove-orphans", "db"}},
+	} {
+		if _, err := m.StartService(project, ActionStop, "db", []string{"db"}, cmds); err == nil {
+			t.Errorf("%v: want error", cmds)
+		}
+	}
+	if _, err := m.StartService(project, ActionDown, "db", []string{"db"}, [][]string{{"stop", "db"}}); err == nil {
+		t.Error("down as a service action: want error")
+	}
+}
+
+func TestServiceActionNeverPreempts(t *testing.T) {
+	started := make(chan struct{}, 1)
+	r := &fakeRunner{behavior: map[string]func(context.Context, io.Writer) (int, error){"up": blockUntilCanceled(started)}}
+	m := NewManager(context.Background(), r, Options{})
+	start, err := m.Start(project, ActionStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var busy *BusyError
+	if _, err := m.StartService(project, ActionStop, "db", []string{"db"}, [][]string{{"stop", "db"}}); !errors.As(err, &busy) || busy.Active.ID != start.ID() {
+		t.Errorf("service stop while busy = %v", err)
+	}
+	if _, err := m.Cancel(start.ID()); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, start)
+}

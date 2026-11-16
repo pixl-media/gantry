@@ -18,6 +18,51 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AffectedServiceEffect.
+const (
+	AffectedServiceEffectRecreate AffectedServiceEffect = "recreate"
+	AffectedServiceEffectRestart  AffectedServiceEffect = "restart"
+	AffectedServiceEffectStart    AffectedServiceEffect = "start"
+	AffectedServiceEffectStop     AffectedServiceEffect = "stop"
+)
+
+// Valid indicates whether the value is a known member of the AffectedServiceEffect enum.
+func (e AffectedServiceEffect) Valid() bool {
+	switch e {
+	case AffectedServiceEffectRecreate:
+		return true
+	case AffectedServiceEffectRestart:
+		return true
+	case AffectedServiceEffectStart:
+		return true
+	case AffectedServiceEffectStop:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AffectedServiceReason.
+const (
+	AffectedServiceReasonDependency AffectedServiceReason = "dependency"
+	AffectedServiceReasonDependent  AffectedServiceReason = "dependent"
+	AffectedServiceReasonTarget     AffectedServiceReason = "target"
+)
+
+// Valid indicates whether the value is a known member of the AffectedServiceReason enum.
+func (e AffectedServiceReason) Valid() bool {
+	switch e {
+	case AffectedServiceReasonDependency:
+		return true
+	case AffectedServiceReasonDependent:
+		return true
+	case AffectedServiceReasonTarget:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ContainerHealth.
 const (
 	ContainerHealthHealthy   ContainerHealth = "healthy"
@@ -44,29 +89,34 @@ func (e ContainerHealth) Valid() bool {
 
 // Defines values for ErrorCode.
 const (
-	ErrorCodeDockerUnavailable ErrorCode = "docker_unavailable"
-	ErrorCodeHttpsRequired     ErrorCode = "https_required"
-	ErrorCodeInvalidAction     ErrorCode = "invalid_action"
-	ErrorCodeInvalidCompose    ErrorCode = "invalid_compose"
-	ErrorCodeInvalidName       ErrorCode = "invalid_name"
-	ErrorCodeInvalidRequest    ErrorCode = "invalid_request"
-	ErrorCodeInvalidToken      ErrorCode = "invalid_token"
-	ErrorCodeInvalidVariable   ErrorCode = "invalid_variable"
-	ErrorCodeNotFound          ErrorCode = "not_found"
-	ErrorCodeOperationFinished ErrorCode = "operation_finished"
-	ErrorCodeOriginRejected    ErrorCode = "origin_rejected"
-	ErrorCodeRequestTooLarge   ErrorCode = "request_too_large"
-	ErrorCodeStackBusy         ErrorCode = "stack_busy"
-	ErrorCodeStackExists       ErrorCode = "stack_exists"
-	ErrorCodeStackUnmanaged    ErrorCode = "stack_unmanaged"
-	ErrorCodeTooManyAttempts   ErrorCode = "too_many_attempts"
-	ErrorCodeUnauthorized      ErrorCode = "unauthorized"
-	ErrorCodeVersionConflict   ErrorCode = "version_conflict"
+	ErrorCodeConfirmationRequired ErrorCode = "confirmation_required"
+	ErrorCodeDockerUnavailable    ErrorCode = "docker_unavailable"
+	ErrorCodeHttpsRequired        ErrorCode = "https_required"
+	ErrorCodeInvalidAction        ErrorCode = "invalid_action"
+	ErrorCodeInvalidCompose       ErrorCode = "invalid_compose"
+	ErrorCodeInvalidName          ErrorCode = "invalid_name"
+	ErrorCodeInvalidRequest       ErrorCode = "invalid_request"
+	ErrorCodeInvalidService       ErrorCode = "invalid_service"
+	ErrorCodeInvalidToken         ErrorCode = "invalid_token"
+	ErrorCodeInvalidVariable      ErrorCode = "invalid_variable"
+	ErrorCodeNotFound             ErrorCode = "not_found"
+	ErrorCodeOperationFinished    ErrorCode = "operation_finished"
+	ErrorCodeOriginRejected       ErrorCode = "origin_rejected"
+	ErrorCodeRequestTooLarge      ErrorCode = "request_too_large"
+	ErrorCodeServiceNotFound      ErrorCode = "service_not_found"
+	ErrorCodeStackBusy            ErrorCode = "stack_busy"
+	ErrorCodeStackExists          ErrorCode = "stack_exists"
+	ErrorCodeStackUnmanaged       ErrorCode = "stack_unmanaged"
+	ErrorCodeTooManyAttempts      ErrorCode = "too_many_attempts"
+	ErrorCodeUnauthorized         ErrorCode = "unauthorized"
+	ErrorCodeVersionConflict      ErrorCode = "version_conflict"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
 func (e ErrorCode) Valid() bool {
 	switch e {
+	case ErrorCodeConfirmationRequired:
+		return true
 	case ErrorCodeDockerUnavailable:
 		return true
 	case ErrorCodeHttpsRequired:
@@ -79,6 +129,8 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeInvalidRequest:
 		return true
+	case ErrorCodeInvalidService:
+		return true
 	case ErrorCodeInvalidToken:
 		return true
 	case ErrorCodeInvalidVariable:
@@ -90,6 +142,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeOriginRejected:
 		return true
 	case ErrorCodeRequestTooLarge:
+		return true
+	case ErrorCodeServiceNotFound:
 		return true
 	case ErrorCodeStackBusy:
 		return true
@@ -180,6 +234,30 @@ func (e OperationStatus) Valid() bool {
 	}
 }
 
+// Defines values for ServiceAction.
+const (
+	ServiceActionRestart ServiceAction = "restart"
+	ServiceActionStart   ServiceAction = "start"
+	ServiceActionStop    ServiceAction = "stop"
+	ServiceActionUpdate  ServiceAction = "update"
+)
+
+// Valid indicates whether the value is a known member of the ServiceAction enum.
+func (e ServiceAction) Valid() bool {
+	switch e {
+	case ServiceActionRestart:
+		return true
+	case ServiceActionStart:
+		return true
+	case ServiceActionStop:
+		return true
+	case ServiceActionUpdate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionMethod.
 const (
 	SessionMethodCookie SessionMethod = "cookie"
@@ -254,7 +332,32 @@ type ActiveOperation struct {
 	// Action What an operation does; the stack actions plus `delete`.
 	Action OperationAction `json:"action"`
 	Id     string          `json:"id"`
+
+	// Service For a service action, the chosen service.
+	Service *string `json:"service,omitempty"`
 }
+
+// AffectedService defines model for AffectedService.
+type AffectedService struct {
+	// Effect `start`: started if it isn't running. `stop`: stopped.
+	// `restart`: stopped and started again. `recreate`: image pulled
+	// and container recreated if it changed.
+	Effect AffectedServiceEffect `json:"effect"`
+
+	// Reason `target`: the chosen service. `dependency`: the chosen service
+	// needs it. `dependent`: it needs the chosen service.
+	Reason  AffectedServiceReason `json:"reason"`
+	Service string                `json:"service"`
+}
+
+// AffectedServiceEffect `start`: started if it isn't running. `stop`: stopped.
+// `restart`: stopped and started again. `recreate`: image pulled
+// and container recreated if it changed.
+type AffectedServiceEffect string
+
+// AffectedServiceReason `target`: the chosen service. `dependency`: the chosen service
+// needs it. `dependent`: it needs the chosen service.
+type AffectedServiceReason string
 
 // ComposeFile defines model for ComposeFile.
 type ComposeFile struct {
@@ -354,6 +457,9 @@ type Error struct {
 
 	// Operation For `stack_busy`, the ID of the running operation.
 	Operation *string `json:"operation,omitempty"`
+
+	// Plan What a service action would change.
+	Plan *ServiceActionPlan `json:"plan,omitempty"`
 }
 
 // ErrorCode Machine-readable reason, for clients to act on.
@@ -413,6 +519,12 @@ type Operation struct {
 	// Id Example: op_3f9c2a71b0de
 	Id string `json:"id"`
 
+	// Service For a service action, the chosen service.
+	Service *string `json:"service,omitempty"`
+
+	// Services For a service action, every service it changes.
+	Services *[]string `json:"services,omitempty"`
+
 	// Stack Example: whoami
 	Stack     string          `json:"stack"`
 	StartedAt time.Time       `json:"startedAt"`
@@ -443,6 +555,12 @@ type OperationDetail struct {
 	// Output Compose output so far. Limited to the last 1 MiB; a first line
 	// says so if earlier output was dropped.
 	Output string `json:"output"`
+
+	// Service For a service action, the chosen service.
+	Service *string `json:"service,omitempty"`
+
+	// Services For a service action, every service it changes.
+	Services *[]string `json:"services,omitempty"`
 
 	// Stack Example: whoami
 	Stack     string          `json:"stack"`
@@ -477,6 +595,26 @@ type Port struct {
 type Service struct {
 	Containers []Container `json:"containers"`
 	Name       string      `json:"name"`
+}
+
+// ServiceAction defines model for ServiceAction.
+type ServiceAction string
+
+// ServiceActionPlan What a service action would change.
+type ServiceActionPlan struct {
+	Action ServiceAction `json:"action"`
+
+	// Affected Every service the action changes, the chosen one first.
+	Affected []AffectedService `json:"affected"`
+	Service  string            `json:"service"`
+}
+
+// ServiceActionRequest defines model for ServiceActionRequest.
+type ServiceActionRequest struct {
+	// Confirm The affected services from a `confirmation_required` answer,
+	// confirming that all of them may be changed. The order doesn't
+	// matter.
+	Confirm *[]string `json:"confirm,omitempty"`
 }
 
 // Session defines model for Session.
@@ -649,6 +787,9 @@ type UpdateEnvJSONRequestBody = EnvUpdate
 // RevealEnvValueJSONRequestBody defines body for RevealEnvValue for application/json ContentType.
 type RevealEnvValueJSONRequestBody = EnvRevealRequest
 
+// RunServiceActionJSONRequestBody defines body for RunServiceAction for application/json ContentType.
+type RunServiceActionJSONRequestBody = ServiceActionRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// ListOperations List recent operations
@@ -702,6 +843,9 @@ type ServerInterface interface {
 	// StreamStackLogs Container logs (Server-Sent Events)
 	// (GET /api/v1/stacks/{name}/logs)
 	StreamStackLogs(w http.ResponseWriter, r *http.Request, name StackName, params StreamStackLogsParams)
+	// RunServiceAction Run an action on one service of a stack
+	// (POST /api/v1/stacks/{name}/services/{service}/actions/{action})
+	RunServiceAction(w http.ResponseWriter, r *http.Request, name StackName, service string, action ServiceAction)
 	// GetVersion Agent version
 	// (GET /api/v1/version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
@@ -1201,6 +1345,50 @@ func (siw *ServerInterfaceWrapper) StreamStackLogs(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// RunServiceAction operation middleware
+func (siw *ServerInterfaceWrapper) RunServiceAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name StackName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "service" -------------
+	var service string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service", r.PathValue("service"), &service, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "action" -------------
+	var action ServiceAction
+
+	err = runtime.BindStyledParameterWithOptions("simple", "action", r.PathValue("action"), &action, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunServiceAction(w, r, name, service, action)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetVersion operation middleware
 func (siw *ServerInterfaceWrapper) GetVersion(w http.ResponseWriter, r *http.Request) {
 
@@ -1364,6 +1552,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks/{name}/env/reveal", wrapper.RevealEnvValue)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}/logs", wrapper.StreamStackLogs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks/{name}/actions/{action}", wrapper.RunStackAction)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks/{name}/services/{service}/actions/{action}", wrapper.RunServiceAction)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/operations", wrapper.ListOperations)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/operations/{id}", wrapper.GetOperation)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/operations/{id}/events", wrapper.StreamOperationEvents)
@@ -2601,6 +2790,111 @@ func (response StreamStackLogs404JSONResponse) VisitStreamStackLogsResponse(w ht
 	return err
 }
 
+type RunServiceActionRequestObject struct {
+	Name    StackName     `json:"name"`
+	Service string        `json:"service"`
+	Action  ServiceAction `json:"action"`
+	Body    *RunServiceActionJSONRequestBody
+}
+
+type RunServiceActionResponseObject interface {
+	VisitRunServiceActionResponse(w http.ResponseWriter) error
+}
+
+type RunServiceAction202ResponseHeaders struct {
+	Location *string
+}
+
+type RunServiceAction202JSONResponse struct {
+	Body    Operation
+	Headers RunServiceAction202ResponseHeaders
+}
+
+func (response RunServiceAction202JSONResponse) VisitRunServiceActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunServiceAction400JSONResponse Error
+
+func (response RunServiceAction400JSONResponse) VisitRunServiceActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunServiceAction401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RunServiceAction401JSONResponse) VisitRunServiceActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunServiceAction404JSONResponse Error
+
+func (response RunServiceAction404JSONResponse) VisitRunServiceActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunServiceAction409JSONResponse Error
+
+func (response RunServiceAction409JSONResponse) VisitRunServiceActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunServiceAction503JSONResponse Error
+
+func (response RunServiceAction503JSONResponse) VisitRunServiceActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetVersionRequestObject struct {
 }
 
@@ -2710,6 +3004,9 @@ type StrictServerInterface interface {
 	// StreamStackLogs Container logs (Server-Sent Events)
 	// (GET /api/v1/stacks/{name}/logs)
 	StreamStackLogs(ctx context.Context, request StreamStackLogsRequestObject) (StreamStackLogsResponseObject, error)
+	// RunServiceAction Run an action on one service of a stack
+	// (POST /api/v1/stacks/{name}/services/{service}/actions/{action})
+	RunServiceAction(ctx context.Context, request RunServiceActionRequestObject) (RunServiceActionResponseObject, error)
 	// GetVersion Agent version
 	// (GET /api/v1/version)
 	GetVersion(ctx context.Context, request GetVersionRequestObject) (GetVersionResponseObject, error)
@@ -3220,6 +3517,44 @@ func (sh *strictHandler) StreamStackLogs(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(StreamStackLogsResponseObject); ok {
 		if err := validResponse.VisitStreamStackLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RunServiceAction operation middleware
+func (sh *strictHandler) RunServiceAction(w http.ResponseWriter, r *http.Request, name StackName, service string, action ServiceAction) {
+	var request RunServiceActionRequestObject
+
+	request.Name = name
+	request.Service = service
+	request.Action = action
+
+	var body RunServiceActionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RunServiceAction(ctx, request.(RunServiceActionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RunServiceAction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RunServiceActionResponseObject); ok {
+		if err := validResponse.VisitRunServiceActionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

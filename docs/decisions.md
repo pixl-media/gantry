@@ -191,6 +191,8 @@ current step.
 `down` never uses `-v`: removing volumes deletes data and would need its
 own, explicitly confirmed action. *That action is `delete` (decision 19).*
 
+*Actions on single services: decision 23.*
+
 ## 14. Web UI login: a session cookie from the agent
 
 **Decided 2026-11-12.** The agent token is root-equivalent on the host, so it
@@ -463,6 +465,49 @@ images and actions by digest.
   isn't bound by their own license anyway.
 - Open point: much of the code was written with an AI assistant, and how
   far such code is protected by copyright is legally unsettled.
+
+## 23. Actions on single services
+
+**Decided 2026-11-16.** `POST /api/v1/stacks/{name}/services/{service}/actions/{action}`
+runs `start`, `stop`, `restart` or `update` on one service of a managed
+stack, as an operation.
+
+- **The dependency chain in both directions.** Starting a service starts
+  the stopped services it needs; stopping it stops the running services that
+  need it (they would break); restarting or updating it restarts them, so
+  they reconnect. Dependencies are `depends_on`, `network_mode: service:…`
+  and `volumes_from`, as for Compose.
+
+  | Action | Compose |
+  |---|---|
+  | `start` | `up -d --no-deps <stopped dependencies> <service>` |
+  | `stop` | `stop <service> <running dependents>` |
+  | `restart` | `stop <service> <dependents>`, `up -d --no-deps <stopped dependencies>` if any, `start <service> <dependents>` |
+  | `update` | `pull --ignore-buildable <service>`, `up -d --no-deps <stopped dependencies> <service>`, then `stop` and `up -d --no-deps` of the running dependents |
+
+  Dependents are brought up with `up` after an update, not `start`: if they
+  share the service's network namespace or volumes, their containers must
+  be recreated for the new one. `restart` stays `stop` + `start`, for the
+  reasons in decision 13.
+- **gantry works out the set, not Compose.** Compose's own handling of
+  dependencies differs between commands and versions. gantry reads the graph
+  with `docker compose config --format json --no-interpolate` (keeping only
+  names and dependencies, decision 10), takes the running state from the
+  Engine API, and passes every affected service explicitly with `--no-deps`.
+  What was shown is exactly what runs.
+- **Confirmation without a race.** If more than the chosen service is
+  affected, the agent answers `409 confirmation_required` with the plan. The
+  request is repeated with `confirm`, the exact set of services; the agent
+  works out the plan again and runs it only if the set still matches. API
+  clients get the same protection as the web UI.
+- **Never more than that.** Service actions never use `-v`, `--volumes` or
+  `--remove-orphans` (project-wide), and `down` has no service variant. The
+  operations manager rejects such commands as a second line of defense.
+- **No precedence.** One operation per stack still applies. A service
+  action is rejected with `stack_busy` while any operation runs, even a
+  service `stop`; the stack's `stop`, `down` and `delete` cancel a running
+  service action as before.
+- Unmanaged stacks have no service actions, like stack actions (decision 8).
 
 ## Open questions
 

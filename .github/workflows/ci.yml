@@ -128,8 +128,8 @@ jobs:
 
           # Actions: the agent in the container runs `docker compose` itself.
           api() { curl -fsS -H "Authorization: Bearer $token" "$@"; }
-          run_action() {
-            id=$(api -X POST "http://127.0.0.1:7070/api/v1/stacks/$1/actions/$2" | jq -r .id)
+          follow_op() {
+            id=$1
             for i in $(seq 1 120); do
               status=$(api "http://127.0.0.1:7070/api/v1/operations/$id" | jq -r .status)
               [ "$status" != running ] && break
@@ -139,8 +139,15 @@ jobs:
             jq -r .output op.json
             jq -e '.status == "succeeded"' op.json
           }
+          run_action() {
+            follow_op "$(api -X POST "http://127.0.0.1:7070/api/v1/stacks/$1/actions/$2" | jq -r .id)"
+          }
           run_action whoami start
           run_action bind-demo start
+          # One service: whoami has no dependencies, so it runs without
+          # confirmation.
+          follow_op "$(api -X POST http://127.0.0.1:7070/api/v1/stacks/whoami/services/whoami/actions/restart | jq -r .id)"
+          jq -e '.service == "whoami" and .services == ["whoami"]' op.json
           # bind-demo writes ./data/started.txt. It must appear on this host,
           # which only works with the identical-path mount of the stacks dir.
           test -f "$stacks/bind-demo/data/started.txt"

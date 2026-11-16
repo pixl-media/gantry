@@ -6,6 +6,7 @@ const translated = [
   'stack_unmanaged',
   'operation_finished',
   'not_found',
+  'service_not_found',
   'origin_rejected',
   'unauthorized',
   'version_conflict',

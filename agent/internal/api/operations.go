@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/pixl-media/gantry/agent/internal/operations"
@@ -46,6 +47,89 @@ func (h *handlers) RunStackAction(ctx context.Context, req RunStackActionRequest
 	}, nil
 }
 
+func (h *handlers) RunServiceAction(ctx context.Context, req RunServiceActionRequestObject) (RunServiceActionResponseObject, error) {
+	action := stacks.ServiceAction(req.Action)
+	if !action.Valid() {
+		return RunServiceAction400JSONResponse(apiError(fmt.Errorf("unknown action %q", req.Action), ErrorCodeInvalidAction)), nil
+	}
+	target, plan, err := h.cfg.Stacks.PlanService(ctx, req.Name, req.Service, action)
+	switch {
+	case errors.Is(err, stacks.ErrInvalidName):
+		return RunServiceAction400JSONResponse(apiError(err, ErrorCodeInvalidName)), nil
+	case errors.Is(err, stacks.ErrInvalidService):
+		return RunServiceAction400JSONResponse(apiError(err, ErrorCodeInvalidService)), nil
+	case errors.Is(err, stacks.ErrNotFound):
+		return RunServiceAction404JSONResponse(apiError(err, ErrorCodeNotFound)), nil
+	case errors.Is(err, stacks.ErrServiceNotFound):
+		return RunServiceAction404JSONResponse(apiError(err, ErrorCodeServiceNotFound)), nil
+	case errors.Is(err, stacks.ErrUnmanaged):
+		return RunServiceAction409JSONResponse(apiError(err, ErrorCodeStackUnmanaged)), nil
+	case errors.Is(err, stacks.ErrDockerUnavailable):
+		return RunServiceAction503JSONResponse(apiError(errors.New("docker is unavailable, so the services' state is unknown"), ErrorCodeDockerUnavailable)), nil
+	case err != nil:
+		return nil, err
+	}
+
+	// More than the chosen service changes only once the client has seen
+	// and confirmed exactly that set.
+	if len(plan.Affected) > 1 {
+		var confirmed []string
+		if req.Body != nil && req.Body.Confirm != nil {
+			confirmed = *req.Body.Confirm
+		}
+		if !sameSet(confirmed, plan.Services()) {
+			resp := apiError(fmt.Errorf("%s %s also affects %s; confirm all affected services",
+				action, req.Service, strings.Join(plan.Services()[1:], ", ")), ErrorCodeConfirmationRequired)
+			p := toServiceActionPlan(plan)
+			resp.Plan = &p
+			return RunServiceAction409JSONResponse(resp), nil
+		}
+	}
+
+	op, err := h.cfg.Operations.StartService(target, operations.Action(action), req.Service, plan.Services(), plan.Steps)
+	var busy *operations.BusyError
+	if errors.As(err, &busy) {
+		resp := apiError(err, ErrorCodeStackBusy)
+		resp.Operation = &busy.Active.ID
+		return RunServiceAction409JSONResponse(resp), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	h.cfg.Logger.Info("service action started", "stack", req.Name, "service", req.Service,
+		"action", string(action), "services", plan.Services(), "operation", op.ID())
+	location := "/api/v1/operations/" + op.ID()
+	return RunServiceAction202JSONResponse{
+		Body:    toOperation(op.Snapshot()),
+		Headers: RunServiceAction202ResponseHeaders{Location: &location},
+	}, nil
+}
+
+// sameSet reports whether a and b hold the same names, in any order. b has
+// no duplicates, so a with duplicates never matches.
+func sameSet(a, b []string) bool {
+	x, y := slices.Clone(a), slices.Clone(b)
+	slices.Sort(x)
+	slices.Sort(y)
+	return slices.Equal(x, y)
+}
+
+func toServiceActionPlan(p stacks.ServicePlan) ServiceActionPlan {
+	out := ServiceActionPlan{
+		Service:  p.Service,
+		Action:   ServiceAction(p.Action),
+		Affected: make([]AffectedService, len(p.Affected)),
+	}
+	for i, a := range p.Affected {
+		out.Affected[i] = AffectedService{
+			Service: a.Service,
+			Effect:  AffectedServiceEffect(a.Effect),
+			Reason:  AffectedServiceReason(a.Reason),
+		}
+	}
+	return out
+}
+
 func (h *handlers) ListOperations(_ context.Context, req ListOperationsRequestObject) (ListOperationsResponseObject, error) {
 	stack := ""
 	if req.Params.Stack != nil {
@@ -74,6 +158,8 @@ func (h *handlers) GetOperation(_ context.Context, req GetOperationRequestObject
 		ExitCode:   o.ExitCode,
 		Error:      o.Error,
 		CanceledBy: o.CanceledBy,
+		Service:    o.Service,
+		Services:   o.Services,
 		Output:     op.Output(),
 	}, nil
 }
@@ -164,6 +250,11 @@ func toOperation(s operations.Snapshot) Operation {
 	}
 	if s.CanceledBy != "" {
 		o.CanceledBy = &s.CanceledBy
+	}
+	if s.Service != "" {
+		o.Service = &s.Service
+		services := slices.Clone(s.Services)
+		o.Services = &services
 	}
 	return o
 }

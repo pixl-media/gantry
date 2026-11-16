@@ -174,7 +174,36 @@ func (m *Manager) Start(p compose.Project, action Action) (*Operation, error) {
 	if !action.Valid() {
 		return nil, fmt.Errorf("unknown action %q", action)
 	}
-	return m.start(p, action, composeSteps(commands[action]))
+	return m.start(p, action, composeSteps(commands[action]), serviceInfo{})
+}
+
+// StartService runs the Compose commands cmds of a service action on project
+// p: action on service, changing services (all affected ones). The commands
+// come from stacks.ServicePlan. A service action never takes precedence: it
+// returns a *BusyError while any operation runs on the stack, while stop,
+// down and delete still cancel a running service action.
+func (m *Manager) StartService(p compose.Project, action Action, service string, services []string, cmds [][]string) (*Operation, error) {
+	switch action {
+	case ActionStart, ActionStop, ActionRestart, ActionUpdate:
+	default:
+		return nil, fmt.Errorf("unknown service action %q", action)
+	}
+	for _, c := range cmds {
+		for _, arg := range c {
+			// Never remove volumes or other services' containers here.
+			if arg == "-v" || arg == "--volumes" || arg == "--remove-orphans" {
+				return nil, fmt.Errorf("service action must not use %s", arg)
+			}
+		}
+	}
+	return m.start(p, action, composeSteps(cmds), serviceInfo{name: service, services: slices.Clone(services)})
+}
+
+// serviceInfo names the service a service action is about; empty for stack
+// actions.
+type serviceInfo struct {
+	name     string
+	services []string
 }
 
 // Delete runs `down --remove-orphans` on project p, with --volumes if
@@ -190,19 +219,20 @@ func (m *Manager) Delete(p compose.Project, volumes bool, remove func() error) (
 		{args: down},
 		{desc: "removing " + p.Dir, fn: func(context.Context) error { return remove() }},
 	}
-	return m.start(p, ActionDelete, steps)
+	return m.start(p, ActionDelete, steps, serviceInfo{})
 }
 
-func (m *Manager) start(p compose.Project, action Action, steps []step) (*Operation, error) {
+func (m *Manager) start(p compose.Project, action Action, steps []step, svc serviceInfo) (*Operation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	prev := m.active[p.Name]
-	if prev != nil && !action.preempts() {
+	if prev != nil && (svc.name != "" || !action.preempts()) {
 		return nil, &BusyError{Active: prev.Snapshot()}
 	}
 	ctx, cancel := context.WithTimeout(m.base, m.opts.Timeout)
 	op := newOperation(newID(), p.Name, action, m.opts.Now(), m.opts.MaxOutput, cancel)
+	op.service, op.services = svc.name, svc.services
 	m.pruneLocked()
 	m.ops = append(m.ops, op)
 	m.byID[op.id] = op
