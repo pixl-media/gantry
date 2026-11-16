@@ -186,6 +186,25 @@ jobs:
           grep -q '^event: end' logs.txt
           grep -q '"service":"whoami"' logs.txt
 
+          # Live changes through the proxy: the event stream arrives
+          # unbuffered (ready shows up while it is still open) and names the
+          # stack an action changed.
+          curl -sN -b cookies.txt --max-time 30 "$web/api/v1/events" > events.txt &
+          events_pid=$!
+          for i in $(seq 1 10); do grep -q '^event: ready' events.txt && break; sleep 1; done
+          grep -q '^event: ready' events.txt
+          id=$(curl -fsS -b cookies.txt -H "Origin: $web" -X POST "$web/api/v1/stacks/whoami/actions/restart" | jq -r .id)
+          for i in $(seq 1 20); do grep -q '"stacks":\[[^]]*"whoami"' events.txt && break; sleep 1; done
+          kill "$events_pid" 2>/dev/null || true
+          cat events.txt
+          grep -q '"stacks":\[[^]]*"whoami"' events.txt
+          for i in $(seq 1 60); do
+            status=$(curl -fsS -b cookies.txt "$web/api/v1/operations/$id" | jq -r .status)
+            [ "$status" != running ] && break
+            sleep 1
+          done
+          test "$status" = succeeded
+
           # Editing through the proxy: the agent in the container writes to
           # the mounted stacks dir. Create a stack, change its compose file
           # (a stale version is refused), then delete it.

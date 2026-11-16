@@ -232,7 +232,7 @@ cookie's origin.
 
 - **React 19 + Vite + MUI v9**, the same UI library as the planned
   infrastructure app (Next.js), so components carry over. TanStack Query for
-  data (lists refresh every 5 s), React Router, react-i18next with English
+  data (reloaded on live changes, decision 24), React Router, react-i18next with English
   and German from the start (typed keys, a test keeps both in sync).
 - **API types generated** from `api/openapi.yaml` with openapi-typescript;
   `openapi-fetch`/`openapi-react-query` call the API type-safely. CI fails if
@@ -508,6 +508,49 @@ stack, as an operation.
   service `stop`; the stack's `stop`, `down` and `delete` cancel a running
   service action as before.
 - Unmanaged stacks have no service actions, like stack actions (decision 8).
+
+## 24. Live stack changes instead of polling
+
+**Decided 2026-11-16.** The web UI polled the stack list, the open stack and
+its operations every 5 seconds, per open tab, and every list request ran
+`docker compose config` once per managed stack.
+
+- **`GET /api/v1/events`** is a Server-Sent Events stream that only names
+  the stacks that changed (`changed`, or `all: true`); clients reload them
+  with the usual endpoints. The stream carries no state, so it needs no
+  rules of its own about what a client may see, and the endpoints stay the
+  single source of truth. `ready` on every (re)connect means "reload
+  everything", since changes may have been missed. Changes are collected
+  for 250 ms, so starting a stack (many container events) is one event. A
+  `ping` event every 25 seconds keeps proxies from closing it; it is an
+  event, not a comment, because EventSource hides comments and the web UI
+  uses the pings to notice a connection that died without an error (sleep,
+  network change, a proxy keeping the client side open): after 70 seconds of
+  silence it starts over. It ends with the session, like the other streams,
+  and all event streams end when the agent shuts down instead of holding up
+  its exit.
+- **Sources:** Docker's container events for Compose projects (label
+  filter), so changes made outside gantry show up too; and the agent
+  itself: operations starting and finishing, and files saved through the
+  API (Docker sends nothing for those). Files edited directly on the host
+  cause no event.
+- **Docker's event stream is followed only while someone listens**, one
+  connection for all clients. When it breaks, the agent reconnects with a
+  wait growing from 1 to 30 seconds and reports `all` (once per outage, and
+  on reconnect), since events may have been missed.
+- **Slow clients can't block it:** each subscriber's pending changes are
+  merged into one set until it reads them.
+- **Polling stays as a safety net:** once a minute while the stream works
+  (for edits on the host), every 5 seconds while it is down.
+- **Path:** `/api/v1/events`, not `/api/v1/stacks/events`, which would hide
+  a stack named `events`.
+- **Cached Compose reads:** each managed stack's services and dependencies
+  (decision 23) are cached, keyed by the Compose file's and `.env`'s size
+  and modification time (`.env` can set `COMPOSE_PROFILES`), for at most a
+  minute (for files they pull in, like `include:` or `env_file`). Saving
+  through the API drops the entry at once; errors aren't cached. Service
+  action plans always read the files fresh. A file watcher (inotify) was
+  rejected: not in the standard library, and the key plus expiry is enough.
 
 ## Open questions
 

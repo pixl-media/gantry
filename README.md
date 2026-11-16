@@ -62,6 +62,9 @@ A stack's status is `running` (every service has a running container),
 
 The web UI lists all stacks with their status and runs actions with live
 output; a stack's page shows services, containers and recent operations.
+Changes appear right away, also those made outside gantry (e.g. `docker
+stop` in a shell): the UI follows the agent's live event stream and reloads
+what changed.
 
 - **Logs:** the logs of all containers merged and live, with colors, a
   service filter, search, timestamps and a download; each container's logs
@@ -117,6 +120,7 @@ forgery.
 | `PATCH /api/v1/stacks/{name}/env` | Set and delete `.env` variables (`{version, set, delete}`) |
 | `POST /api/v1/stacks/{name}/env/reveal` | One `.env` value (`{key}`), logged without the value |
 | `GET /api/v1/stacks/{name}/logs` | Logs of all containers, merged and live, as Server-Sent Events |
+| `GET /api/v1/events` | Which stacks changed, live, as Server-Sent Events (`ready`, `changed`) |
 | `POST /api/v1/stacks/{name}/actions/{action}` | Run `start`, `stop`, `restart`, `update` or `down` as an operation |
 | `POST /api/v1/stacks/{name}/services/{service}/actions/{action}` | Run `start`, `stop`, `restart` or `update` on one service and what depends on it (`{confirm?}`) |
 | `GET /api/v1/operations` | Recent operations (`?stack=` to filter) |
@@ -133,6 +137,26 @@ responses are sent with `Cache-Control: no-store`. Request bodies are limited
 to 4 MiB (4 KiB for the login); larger ones are refused with `413
 request_too_large`. Requests must arrive within a minute; responses such as
 event streams may run as long as needed.
+
+### Live changes
+
+`GET /api/v1/events` tells clients when to reload, instead of polling. It
+only names the stacks that changed; read them with the usual endpoints.
+
+```bash
+curl -N -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/events
+# event: ready
+# data: {}
+#
+# event: changed
+# data: {"stacks":["whoami"],"all":false}
+```
+
+`ready` comes on every connect: reload everything, changes may have been
+missed. `changed` with `"all": true` means the same (e.g. Docker was
+unreachable). Changes from Docker's container events and from gantry's own
+operations and file saves are collected for a quarter second; an idle stream
+gets a `ping` event every 25 seconds.
 
 ### Logs
 
@@ -480,7 +504,8 @@ This is a development tool only; the agent doesn't serve docs itself.
 - Operations are kept in memory only and are lost when the agent restarts.
 - Swagger UI (`make docs`) can't display the event stream; use `curl -N`.
 - One shared login (the agent token); there are no user accounts.
-- The web UI refreshes every 5 seconds instead of receiving push events.
+- Files edited directly on the host (not through gantry) show up in the web
+  UI within a minute; Docker reports no event for them.
 - Stacks can't be renamed (named volumes carry the project name).
 - There is no history or undo for Compose files; validation and version
   checks protect against mistakes and lost updates.
