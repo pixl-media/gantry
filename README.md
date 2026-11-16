@@ -11,12 +11,18 @@ optional **web UI** that runs as its own container.
 
 ## Architecture
 
-```
-            ┌──────────────┐        ┌────────────────────┐
- browser ──▶│ gantry web   │──/api─▶│ gantry agent       │──▶ Docker socket
-            │ (optional)   │        │ HTTP API, Go       │    + stacks dir
-            └──────────────┘        └────────────────────┘
- other API clients ─────────────────────────▲
+```mermaid
+flowchart LR
+  subgraph host["Docker host"]
+    agent["gantry agent<br/>HTTP API, Go"]
+    docker[("Docker socket")]
+    stacks[("Stacks directory<br/>/opt/stacks")]
+    agent -- "Engine API, docker compose" --> docker
+    agent -- "read, write" --> stacks
+  end
+  browser["Browser"] --> web["gantry web (optional)<br/>React app, Caddy"]
+  web -- "/api, session cookie" --> agent
+  clients["Other API clients<br/>curl, scripts"] -- "bearer token" --> agent
 ```
 
 - **Agent:** a single Go binary per Docker host. Recommended as a **systemd
@@ -80,7 +86,8 @@ session at once; restarting the agent ends all sessions, so you log in again
 after an update. After 10 wrong tokens
 within a minute, by login or `Authorization` header, a client has to wait
 (`429` with `Retry-After`). Behind the web UI's proxy all browsers share one
-such limit.
+such limit, unless the proxy is listed in `GANTRY_TRUSTED_PROXIES`; then each
+browser has its own.
 
 ## API
 
@@ -357,6 +364,7 @@ beyond your own machine:
 | `api.http` | Example requests for the VS Code REST Client |
 | `agent/tools/devdocs/` | Dev-only Swagger UI server (`make docs`) |
 | `.github/workflows/ci.yml` | Tests, image builds and releases |
+| `AGENTS.md`, `agent/AGENTS.md`, `web/AGENTS.md` | Conventions for contributors and coding agents |
 
 ## Development
 
@@ -394,11 +402,14 @@ curl -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/stack
 
 `make run` takes the token from `.env` (git-ignored) and creates that file
 with a random token on first use, so the dev agent never runs with a token
-anyone could guess. The agent refuses tokens shorter than 16 characters.
+anyone could guess. The agent refuses tokens shorter than 24 characters.
 
 Agent and web UI in containers: `make .env && docker compose up --build`
 (run from the repo root), then open http://127.0.0.1:8080 and log in with the
 token from `.env`.
+
+Integration tests create their own stacks named `gantry-test-…` and remove
+them afterwards; other containers on the host are not touched.
 
 ### API docs
 
@@ -408,9 +419,6 @@ http://127.0.0.1:8082 and forwards API requests to the agent on port 7070
 "Try it out" works without CORS: click "Authorize", enter the token (from
 `.env` for `make run`), and send requests. The spec is re-read on every page load.
 This is a development tool only; the agent doesn't serve docs itself.
-
-Integration tests create their own stacks named `gantry-test-…` and remove
-them afterwards; other containers on the host are not touched.
 
 ### Changing the API
 
@@ -445,7 +453,7 @@ them afterwards; other containers on the host are not touched.
 ## Workflow and releases
 
 GitHub Flow: `main` is always releasable. Work happens on short-lived branches
-(`feature/…`, `fix/…`) that are merged into `main` via pull request.
+(`feature/…`, `fix/…`, `chore/…`) that are merged into `main` via pull request.
 
 | Event | CI |
 |---|---|
