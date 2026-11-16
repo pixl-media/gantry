@@ -39,7 +39,7 @@ export function ComposeTab({ stack }: { stack: StackDetail }) {
   const saved = file?.content;
 
   // The draft, with the version it is based on; null while not editing, so
-  // the editor follows the stored file (it refreshes every few seconds).
+  // the editor follows the stored file (reloaded whenever the stack changes).
   const [draft, setDraft] = useState<{
     content: string;
     version: string;
