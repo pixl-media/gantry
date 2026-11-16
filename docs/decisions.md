@@ -556,9 +556,7 @@ its operations every 5 seconds, per open tab, and every list request ran
 
 ## 25. Scope: a lightweight manager for one host
 
-**Decided 2026-11-17**, after reviewing the backlog: gantry stays small. The
-larger infrastructure app comes later and separately (decision 4); features
-that belong there don't go into gantry first.
+**Decided 2026-11-17**, after reviewing the backlog: gantry stays small.
 
 - **What lightweight means here:**
   - **No state of its own:** no database and no files of its own. The stack
@@ -574,10 +572,9 @@ that belong there don't go into gantry first.
   TLS in the agent, separate tokens for the API and the web login, an
   optional OIDC login after v0.1 (it stores nothing in gantry), UI polish,
   splitting the web bundle.
-- **Not in gantry** (the infrastructure app's job): several hosts in one UI,
-  user accounts and roles, resource usage and its history, a history of
-  Compose files, a console in containers, renaming stacks with their
-  volumes.
+- **Not in gantry:** several hosts in one UI, user accounts and roles,
+  resource usage and its history, a history of Compose files, a console in
+  containers, renaming stacks with their volumes.
 - **Dropped:**
   - **"Update available" hints for images:** with `latest`, the update
     action pulls and recreates only what changed; with pinned versions,
@@ -593,7 +590,7 @@ that belong there don't go into gantry first.
 
 **Decided 2026-11-17.** One token served API clients and the web login. A
 token copied into the wrong place then had to be replaced everywhere,
-scripts and the later infrastructure app included.
+scripts included.
 
 - **`GANTRY_TOKEN`** works only as `Authorization: Bearer` (API clients,
   scripts); **`GANTRY_UI_TOKEN`** only at `POST /api/v1/session`. Neither is
