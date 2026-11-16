@@ -46,6 +46,10 @@ Run from the repo root:
 - Anything that can take longer than a moment (Compose actions, pulls) runs
   as an operation (`internal/operations`), never synchronously inside a
   request. Actions only work on managed stacks (`stacks.Target`).
+- Service actions (decision 23): the affected services and Compose commands
+  come only from `planServiceAction` in `internal/stacks/serviceplan.go`;
+  every command names its services explicitly, with `--no-deps` where Compose
+  would add more. What the confirmation showed must be exactly what runs.
 - Long or open-ended output (operation output, logs) is streamed as
   Server-Sent Events via `startEventStream` in `agent/internal/api`; never
   buffer it in a single response.

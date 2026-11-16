@@ -72,6 +72,10 @@ output; a stack's page shows services, containers and recent operations.
   overwriting it.
 - **Environment:** the stack's `.env` variables by name. A value is loaded
   only when you click to show or edit it.
+- **Services:** each service on the Overview tab has a menu to start, stop,
+  restart or update just that service. If that changes other services too
+  (see [Service actions](#service-actions)), they are listed for you to
+  confirm first.
 - **New stack** on the list page, **Delete stack** in a stack's menu (type
   the name to confirm; named volumes only if you tick the box).
 
@@ -114,6 +118,7 @@ forgery.
 | `POST /api/v1/stacks/{name}/env/reveal` | One `.env` value (`{key}`), logged without the value |
 | `GET /api/v1/stacks/{name}/logs` | Logs of all containers, merged and live, as Server-Sent Events |
 | `POST /api/v1/stacks/{name}/actions/{action}` | Run `start`, `stop`, `restart`, `update` or `down` as an operation |
+| `POST /api/v1/stacks/{name}/services/{service}/actions/{action}` | Run `start`, `stop`, `restart` or `update` on one service and what depends on it (`{confirm?}`) |
 | `GET /api/v1/operations` | Recent operations (`?stack=` to filter) |
 | `GET /api/v1/operations/{id}` | Operation status and output |
 | `GET /api/v1/operations/{id}/events` | Live output as Server-Sent Events |
@@ -203,6 +208,41 @@ stack_unmanaged`.
 | `restart` | `stop`, then `start` | Restarts existing containers, **without** applying Compose file changes (use `start` for that) |
 | `update` | `pull --ignore-buildable`, then `up -d --remove-orphans` | Pulls new images and recreates changed containers |
 | `down` | `down --remove-orphans` | Removes containers and networks. **Volumes are never removed** (only deleting a stack with `volumes=true` does) |
+
+### Service actions
+
+`POST /api/v1/stacks/{name}/services/{service}/actions/{action}` runs
+`start`, `stop`, `restart` or `update` on one service. gantry follows the
+service's dependencies (`depends_on`, `network_mode: service:…`,
+`volumes_from`) in both directions, so nothing is left broken:
+
+| Action | Also affected |
+|---|---|
+| `start` | Stopped services it needs are started first |
+| `stop` | Running services that need it are stopped too |
+| `restart` | Running services that need it are restarted too; stopped services it needs are started |
+| `update` | Pulls its image and recreates it; stopped services it needs are started; running services that need it are restarted |
+
+gantry hands Compose exactly these services, with `--no-deps`, so what you
+confirmed is what happens. If more than the chosen service is affected, the
+agent answers `409 confirmation_required` with the plan; send the request
+again with `confirm` listing exactly those services:
+
+```bash
+curl -X POST -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/stacks/shop/services/db/actions/restart
+# 409 {"code":"confirmation_required","plan":{"service":"db","action":"restart","affected":[
+#   {"service":"db","effect":"restart","reason":"target"},
+#   {"service":"app","effect":"restart","reason":"dependent"}]},...}
+
+curl -X POST -H "Authorization: Bearer $GANTRY_TOKEN" -H "Content-Type: application/json" \
+  -d '{"confirm":["db","app"]}' http://127.0.0.1:7070/api/v1/stacks/shop/services/db/actions/restart
+# 202 {"id":"op_…","action":"restart","service":"db","services":["db","app"],...}
+```
+
+The plan is worked out again when the action starts; if the services' state
+changed in between, you get a new `confirmation_required`. Service actions
+run as operations like stack actions, but never cancel a running one: while
+an operation runs on the stack, they are rejected with `stack_busy`.
 
 ### Operations
 
