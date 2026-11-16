@@ -39,7 +39,7 @@ Run from the repo root:
   (`agent/tools/devdocs`, never part of the agent binary or image)
 - `make image` – build the Docker image
 
-Web UI (`web/`, pnpm, Node 24):
+Web UI (`web/`, pnpm, Node 24+; CI and the image use Node 26 LTS):
 
 - `make web` – Vite dev server on 127.0.0.1:5173, `/api` forwarded to the agent
 - `make web-test` – Vitest; `make web-lint` – ESLint, Prettier, typecheck

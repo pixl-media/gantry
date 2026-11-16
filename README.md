@@ -360,7 +360,7 @@ beyond your own machine:
 ## Development
 
 Requirements: Go 1.27+, Docker with the Compose plugin; for the web UI
-Node 24 and pnpm 10.
+Node 24 or newer (CI and the image use Node 26 LTS) and pnpm 10.
 
 ```bash
 make run               # agent on http://127.0.0.1:7070, token from .env, managing dev/stacks

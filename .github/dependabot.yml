@@ -12,6 +12,11 @@ updates:
     directory: /web
     schedule:
       interval: weekly
+    ignore:
+      # Matches the lowest supported Node (package.json engines); raised
+      # together with it.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       # One PR for routine updates instead of one per package.
       web-dependencies:
@@ -20,6 +25,11 @@ updates:
     directory: /web
     schedule:
       interval: weekly
+    ignore:
+      # Node majors are switched deliberately, to LTS releases only (odd
+      # majors never get long-term support), together with CI's version.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
