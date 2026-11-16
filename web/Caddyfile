@@ -39,7 +39,13 @@
 		# The client's address goes to the agent in X-Forwarded-For; set
 		# GANTRY_TRUSTED_PROXIES on the agent to this container's address to
 		# give every browser its own login limit.
-		reverse_proxy {$GANTRY_AGENT_URL:http://agent:7070}
+		# With an https:// agent URL (TLS in the agent), Caddy would send the
+		# agent's address as Host; the browser's host is kept instead, for
+		# the agent's same-origin check. The certificate is still checked
+		# against the agent's address.
+		reverse_proxy {$GANTRY_AGENT_URL:http://agent:7070} {
+			header_up Host {hostport}
+		}
 	}
 
 	handle {
