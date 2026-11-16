@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -56,6 +57,12 @@ type Config struct {
 	Logger     *slog.Logger // optional
 	// PublicOrigin is the web UI's origin (see ParsePublicURL), or "".
 	PublicOrigin string
+	// TrustedProxies are reverse proxies whose X-Forwarded-For and
+	// X-Forwarded-Proto the agent believes (see ParseTrustedProxies).
+	TrustedProxies []netip.Prefix
+	// AllowInsecureHTTP accepts credentials over plain HTTP from internet
+	// addresses.
+	AllowInsecureHTTP bool
 }
 
 // New returns the agent's HTTP handler.
@@ -67,7 +74,8 @@ func New(cfg Config) http.Handler {
 		token:        cfg.Token,
 		sessions:     session.NewStore(0),
 		limiter:      session.NewLimiter(maxFailedAttempts, time.Minute),
-		logger:       cfg.Logger,
+		failures:     newFailureLog(cfg.Logger),
+		net:          network{trusted: cfg.TrustedProxies, allowInsecureHTTP: cfg.AllowInsecureHTTP},
 		publicOrigin: cfg.PublicOrigin,
 		cookieName:   session.CookieName,
 	}

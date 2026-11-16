@@ -17,7 +17,7 @@ const sameOriginHeader = "http://example.com"
 
 func login(t *testing.T, h http.Handler, token string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/session", strings.NewReader(`{"token":"`+token+`"}`))
+	req := newRequest(http.MethodPost, "/api/v1/session", strings.NewReader(`{"token":"`+token+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -44,7 +44,7 @@ func sessionCookieFrom(t *testing.T, h http.Handler) *http.Cookie {
 }
 
 func withCookie(method, path string, c *http.Cookie, origin string) *http.Request {
-	req := httptest.NewRequest(method, path, nil)
+	req := newRequest(method, path, nil)
 	req.AddCookie(c)
 	if origin != "" {
 		req.Header.Set("Origin", origin)
@@ -154,7 +154,7 @@ func TestLoginFailures(t *testing.T) {
 		t.Errorf("login from another site = %d", rec.Code)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/session", strings.NewReader("{not json"))
+	req := newRequest(http.MethodPost, "/api/v1/session", strings.NewReader("{not json"))
 	req.Header.Set("Content-Type", "application/json")
 	if rec := serve(h, req); rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid JSON = %d", rec.Code)
@@ -177,7 +177,7 @@ func TestBearerGuessingIsLimited(t *testing.T) {
 	var logs bytes.Buffer
 	h := New(Config{Token: "the-token", Stacks: fakeStacks{}, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
 	get := func(token, remote string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+		req := newRequest(http.MethodGet, "/api/v1/version", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		if remote != "" {
 			req.RemoteAddr = remote
@@ -197,7 +197,7 @@ func TestBearerGuessingIsLimited(t *testing.T) {
 	if rec := login(t, h, "the-token", nil); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("login while blocked = %d, want 429 (shared limit)", rec.Code)
 	}
-	if rec := get("the-token", "198.51.100.7:4000"); rec.Code != http.StatusOK {
+	if rec := get("the-token", "10.0.0.7:4000"); rec.Code != http.StatusOK {
 		t.Errorf("another client = %d, want 200", rec.Code)
 	}
 	if !strings.Contains(logs.String(), "failed authentication") || strings.Contains(logs.String(), "guess-") {
@@ -268,7 +268,7 @@ func TestPublicOrigin(t *testing.T) {
 func TestLogout(t *testing.T) {
 	h, _ := newOpsServer(t, runner{})
 	// Public, so it works without (or with an expired) session.
-	rec := serve(h, httptest.NewRequest(http.MethodDelete, "/api/v1/session", nil))
+	rec := serve(h, newRequest(http.MethodDelete, "/api/v1/session", nil))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("logout = %d", rec.Code)
 	}
@@ -293,7 +293,7 @@ func TestLogout(t *testing.T) {
 
 func TestSessionNeedsAuthentication(t *testing.T) {
 	h, _ := newOpsServer(t, runner{})
-	if rec := serve(h, httptest.NewRequest(http.MethodGet, "/api/v1/session", nil)); rec.Code != http.StatusUnauthorized {
+	if rec := serve(h, newRequest(http.MethodGet, "/api/v1/session", nil)); rec.Code != http.StatusUnauthorized {
 		t.Errorf("GET /api/v1/session without auth = %d", rec.Code)
 	}
 }

@@ -797,6 +797,7 @@ components:
             - stack_busy
             - stack_unmanaged
             - docker_unavailable
+            - https_required
             - operation_finished
         operation:
           type: string

@@ -45,6 +45,7 @@ func (e ContainerHealth) Valid() bool {
 // Defines values for ErrorCode.
 const (
 	ErrorCodeDockerUnavailable ErrorCode = "docker_unavailable"
+	ErrorCodeHttpsRequired     ErrorCode = "https_required"
 	ErrorCodeInvalidAction     ErrorCode = "invalid_action"
 	ErrorCodeInvalidCompose    ErrorCode = "invalid_compose"
 	ErrorCodeInvalidName       ErrorCode = "invalid_name"
@@ -67,6 +68,8 @@ const (
 func (e ErrorCode) Valid() bool {
 	switch e {
 	case ErrorCodeDockerUnavailable:
+		return true
+	case ErrorCodeHttpsRequired:
 		return true
 	case ErrorCodeInvalidAction:
 		return true

@@ -393,7 +393,7 @@ export interface components {
              * @description Machine-readable reason, for clients to act on.
              * @enum {string}
              */
-            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "request_too_large" | "invalid_name" | "invalid_action" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "stack_busy" | "stack_unmanaged" | "docker_unavailable" | "operation_finished";
+            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "request_too_large" | "invalid_name" | "invalid_action" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "stack_busy" | "stack_unmanaged" | "docker_unavailable" | "https_required" | "operation_finished";
             /** @description For `stack_busy`, the ID of the running operation. */
             operation?: string;
         };

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -55,7 +56,7 @@ func (f fakeStacks) Get(_ context.Context, name string) (stacks.Detail, error) {
 
 func do(t *testing.T, h http.Handler, path, token string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req := newRequest(http.MethodGet, path, nil)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -90,7 +91,7 @@ func TestAuth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := New(Config{Token: tt.token, Version: "test", Stacks: fakeStacks{}})
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := newRequest(http.MethodGet, tt.path, nil)
 			if tt.header != "" {
 				req.Header.Set("Authorization", tt.header)
 			}
@@ -187,4 +188,13 @@ func TestInternalError(t *testing.T) {
 	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Error("X-Content-Type-Options: nosniff missing")
 	}
+}
+
+// newRequest is httptest.NewRequest from a local address. httptest's default
+// (192.0.2.1) is an internet address, from which plain HTTP with credentials
+// is refused; TestPlainHTTPFromTheInternet covers that.
+func newRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	req.RemoteAddr = "127.0.0.1:1234"
+	return req
 }

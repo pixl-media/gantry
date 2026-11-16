@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"math"
-	"net"
-	"net/http"
-	"strings"
 	"time"
 )
 
@@ -26,7 +23,11 @@ func (h *handlers) CreateSession(ctx context.Context, req CreateSessionRequestOb
 		return CreateSession403JSONResponse(apiError(errors.New("cross-origin request rejected"), ErrorCodeOriginRejected)), nil
 	}
 
-	client := clientAddr(r)
+	if h.auth.net.insecure(r) {
+		return CreateSession403JSONResponse(apiError(errInsecure, ErrorCodeHttpsRequired)), nil
+	}
+
+	client := h.auth.limitKey(r)
 	correct := req.Body != nil && h.auth.validToken(req.Body.Token)
 	if ok, wait := h.auth.limiter.Attempt(client, correct); !ok {
 		secs := retryAfter(wait)
@@ -36,7 +37,7 @@ func (h *handlers) CreateSession(ctx context.Context, req CreateSessionRequestOb
 		}, nil
 	}
 	if !correct {
-		h.cfg.Logger.Warn("failed login", "client", client)
+		h.auth.failures.record(client, "login")
 		return CreateSession401JSONResponse(apiError(errors.New("invalid token"), ErrorCodeInvalidToken)), nil
 	}
 
@@ -58,24 +59,7 @@ func (h *handlers) DeleteSession(ctx context.Context, _ DeleteSessionRequestObje
 	return DeleteSession204Response{Headers: DeleteSession204ResponseHeaders{SetCookie: &c}}, nil
 }
 
-// isHTTPS reports whether the client connected over HTTPS, directly or
-// through a reverse proxy that terminates TLS.
-func isHTTPS(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
-}
-
 // retryAfter is the Retry-After value for wait, in whole seconds.
 func retryAfter(wait time.Duration) int {
 	return max(int(math.Ceil(wait.Seconds())), 1)
-}
-
-// clientAddr is the address failed logins are counted by. Behind a reverse
-// proxy this is the proxy's address, so the limit applies to all clients
-// together, which is acceptable for a single shared token.
-func clientAddr(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

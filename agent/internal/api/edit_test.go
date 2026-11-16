@@ -107,7 +107,7 @@ func send(t *testing.T, h http.Handler, method, path string, body any) *httptest
 		data, _ := json.Marshal(body)
 		r = bytes.NewReader(data)
 	}
-	req := httptest.NewRequest(method, path, r)
+	req := newRequest(method, path, r)
 	req.Header.Set("Authorization", "Bearer t")
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

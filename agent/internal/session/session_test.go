@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -128,5 +129,54 @@ func TestLimiterParallel(t *testing.T) {
 	wg.Wait()
 	if passed != 10 {
 		t.Errorf("%d parallel failures got through, want 10", passed)
+	}
+}
+
+func TestDone(t *testing.T) {
+	s := NewStore(time.Hour)
+	value, _ := s.Issue()
+	done, exp, ok := s.Done(value)
+	if !ok || exp.IsZero() {
+		t.Fatal("Done of a live session failed")
+	}
+	select {
+	case <-done:
+		t.Fatal("done before the session ended")
+	default:
+	}
+	s.Revoke(value)
+	select {
+	case <-done:
+	default:
+		t.Error("done not closed by Revoke")
+	}
+	if _, _, ok := s.Done(value); ok {
+		t.Error("Done of a revoked session succeeded")
+	}
+}
+
+// Many addresses can't grow the limiter without bound; beyond its capacity
+// they share one bucket, so guessing stays limited.
+func TestLimiterIsBounded(t *testing.T) {
+	l := NewLimiter(3, time.Minute)
+	l.maxKeys = 100
+	for i := range 100 {
+		l.Attempt(fmt.Sprint("key-", i), false)
+	}
+	blocked := 0
+	for i := range 50 {
+		if ok, _ := l.Attempt(fmt.Sprint("new-", i), false); !ok {
+			blocked++
+		}
+	}
+	if len(l.failures) > l.maxKeys+1 {
+		t.Errorf("%d keys tracked, capacity %d", len(l.failures), l.maxKeys)
+	}
+	if blocked != 47 {
+		t.Errorf("%d of 50 untracked attempts blocked, want all but the shared bucket's 3", blocked)
+	}
+	// Keys already tracked keep their own bucket.
+	if ok, _ := l.Attempt("key-1", false); !ok {
+		t.Error("a tracked key was blocked by the overflow")
 	}
 }

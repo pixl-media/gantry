@@ -2,10 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -35,6 +35,7 @@ const (
 type authInfo struct {
 	method  authMethod
 	expires time.Time // cookie only
+	session string    // cookie only: the session, to end streams with it
 }
 
 type authKey struct{}
@@ -44,8 +45,9 @@ type authenticator struct {
 	sessions *session.Store
 	// limiter counts wrong tokens per client, from logins and bearer
 	// headers alike.
-	limiter *session.Limiter
-	logger  *slog.Logger
+	limiter  *session.Limiter
+	failures *failureLog
+	net      network
 
 	// publicOrigin is the web UI's origin from GANTRY_PUBLIC_URL, e.g.
 	// "https://gantry.example.com", or "". When set, cookie requests must
@@ -67,14 +69,22 @@ func (a *authenticator) cookie(r *http.Request, value string, maxAge int) *http.
 		MaxAge:   maxAge,
 		HttpOnly: true,                    // not readable by JavaScript
 		SameSite: http.SameSiteStrictMode, // not sent with requests from other sites
-		Secure:   strings.HasPrefix(a.publicOrigin, "https://") || isHTTPS(r),
+		Secure:   strings.HasPrefix(a.publicOrigin, "https://") || a.net.secureTransport(r),
 	}
 }
 
-// validToken compares got with the configured token in constant time. An
-// empty configured token matches nothing.
+// validToken compares got with the configured token in constant time. It
+// compares SHA-256 digests, so the time doesn't depend on the lengths
+// either. An empty configured token matches nothing.
 func (a *authenticator) validToken(got string) bool {
-	return a.token != "" && subtle.ConstantTimeCompare([]byte(got), []byte(a.token)) == 1
+	want := sha256.Sum256([]byte(a.token))
+	have := sha256.Sum256([]byte(got))
+	return a.token != "" && subtle.ConstantTimeCompare(have[:], want[:]) == 1
+}
+
+// limitKey is the key r's client is counted under by the login limit.
+func (a *authenticator) limitKey(r *http.Request) string {
+	return limitKey(a.net.client(r))
 }
 
 // errTooManyAttempts carries how long a client has to wait.
@@ -82,19 +92,28 @@ type errTooManyAttempts struct{ wait time.Duration }
 
 func (e errTooManyAttempts) Error() string { return "too many failed attempts" }
 
+// bearerToken returns the token of an "Authorization: Bearer" header. Other
+// schemes (such as Basic auth from a proxy in front) aren't gantry's.
+func bearerToken(r *http.Request) (string, bool) {
+	scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return "", false
+	}
+	return strings.TrimSpace(token), true
+}
+
 // authenticate checks the bearer token, or else the session cookie. A wrong
-// Authorization header doesn't fall back to the cookie, and counts as a
-// failed attempt: guessing the token over the API is limited like logins.
+// bearer token doesn't fall back to the cookie, and counts as a failed
+// attempt: guessing the token over the API is limited like logins.
 func (a *authenticator) authenticate(r *http.Request) (authInfo, error) {
-	if header := r.Header.Get("Authorization"); header != "" {
-		got, isBearer := strings.CutPrefix(header, "Bearer ")
-		correct := isBearer && a.validToken(got)
-		client := clientAddr(r)
+	if got, ok := bearerToken(r); ok {
+		correct := a.validToken(got)
+		client := a.limitKey(r)
 		if ok, wait := a.limiter.Attempt(client, correct); !ok {
 			return authInfo{}, errTooManyAttempts{wait}
 		}
 		if !correct {
-			a.logger.Warn("failed authentication", "client", client, "method", authToken)
+			a.failures.record(client, string(authToken))
 			return authInfo{}, errUnauthorized
 		}
 		return authInfo{method: authToken}, nil
@@ -104,10 +123,52 @@ func (a *authenticator) authenticate(r *http.Request) (authInfo, error) {
 	}
 	if c, err := r.Cookie(a.cookieName); err == nil {
 		if exp, ok := a.sessions.Verify(c.Value); ok {
-			return authInfo{method: authCookie, expires: exp}, nil
+			return authInfo{method: authCookie, expires: exp, session: c.Value}, nil
 		}
 	}
 	return authInfo{}, errUnauthorized
+}
+
+// sessionBound returns ctx, canceled when the session that authenticated the
+// request ends: logout, expiry, or eviction. Event streams run under it, so
+// they don't outlive a logout. Requests with a bearer token are unaffected.
+func (a *authenticator) sessionBound(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	info, _ := ctx.Value(authKey{}).(authInfo)
+	if info.method != authCookie {
+		return ctx, cancel
+	}
+	done, exp, ok := a.sessions.Done(info.session)
+	if !ok {
+		cancel()
+		return ctx, cancel
+	}
+	go func() {
+		expired := time.NewTimer(time.Until(exp))
+		defer expired.Stop()
+		select {
+		case <-ctx.Done():
+		case <-done:
+			cancel()
+		case <-expired.C:
+			cancel()
+		}
+	}()
+	return ctx, cancel
+}
+
+// errInsecure refuses credentials sent over plain HTTP from the internet.
+var errInsecure = errors.New("refusing credentials sent over plain HTTP from an internet address: " +
+	"put gantry behind HTTPS (see the README), or set GANTRY_ALLOW_INSECURE_HTTP=true at your own risk")
+
+// refuseInsecure answers 403 https_required if r must not be served over
+// its transport.
+func (a *authenticator) refuseInsecure(w http.ResponseWriter, r *http.Request) bool {
+	if !a.net.insecure(r) {
+		return false
+	}
+	writeJSON(w, http.StatusForbidden, apiError(errInsecure, ErrorCodeHttpsRequired))
+	return true
 }
 
 var errUnauthorized = errors.New("unauthorized")
@@ -140,8 +201,17 @@ func (a *authenticator) middleware(next http.Handler) http.Handler {
 			// cache it.
 			w.Header().Set("Cache-Control", "no-store")
 		}
+		if strings.HasPrefix(a.publicOrigin, "https://") {
+			// Browsers that have seen this once only use HTTPS from then on.
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		if publicRoutes[r.Method+" "+r.URL.Path] {
 			next.ServeHTTP(w, r)
+			return
+		}
+		// Before checking credentials, so plain HTTP from the internet
+		// never works, not even for a correct token.
+		if a.refuseInsecure(w, r) {
 			return
 		}
 		info, err := a.authenticate(r)
@@ -167,8 +237,9 @@ func safeMethod(m string) bool {
 }
 
 // sameOrigin reports whether the Origin header names the configured public
-// origin, or else the host the request was sent to. Browsers always send
-// Origin with POST, PUT, PATCH and DELETE requests.
+// origin, or else the host the request was sent to; for a request that came
+// over HTTPS, with the https scheme. Browsers always send Origin with POST,
+// PUT, PATCH and DELETE requests.
 func (a *authenticator) sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -178,7 +249,12 @@ func (a *authenticator) sameOrigin(r *http.Request) bool {
 		return strings.EqualFold(origin, a.publicOrigin)
 	}
 	u, err := url.Parse(origin)
-	return err == nil && u.Host == r.Host
+	if err != nil || u.Host != r.Host {
+		return false
+	}
+	// A page served over plain HTTP from the same host name (e.g. by someone
+	// on the network) is another origin than the HTTPS one.
+	return u.Scheme == "https" || !a.net.secureTransport(r)
 }
 
 // ParsePublicURL checks GANTRY_PUBLIC_URL, the address the web UI is

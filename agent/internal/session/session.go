@@ -30,7 +30,12 @@ type Store struct {
 	now func() time.Time
 
 	mu       sync.Mutex
-	sessions map[[sha256.Size]byte]time.Time // hash of the ID -> expiry
+	sessions map[[sha256.Size]byte]*entry // hash of the ID -> session
+}
+
+type entry struct {
+	exp  time.Time
+	done chan struct{} // closed when the session is revoked or dropped
 }
 
 // NewStore returns an empty Store. A zero ttl means DefaultTTL.
@@ -38,7 +43,7 @@ func NewStore(ttl time.Duration) *Store {
 	if ttl == 0 {
 		ttl = DefaultTTL
 	}
-	return &Store{ttl: ttl, now: time.Now, sessions: map[[sha256.Size]byte]time.Time{}}
+	return &Store{ttl: ttl, now: time.Now, sessions: map[[sha256.Size]byte]*entry{}}
 }
 
 // TTL returns how long issued sessions are valid.
@@ -55,38 +60,57 @@ func (s *Store) Issue() (string, time.Time) {
 	defer s.mu.Unlock()
 	now := s.now()
 	for k, e := range s.sessions {
-		if !now.Before(e) {
-			delete(s.sessions, k)
+		if !now.Before(e.exp) {
+			s.endLocked(k, e)
 		}
 	}
 	if len(s.sessions) >= maxSessions {
 		var first [sha256.Size]byte
-		var firstExp time.Time
+		var firstEntry *entry
 		for k, e := range s.sessions {
-			if firstExp.IsZero() || e.Before(firstExp) {
-				first, firstExp = k, e
+			if firstEntry == nil || e.exp.Before(firstEntry.exp) {
+				first, firstEntry = k, e
 			}
 		}
-		delete(s.sessions, first)
+		s.endLocked(first, firstEntry)
 	}
-	s.sessions[sha256.Sum256([]byte(value))] = exp
+	s.sessions[sha256.Sum256([]byte(value))] = &entry{exp: exp, done: make(chan struct{})}
 	return value, exp
 }
 
 // Verify reports whether value is a live session, and its expiry.
 func (s *Store) Verify(value string) (time.Time, bool) {
-	key := sha256.Sum256([]byte(value))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	exp, ok := s.sessions[key]
+	e, ok := s.live(value)
 	if !ok {
 		return time.Time{}, false
 	}
-	if !s.now().Before(exp) {
-		delete(s.sessions, key)
-		return time.Time{}, false
+	return e.exp, true
+}
+
+// Done returns a channel that is closed when the session value is revoked
+// or dropped, and its expiry, for work that must end with the session (such
+// as event streams). ok is false if value isn't a live session.
+func (s *Store) Done(value string) (done <-chan struct{}, exp time.Time, ok bool) {
+	e, ok := s.live(value)
+	if !ok {
+		return nil, time.Time{}, false
 	}
-	return exp, true
+	return e.done, e.exp, true
+}
+
+func (s *Store) live(value string) (*entry, bool) {
+	key := sha256.Sum256([]byte(value))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.sessions[key]
+	if !ok {
+		return nil, false
+	}
+	if !s.now().Before(e.exp) {
+		s.endLocked(key, e)
+		return nil, false
+	}
+	return e, true
 }
 
 // Revoke ends the session value, if there is one.
@@ -94,23 +118,39 @@ func (s *Store) Revoke(value string) {
 	key := sha256.Sum256([]byte(value))
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if e, ok := s.sessions[key]; ok {
+		s.endLocked(key, e)
+	}
+}
+
+func (s *Store) endLocked(key [sha256.Size]byte, e *entry) {
+	close(e.done)
 	delete(s.sessions, key)
 }
 
 // Limiter counts failed attempts per key (e.g. client address) in a sliding
-// window.
+// window. It tracks at most maxKeys keys, so many addresses can't make it
+// grow without bound; once full, failures from new keys share one bucket.
 type Limiter struct {
-	max    int
-	window time.Duration
-	now    func() time.Time
+	max     int
+	window  time.Duration
+	now     func() time.Time
+	maxKeys int
 
-	mu       sync.Mutex
-	failures map[string][]time.Time
+	mu        sync.Mutex
+	failures  map[string][]time.Time
+	lastPrune time.Time
 }
+
+// DefaultMaxKeys is how many keys a Limiter tracks.
+const DefaultMaxKeys = 10_000
+
+// overflowKey is the shared bucket for keys a full Limiter can't track.
+const overflowKey = "\x00overflow"
 
 // NewLimiter allows at most max failures per key within window.
 func NewLimiter(max int, window time.Duration) *Limiter {
-	return &Limiter{max: max, window: window, now: time.Now, failures: map[string][]time.Time{}}
+	return &Limiter{max: max, window: window, now: time.Now, maxKeys: DefaultMaxKeys, failures: map[string][]time.Time{}}
 }
 
 // Attempt records an attempt by key that succeeded or failed (the caller has
@@ -120,25 +160,44 @@ func NewLimiter(max int, window time.Duration) *Limiter {
 // which guess was right. Refused attempts aren't counted; a successful one
 // clears key's failures. Checking and counting happen under one lock, so
 // parallel attempts can't slip past the limit.
+//
+// When the Limiter is full, keys it doesn't track share one bucket: during
+// an attack from very many addresses, new clients may then have to wait,
+// but guessing stays limited.
 func (l *Limiter) Attempt(key string, success bool) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	now := l.now()
+	// Pruning costs a pass over all keys; do it now and then, not on every
+	// attempt.
+	if now.Sub(l.lastPrune) >= l.window/10 {
+		l.pruneLocked()
+		l.lastPrune = now
+	}
+	if _, tracked := l.failures[key]; !tracked && len(l.failures) >= l.maxKeys {
+		key = overflowKey
+	}
 	recent := l.recentLocked(key)
 	if len(recent) >= l.max {
-		return false, recent[0].Add(l.window).Sub(l.now())
+		return false, recent[0].Add(l.window).Sub(now)
 	}
 	if success {
-		delete(l.failures, key)
+		if key != overflowKey {
+			delete(l.failures, key)
+		}
 		return true, 0
 	}
-	l.failures[key] = append(recent, l.now())
-	// Drop keys without recent failures, so the map can't grow unbounded.
+	l.failures[key] = append(recent, now)
+	return true, 0
+}
+
+// pruneLocked drops keys without recent failures.
+func (l *Limiter) pruneLocked() {
 	for k := range l.failures {
 		if len(l.recentLocked(k)) == 0 {
 			delete(l.failures, k)
 		}
 	}
-	return true, 0
 }
 
 // recentLocked returns key's failures within the window, oldest first.

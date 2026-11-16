@@ -96,24 +96,27 @@ func (h *handlers) StreamOperationEvents(ctx context.Context, req StreamOperatio
 	if err != nil {
 		return StreamOperationEvents404JSONResponse{NotFoundJSONResponse(apiError(err, ErrorCodeNotFound))}, nil
 	}
-	return eventStream{ctx: ctx, op: op}, nil
+	return eventStream{ctx: ctx, op: op, bind: h.auth.sessionBound}, nil
 }
 
 // eventStream writes an operation's output as Server-Sent Events. It
 // implements the generated response interface itself, because the generated
 // io.Reader response can't flush after each event.
 type eventStream struct {
-	ctx context.Context
-	op  *operations.Operation
+	ctx  context.Context
+	op   *operations.Operation
+	bind func(context.Context) (context.Context, context.CancelFunc)
 }
 
 func (s eventStream) VisitStreamOperationEventsResponse(w http.ResponseWriter) error {
+	ctx, cancel := s.bind(s.ctx)
+	defer cancel()
 	rc, err := startEventStream(w)
 	if err != nil {
 		return err
 	}
 
-	final, err := s.op.Follow(s.ctx, func(line string) error {
+	final, err := s.op.Follow(ctx, func(line string) error {
 		// A CR would end the SSE data line early.
 		line = strings.ReplaceAll(line, "\r", "")
 		if _, err := fmt.Fprintf(w, "event: output\ndata: %s\n\n", line); err != nil {

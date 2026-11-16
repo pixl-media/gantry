@@ -182,7 +182,7 @@ func (h *handlers) RevealEnvValue(ctx context.Context, req RevealEnvValueRequest
 		if value, err = h.cfg.Files.RevealEnv(p, key); err == nil {
 			// Who saw which variable, never the value.
 			h.cfg.Logger.Info("env value revealed", "stack", req.Name, "key", key,
-				"client", clientAddr(requestFrom(ctx)))
+				"client", h.auth.net.client(requestFrom(ctx)).String())
 			return RevealEnvValue200JSONResponse{Key: key, Value: value}, nil
 		}
 		f = fileFailure(err)

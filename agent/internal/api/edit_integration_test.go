@@ -30,6 +30,7 @@ func sendJSON(t *testing.T, h http.Handler, method, path string, body any) (int,
 	t.Helper()
 	data, _ := json.Marshal(body)
 	req := httptest.NewRequest(method, path, bytes.NewReader(data))
+	req.RemoteAddr = "127.0.0.1:1234" // plain HTTP with credentials is refused from the internet
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
