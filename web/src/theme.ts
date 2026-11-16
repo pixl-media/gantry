@@ -6,11 +6,14 @@ import { createTheme } from '@mui/material/styles';
 // carry meaning.
 const anthracite = '#2b2f33';
 
-// Light and dark follow the operating system through CSS media queries, so
-// there is no flash on load and no JavaScript involved. No web fonts are
-// loaded: the CSP only allows the page's own origin.
+// Light, dark or the operating system's choice, picked in the app bar. The
+// mode is kept in localStorage ("mui-mode"); `public/color-scheme.js` sets
+// the scheme attribute before the app renders, so there is no flash. No web
+// fonts are loaded: the CSP only allows the page's own origin.
+export const colorSchemeAttribute = 'data-mui-color-scheme';
+
 export const theme = createTheme({
-  cssVariables: { colorSchemeSelector: 'media' },
+  cssVariables: { colorSchemeSelector: colorSchemeAttribute },
   colorSchemes: {
     light: {
       palette: {

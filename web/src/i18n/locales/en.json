@@ -3,7 +3,13 @@
     "title": "gantry",
     "stacks": "Stacks",
     "logout": "Log out",
-    "language": "Language"
+    "language": "Language",
+    "colorScheme": "Appearance"
+  },
+  "colorScheme": {
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
   },
   "login": {
     "title": "Sign in",

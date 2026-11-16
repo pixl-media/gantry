@@ -3,7 +3,13 @@
     "title": "gantry",
     "stacks": "Stacks",
     "logout": "Abmelden",
-    "language": "Sprache"
+    "language": "Sprache",
+    "colorScheme": "Darstellung"
+  },
+  "colorScheme": {
+    "system": "System",
+    "light": "Hell",
+    "dark": "Dunkel"
   },
   "login": {
     "title": "Anmelden",
