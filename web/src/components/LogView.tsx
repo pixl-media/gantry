@@ -31,7 +31,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useStackLogs, type KeyedLogLine } from '../api/logs';
 import { parseAnsi, stripAnsi } from '../lib/ansi';
-import { monoFont } from '../theme';
+import { consoleColors, monoFont } from '../theme';
 
 // Must include the default (200), or the select shows no value.
 const tailOptions = [100, 200, 500, 2000] as const;
@@ -223,8 +223,10 @@ export function LogView({
             minHeight: 320,
             overflow: 'auto',
             borderRadius: 1,
-            bgcolor: 'grey.900',
-            color: 'grey.100',
+            border: 1,
+            borderColor: 'divider',
+            bgcolor: consoleColors.background,
+            color: consoleColors.text,
             fontFamily: monoFont,
             fontSize: 12.5,
             lineHeight: 1.6,
@@ -233,7 +235,7 @@ export function LogView({
         >
           {visible.length === 0 ? (
             <Typography
-              sx={{ px: 1.5, color: 'grey.500', fontSize: 'inherit' }}
+              sx={{ px: 1.5, color: consoleColors.muted, fontSize: 'inherit' }}
             >
               {lines.length === 0 ? t('logs.empty') : t('logs.noMatches')}
             </Typography>
@@ -293,11 +295,14 @@ const LogRow = memo(function LogRow({
         px: 1.5,
         borderLeft: 3,
         borderColor: stderr ? 'error.main' : 'transparent',
-        '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
+        '&:hover': { bgcolor: consoleColors.hover },
       }}
     >
       {time && (
-        <Box component="span" sx={{ color: 'grey.500', flexShrink: 0 }}>
+        <Box
+          component="span"
+          sx={{ color: consoleColors.muted, flexShrink: 0 }}
+        >
           {time}
         </Box>
       )}

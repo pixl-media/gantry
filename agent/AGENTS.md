@@ -1,26 +1,7 @@
-# gantry
+# gantry agent
 
-Lightweight Docker Compose manager. A headless Go **agent** (`agent/`) runs on
-a Docker host and exposes an HTTP API; an optional **web UI** (`web/`, React +
-Vite + MUI, served by Caddy) runs as a separate container and talks only to
-that API.
-
-## Architecture rules
-
-Settled decisions and their reasons are in `docs/decisions.md`; don't reopen
-them without the user. In short:
-
-- **API-first:** every feature is an `/api/v1/` endpoint first; the web UI
-  only consumes the API. Keep the OpenAPI spec in sync once it exists.
-- **One binary, two modes:** the agent runs as a systemd service (primary) and
-  as a container (option). No container-only assumptions: paths come from
-  configuration; defaults must be documented host paths that work in both
-  modes (`GANTRY_STACKS_DIR` defaults to `/opt/stacks`, like Dockge), never
-  container-only paths like `/stacks`. Don't assume root.
-- **Platforms:** linux/amd64 and linux/arm64, `CGO_ENABLED=0`, no cgo
-  dependencies.
-- **Standalone and publishable:** no organization-internal hosts, services or
-  secrets; gantry must work without any other system.
+The Go agent: HTTP API on a Docker host. General rules, the project map and
+the security essentials are in the root `AGENTS.md`.
 
 ## Commands
 
@@ -38,23 +19,6 @@ Run from the repo root:
 - `make docs` – dev-only Swagger UI on 127.0.0.1:8082, forwarding to the agent
   (`agent/tools/devdocs`, never part of the agent binary or image)
 - `make image` – build the Docker image
-
-Web UI (`web/`, pnpm, Node 24+; CI and the image use Node 26 LTS):
-
-- `make web` – Vite dev server on 127.0.0.1:5173, `/api` forwarded to the agent
-- `make web-test` – Vitest; `make web-lint` – ESLint, Prettier, typecheck
-- `make web-generate` – regenerate `web/src/api/schema.gen.ts` from the spec
-  (CI fails if it's out of date)
-- `make web-build`, `make web-image`
-
-## Git workflow
-
-- GitHub Flow. `main` must always be releasable.
-- **Never commit or push directly to `main`.** Create a branch
-  (`feature/…`, `fix/…`, `chore/…`) and open a pull request.
-- Releases are tags `vX.Y.Z` on `main`; CI publishes the images. Don't create
-  tags unless asked.
-- Commit messages, code, comments and docs in English.
 
 ## Code conventions
 
@@ -89,6 +53,9 @@ Web UI (`web/`, pnpm, Node 24+; CI and the image use Node 26 LTS):
   `DOCKER_HOST`), documented in the README table.
 - New API endpoints go under `/api/v1/`. The auth middleware denies by
   default: only the entries in `publicRoutes` are public (see Security).
+
+## Tests
+
 - Table-driven tests next to the code (`*_test.go`), using `httptest` for
   handlers. Integration tests use the `integration` build tag, name their
   stacks `gantry-test-<random>-…`, clean up with `t.Cleanup`, and assert only
@@ -98,40 +65,13 @@ Web UI (`web/`, pnpm, Node 24+; CI and the image use Node 26 LTS):
   streams, the response headers reach the client before the handler's work
   has run.
 
-## Web UI conventions
-
-- API access only through the generated types (`web/src/api/schema.gen.ts`,
-  never edited by hand) and the hooks in `web/src/api/queries.ts`.
-- **Every UI text goes through i18n** (`t('…')`) and exists in both
-  `web/src/i18n/locales/en.json` and `de.json`; a test checks that the keys
-  match, and the typecheck rejects unknown keys.
-- MUI components and the theme in `web/src/theme.ts`; no external fonts or
-  scripts (the CSP in `web/Caddyfile` allows only the own origin).
-- Action rules (what's possible when) live in `web/src/lib/actions.ts` and
-  mirror the agent's rules.
-- The app uses a data router (`createBrowserRouter` in `main.tsx`, routes in
-  `App.tsx`), which `useBlocker` needs; tests for such components render with
-  `renderWithDataRouter`. The CodeMirror editor (`components/CodeEditor.tsx`)
-  is loaded lazily; tests replace it with `test/codeEditorStub.tsx`.
-- Prettier style: single quotes, trailing commas (as in the user's other
-  projects).
-
 ## Security
 
-The agent has access to the Docker socket, which is root-equivalent on the
-host. Every `/api/` route must stay behind authentication (bearer token or
-session cookie), never log the token, and keep the dev setup bound to
-127.0.0.1.
+The root `AGENTS.md` has the rules for both parts. In the agent:
 
 - **Public routes are explicit:** the middleware denies by default; only the
   method + path entries in `publicRoutes` (`agent/internal/api/auth.go`) are
   public. Add one only deliberately.
-- **Cookie auth keeps its CSRF check:** changing requests with the session
-  cookie need a same-origin `Origin` header. Don't weaken `SameSite=Strict`
-  or `HttpOnly`.
-- **Never store tokens in the browser** (`localStorage`, `sessionStorage`,
-  JS-readable cookies). The web UI only uses the `HttpOnly` session cookie.
-  Mutations whose variables hold the token or `.env` values use `gcTime: 0`.
 - **Sessions live in memory** (`session.Store`); logout revokes them. Wrong
   tokens, by login or bearer header, count against one limiter; never let
   the right token past it while a client is blocked.
@@ -140,7 +80,6 @@ session cookie), never log the token, and keep the dev setup bound to
 - **Errors:** unexpected errors (500) are logged, never returned with
   details. Never show raw Compose output where it isn't asked for: it can
   quote `.env` lines.
-
 - **Never expose secrets from stacks:** return Compose files as stored, never
   the resolved configuration (`docker compose config` output). `.env` values
   only through the reveal endpoint, one value per explicit request
@@ -154,4 +93,3 @@ session cookie), never log the token, and keep the dev setup bound to
   HTTP from internet addresses are refused (`network.insecure`), client
   addresses come from `network.client` (trusted proxies only), the binary
   listens on 127.0.0.1 by default. Keep new endpoints behind these checks.
-- Settled hardening decisions are in `docs/decisions.md` (20, 21).

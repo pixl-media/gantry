@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { Outlet, Link as RouterLink, useNavigate } from 'react-router';
 import { useLogout } from '../api/queries';
 import { languages } from '../i18n';
+import { ColorSchemeMenu } from './ColorSchemeMenu';
 
 const languageNames: Record<(typeof languages)[number], string> = {
   en: 'English',
@@ -61,6 +62,7 @@ export function AppLayout() {
               </MenuItem>
             ))}
           </Select>
+          <ColorSchemeMenu />
           <Tooltip title={t('app.logout')}>
             <IconButton
               color="inherit"
