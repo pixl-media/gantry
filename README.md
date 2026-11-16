@@ -235,6 +235,7 @@ curl -N -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/op
 | `GANTRY_TOKEN` | (required) | Token for the API and the web UI login; use at least 24 random characters (`openssl rand -hex 24`). Shorter than 16 characters: the agent refuses to start |
 | `GANTRY_STACKS_DIR` | `/opt/stacks` | Directory with the managed stacks (same default as Dockge) |
 | `GANTRY_LISTEN` | `:7070` | Listen address |
+| `GANTRY_PUBLIC_URL` | (none) | Address of the web UI, e.g. `https://gantry.example.com`. If set, cookie-authenticated requests must come from exactly this origin, and with `https` the session cookie is `Secure` and named `__Host-gantry_session` |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker socket (only `unix://` is supported) |
 
 The stacks directory uses the same default and layout as Dockge, so gantry
@@ -269,6 +270,8 @@ services:
     environment:
       GANTRY_TOKEN: ${GANTRY_TOKEN}
       GANTRY_STACKS_DIR: /opt/stacks
+      # The web UI's address, see "Exposing the web UI" below.
+      # GANTRY_PUBLIC_URL: https://gantry.example.com
     ports:
       - "7070:7070"
     volumes:
@@ -286,11 +289,21 @@ services:
     restart: unless-stopped
 ```
 
-The web UI speaks plain HTTP on port 8080. For access beyond your own
-machine, put it behind a reverse proxy with HTTPS (e.g. Caddy, Traefik);
-proxies in private networks are trusted for `X-Forwarded-Proto`, so the
-session cookie is then marked `Secure`. The web container also works with an
-agent running as a systemd service: point `GANTRY_AGENT_URL` at it.
+The web UI speaks plain HTTP on port 8080. The web container also works with
+an agent running as a systemd service: point `GANTRY_AGENT_URL` at it.
+
+**Exposing the web UI.** For access beyond your own machine:
+
+- Put it behind a reverse proxy with HTTPS (e.g. Caddy, Traefik). Proxies in
+  private networks are trusted for `X-Forwarded-Proto`, so the session cookie
+  is then marked `Secure`.
+- Give it **its own hostname**, such as `gantry.example.com`. Browsers send
+  cookies to every port of a host, so with the UI at `http://nas:8080`, the
+  session cookie also reaches every other web app on `http://nas:<port>`,
+  including the containers gantry manages, and any of them could use it.
+- Set `GANTRY_PUBLIC_URL` on the agent to that address. Changing requests from
+  the browser must then come from exactly this origin, and with HTTPS the
+  cookie is always `Secure` and can't be set by other hosts (`__Host-`).
 
 ## Layout
 

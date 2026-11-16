@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/pixl-media/gantry/agent/internal/compose"
@@ -53,6 +54,8 @@ type Config struct {
 	Logs       LogService
 	Files      FileService
 	Logger     *slog.Logger // optional
+	// PublicOrigin is the web UI's origin (see ParsePublicURL), or "".
+	PublicOrigin string
 }
 
 // New returns the agent's HTTP handler.
@@ -61,10 +64,15 @@ func New(cfg Config) http.Handler {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 	auth := &authenticator{
-		token:    cfg.Token,
-		sessions: session.NewStore(0),
-		limiter:  session.NewLimiter(maxFailedAttempts, time.Minute),
-		logger:   cfg.Logger,
+		token:        cfg.Token,
+		sessions:     session.NewStore(0),
+		limiter:      session.NewLimiter(maxFailedAttempts, time.Minute),
+		logger:       cfg.Logger,
+		publicOrigin: cfg.PublicOrigin,
+		cookieName:   session.CookieName,
+	}
+	if strings.HasPrefix(cfg.PublicOrigin, "https://") {
+		auth.cookieName = "__Host-" + session.CookieName
 	}
 	h := &handlers{cfg: cfg, auth: auth}
 	invalid := ErrorCodeInvalidRequest

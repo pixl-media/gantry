@@ -732,7 +732,9 @@ components:
       type: apiKey
       in: cookie
       name: gantry_session
-      description: Session cookie from `POST /api/v1/session`.
+      description: >-
+        Session cookie from `POST /api/v1/session`. With an `https`
+        `GANTRY_PUBLIC_URL` it is named `__Host-gantry_session`.
 
   responses:
     Unauthorized:

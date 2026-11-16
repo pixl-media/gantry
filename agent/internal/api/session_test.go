@@ -205,6 +205,66 @@ func TestBearerGuessingIsLimited(t *testing.T) {
 	}
 }
 
+func TestParsePublicURL(t *testing.T) {
+	good := map[string]string{
+		"":                                "",
+		"https://gantry.example.com":      "https://gantry.example.com",
+		"https://Gantry.Example.com:443/": "https://gantry.example.com",
+		"http://nas.local:8080":           "http://nas.local:8080",
+	}
+	for in, want := range good {
+		if got, err := ParsePublicURL(in); err != nil || got != want {
+			t.Errorf("ParsePublicURL(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"ftp://x", "gantry.example.com", "https://", "https://x/sub", "https://x?a=1", "https://user@x"} {
+		if _, err := ParsePublicURL(bad); err == nil {
+			t.Errorf("ParsePublicURL(%q) accepted", bad)
+		}
+	}
+}
+
+// With an https public URL, the cookie gets the __Host- prefix and Secure,
+// and cookie requests must come from exactly that origin.
+func TestPublicOrigin(t *testing.T) {
+	const origin = "https://gantry.example.com"
+	h := New(Config{Token: "the-token", Stacks: fakeStacks{}, PublicOrigin: origin})
+
+	rec := login(t, h, "the-token", map[string]string{"Origin": origin})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("login = %d: %s", rec.Code, rec.Body)
+	}
+	set := rec.Header().Get("Set-Cookie")
+	for _, want := range []string{"__Host-gantry_session=", "Secure", "Path=/"} {
+		if !strings.Contains(set, want) {
+			t.Errorf("Set-Cookie = %q, missing %q", set, want)
+		}
+	}
+	if strings.Contains(set, "Domain=") {
+		t.Errorf("Set-Cookie = %q: __Host- cookies must not have a Domain", set)
+	}
+	c := rec.Result().Cookies()[0]
+
+	if rec := login(t, h, "the-token", map[string]string{"Origin": "http://gantry.example.com"}); rec.Code != http.StatusForbidden {
+		t.Errorf("login from the http origin = %d, want 403", rec.Code)
+	}
+	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", c, "")); rec.Code != http.StatusOK {
+		t.Errorf("GET with cookie = %d", rec.Code)
+	}
+	// Changing requests: the host alone isn't enough, the scheme must match.
+	for o, want := range map[string]int{origin: http.StatusBadRequest, "http://gantry.example.com": http.StatusForbidden} {
+		rec := serve(h, withCookie(http.MethodPost, "/api/v1/stacks/app/actions/explode", c, o))
+		if rec.Code != want {
+			t.Errorf("POST from %s = %d, want %d", o, rec.Code, want)
+		}
+	}
+	// The same value under the unprefixed name isn't a session.
+	plain := &http.Cookie{Name: "gantry_session", Value: c.Value}
+	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", plain, "")); rec.Code != http.StatusUnauthorized {
+		t.Errorf("unprefixed cookie = %d, want 401", rec.Code)
+	}
+}
+
 func TestLogout(t *testing.T) {
 	h, _ := newOpsServer(t, runner{})
 	// Public, so it works without (or with an expired) session.

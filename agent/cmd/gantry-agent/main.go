@@ -82,15 +82,22 @@ func main() {
 	defer stop()
 	ops := operations.NewManager(ctx, compose.CLI{}, operations.Options{})
 
+	publicOrigin, err := api.ParsePublicURL(os.Getenv("GANTRY_PUBLIC_URL"))
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+
 	addr := envOr("GANTRY_LISTEN", ":7070")
 	srv := api.NewServer(addr, api.New(api.Config{
-		Token:      token,
-		Version:    version,
-		Stacks:     manager,
-		Operations: ops,
-		Logs:       logs.New(dockerClient),
-		Files:      stackfiles.New(compose.CLI{}),
-		Logger:     logger,
+		Token:        token,
+		Version:      version,
+		Stacks:       manager,
+		Operations:   ops,
+		Logs:         logs.New(dockerClient),
+		Files:        stackfiles.New(compose.CLI{}),
+		Logger:       logger,
+		PublicOrigin: publicOrigin,
 	}))
 
 	errc := make(chan error, 1)

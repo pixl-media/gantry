@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/pixl-media/gantry/agent/internal/session"
 )
 
 func (h *handlers) GetSession(ctx context.Context, _ GetSessionRequestObject) (GetSessionResponseObject, error) {
@@ -24,7 +22,7 @@ func (h *handlers) GetSession(ctx context.Context, _ GetSessionRequestObject) (G
 func (h *handlers) CreateSession(ctx context.Context, req CreateSessionRequestObject) (CreateSessionResponseObject, error) {
 	r := requestFrom(ctx)
 	// A login from another site is never legitimate (login CSRF).
-	if r.Header.Get("Origin") != "" && !sameOrigin(r) {
+	if r.Header.Get("Origin") != "" && !h.auth.sameOrigin(r) {
 		return CreateSession403JSONResponse(apiError(errors.New("cross-origin request rejected"), ErrorCodeOriginRejected)), nil
 	}
 
@@ -43,7 +41,7 @@ func (h *handlers) CreateSession(ctx context.Context, req CreateSessionRequestOb
 	}
 
 	value, exp := h.auth.sessions.Issue()
-	cookie := sessionCookie(r, value, int(h.auth.sessions.TTL().Seconds()))
+	cookie := h.auth.cookie(r, value, int(h.auth.sessions.TTL().Seconds()))
 	cookie.Expires = exp
 	c := cookie.String()
 	return CreateSession204Response{Headers: CreateSession204ResponseHeaders{SetCookie: &c}}, nil
@@ -53,25 +51,11 @@ func (h *handlers) CreateSession(ctx context.Context, req CreateSessionRequestOb
 // expired one) and clears the cookie.
 func (h *handlers) DeleteSession(ctx context.Context, _ DeleteSessionRequestObject) (DeleteSessionResponseObject, error) {
 	r := requestFrom(ctx)
-	if old, err := r.Cookie(session.CookieName); err == nil {
+	if old, err := r.Cookie(h.auth.cookieName); err == nil {
 		h.auth.sessions.Revoke(old.Value)
 	}
-	c := sessionCookie(r, "", -1).String()
+	c := h.auth.cookie(r, "", -1).String()
 	return DeleteSession204Response{Headers: DeleteSession204ResponseHeaders{SetCookie: &c}}, nil
-}
-
-// sessionCookie returns the session cookie with its security attributes.
-// maxAge -1 deletes it.
-func sessionCookie(r *http.Request, value string, maxAge int) *http.Cookie {
-	return &http.Cookie{
-		Name:     session.CookieName,
-		Value:    value,
-		Path:     "/",
-		MaxAge:   maxAge,
-		HttpOnly: true,                    // not readable by JavaScript
-		SameSite: http.SameSiteStrictMode, // not sent with requests from other sites
-		Secure:   isHTTPS(r),
-	}
 }
 
 // isHTTPS reports whether the client connected over HTTPS, directly or

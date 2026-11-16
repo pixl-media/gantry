@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -45,6 +46,29 @@ type authenticator struct {
 	// headers alike.
 	limiter *session.Limiter
 	logger  *slog.Logger
+
+	// publicOrigin is the web UI's origin from GANTRY_PUBLIC_URL, e.g.
+	// "https://gantry.example.com", or "". When set, cookie requests must
+	// come from exactly this origin, scheme included.
+	publicOrigin string
+	// cookieName is session.CookieName, with the __Host- prefix for an
+	// https public URL: browsers then accept the cookie only if it is
+	// Secure, for this host, and set by this host.
+	cookieName string
+}
+
+// cookie returns the session cookie with its security attributes. maxAge
+// -1 deletes it.
+func (a *authenticator) cookie(r *http.Request, value string, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name:     a.cookieName,
+		Value:    value,
+		Path:     "/",
+		MaxAge:   maxAge,
+		HttpOnly: true,                    // not readable by JavaScript
+		SameSite: http.SameSiteStrictMode, // not sent with requests from other sites
+		Secure:   strings.HasPrefix(a.publicOrigin, "https://") || isHTTPS(r),
+	}
 }
 
 // validToken compares got with the configured token in constant time. An
@@ -78,7 +102,7 @@ func (a *authenticator) authenticate(r *http.Request) (authInfo, error) {
 	if a.token == "" {
 		return authInfo{}, errUnauthorized
 	}
-	if c, err := r.Cookie(session.CookieName); err == nil {
+	if c, err := r.Cookie(a.cookieName); err == nil {
 		if exp, ok := a.sessions.Verify(c.Value); ok {
 			return authInfo{method: authCookie, expires: exp}, nil
 		}
@@ -127,7 +151,7 @@ func (a *authenticator) middleware(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusUnauthorized, apiError(err, ErrorCodeUnauthorized))
 			return
 		}
-		if info.method == authCookie && !safeMethod(r.Method) && !sameOrigin(r) {
+		if info.method == authCookie && !safeMethod(r.Method) && !a.sameOrigin(r) {
 			writeJSON(w, http.StatusForbidden, apiError(errors.New("cross-origin request rejected"), ErrorCodeOriginRejected))
 			return
 		}
@@ -139,13 +163,39 @@ func safeMethod(m string) bool {
 	return m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions
 }
 
-// sameOrigin reports whether the Origin header names the host the request
-// was sent to. Browsers always send Origin with POST and DELETE requests.
-func sameOrigin(r *http.Request) bool {
+// sameOrigin reports whether the Origin header names the configured public
+// origin, or else the host the request was sent to. Browsers always send
+// Origin with POST, PUT, PATCH and DELETE requests.
+func (a *authenticator) sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return false
 	}
+	if a.publicOrigin != "" {
+		return strings.EqualFold(origin, a.publicOrigin)
+	}
 	u, err := url.Parse(origin)
 	return err == nil && u.Host == r.Host
+}
+
+// ParsePublicURL checks GANTRY_PUBLIC_URL, the address the web UI is
+// reached at, and returns its origin: scheme and host, without a default
+// port. An empty value returns "".
+func ParsePublicURL(s string) (string, error) {
+	if s == "" {
+		return "", nil
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return "", fmt.Errorf("GANTRY_PUBLIC_URL: %w", err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("GANTRY_PUBLIC_URL %q: want scheme and host only, like https://gantry.example.com", s)
+	}
+	host := strings.ToLower(u.Host)
+	if port := u.Port(); (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		host = strings.ToLower(u.Hostname())
+	}
+	return u.Scheme + "://" + host, nil
 }
