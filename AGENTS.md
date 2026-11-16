@@ -24,7 +24,7 @@ This file holds what applies everywhere. Details for one part are in
 | `docs/decisions.md` | Settled decisions and their reasons (numbered) |
 | `README.md` | User docs: configuration table (`GANTRY_*`), exposing gantry, compose example |
 | `compose.yaml`, `.env.example` | Container setup of agent and web UI |
-| `api.http` | Example requests (token from `.env`) |
+| `api.http` | Example requests (API token from `.env`) |
 | `dev/stacks/` | Example stacks for `make run` |
 | `.github/` | CI (`workflows/ci.yml`) and Dependabot |
 | `LICENSE` | AGPLv3 (decision 22) |
@@ -79,7 +79,9 @@ and `web/AGENTS.md`.
 - Every `/api/` route stays behind authentication (bearer token or session
   cookie). **Public routes are explicit:** only the entries in `publicRoutes`
   (`agent/internal/api/auth.go`) are public; add one only deliberately.
-- Never log the token; keep the dev setup bound to 127.0.0.1.
+- **Two tokens, strictly separate** (decision 26): `GANTRY_TOKEN` only as
+  bearer for API clients, `GANTRY_UI_TOKEN` only for the web login.
+- Never log tokens; keep the dev setup bound to 127.0.0.1.
 - **Never store tokens in the browser** (`localStorage`, `sessionStorage`,
   JS-readable cookies). The web UI only uses the `HttpOnly` session cookie.
 - **Cookie auth keeps its CSRF check:** changing requests with the session

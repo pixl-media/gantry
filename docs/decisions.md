@@ -224,7 +224,8 @@ logout, the UI container would need the token).
 *Amended by decision 20:* sessions now live in the agent's memory (logout
 really ends them), wrong bearer tokens count against the same limit, tokens
 shorter than 16 characters are refused, and `GANTRY_PUBLIC_URL` can pin the
-cookie's origin.
+cookie's origin. *Amended by decision 26:* the login takes its own token,
+`GANTRY_UI_TOKEN`, not the API's.
 
 ## 15. Web UI stack and container
 
@@ -587,6 +588,33 @@ that belong there don't go into gantry first.
     only a second factor is, and setting one up in the browser needs stored
     state. An identity provider (OIDC) gives that without state. Revisit
     only for a concrete need on servers without one.
+
+## 26. Separate tokens for the API and the web login
+
+**Decided 2026-11-17.** One token served API clients and the web login. A
+token copied into the wrong place then had to be replaced everywhere,
+scripts and the later infrastructure app included.
+
+- **`GANTRY_TOKEN`** works only as `Authorization: Bearer` (API clients,
+  scripts); **`GANTRY_UI_TOKEN`** only at `POST /api/v1/session`. Neither is
+  accepted in the other's place; using the wrong one is a failed attempt
+  and counts against the same limit.
+- **Each is optional**, which turns its way in off: without a web login
+  token the login answers `403 login_disabled` and no session exists;
+  without an API token, bearer headers never work. At least one is needed,
+  both follow the rules of decision 21 (also `_FILE`), and they must differ,
+  or the agent doesn't start.
+- **Replacing one** is a new value and a restart. The restart ends all
+  sessions, including any opened with the old token.
+- **Audit:** the auth middleware logs every changing request with method,
+  path, client and `via=token|session`, never its body, so a log shows
+  whether a change came from a browser or a script.
+- **Same power:** a session can do everything a bearer token can. The split
+  makes replacing and tracing easier, not a leaked token less dangerous;
+  only a second factor would (decision 25).
+- Rejected: a web UI password instead of a second token (weaker than a
+  random token, decision 25), and accepting the API token at the login as a
+  fallback (it would quietly undo the split).
 
 ## Open questions
 

@@ -1,18 +1,25 @@
 STACKS_DIR ?= $(CURDIR)/dev/stacks
-# Local development reads GANTRY_TOKEN from .env (git-ignored), which `make
-# run` creates with a random token; docker compose and api.http use it too.
-# A token set in the environment wins.
+# Local development reads GANTRY_TOKEN (API) and GANTRY_UI_TOKEN (web login)
+# from .env (git-ignored), which `make run` creates or completes with random
+# tokens; docker compose and api.http use it too. Tokens set in the
+# environment win.
 dev_token = $${GANTRY_TOKEN:-$$(sed -n 's/^GANTRY_TOKEN=//p' $(CURDIR)/.env)}
+dev_ui_token = $${GANTRY_UI_TOKEN:-$$(sed -n 's/^GANTRY_UI_TOKEN=//p' $(CURDIR)/.env)}
 
-.PHONY: run docs test test-integration lint generate build image \
+.PHONY: run dev-env docs test test-integration lint generate build image \
 	web web-install web-generate web-test web-lint web-build web-image
 
-run: .env ## Run the agent locally on 127.0.0.1:7070, managing dev/stacks (token in .env)
-	cd agent && GANTRY_TOKEN="$(dev_token)" GANTRY_STACKS_DIR=$(STACKS_DIR) GANTRY_LISTEN=127.0.0.1:7070 go run ./cmd/gantry-agent
+run: dev-env ## Run the agent locally on 127.0.0.1:7070, managing dev/stacks (tokens in .env)
+	cd agent && GANTRY_TOKEN="$(dev_token)" GANTRY_UI_TOKEN="$(dev_ui_token)" GANTRY_STACKS_DIR=$(STACKS_DIR) GANTRY_LISTEN=127.0.0.1:7070 go run ./cmd/gantry-agent
 
-.env:
-	@echo "GANTRY_TOKEN=$$(openssl rand -hex 24)" > $@
-	@echo "Created .env with a random GANTRY_TOKEN; log in with it."
+dev-env: ## Create .env with random tokens, or add a missing one
+	@[ -f .env ] || (umask 077 && touch .env)
+	@for v in GANTRY_TOKEN GANTRY_UI_TOKEN; do \
+		grep -q "^$$v=" .env && continue; \
+		[ -z "$$(tail -c1 .env)" ] || echo >> .env; \
+		echo "$$v=$$(openssl rand -hex 24)" >> .env; \
+		echo "Added a random $$v to .env."; \
+	done
 
 docs: ## Swagger UI for api/openapi.yaml on http://127.0.0.1:8082, forwarding requests to the agent on :7070
 	cd agent && go run ./tools/devdocs -spec $(CURDIR)/api/openapi.yaml -listen 127.0.0.1:8082 -agent http://127.0.0.1:7070
