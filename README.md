@@ -317,6 +317,8 @@ curl -N -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/op
 | `GANTRY_LISTEN` | `127.0.0.1:7070` (image: `:7070`) | Listen address. The binary only accepts local connections by default; set e.g. `:7070` to reach it from other hosts |
 | `GANTRY_TRUSTED_PROXIES` | (none) | Reverse proxies (IP addresses or CIDR prefixes, comma-separated) whose `X-Forwarded-For` and `X-Forwarded-Proto` the agent believes, such as the web UI's container. Then every client behind them has its own login limit |
 | `GANTRY_ALLOW_INSECURE_HTTP` | `false` | Accept tokens and session cookies over plain HTTP from internet addresses. Only if you know why: anyone on the way can read them. Also understood by the web UI's container |
+| `GANTRY_TLS_CERT` | (none) | PEM certificate (with its chain) for HTTPS on the agent itself, with `GANTRY_TLS_KEY`. Replaced files are picked up without a restart; see "TLS in the agent" |
+| `GANTRY_TLS_KEY` | (none) | PEM private key for `GANTRY_TLS_CERT`; make it readable only by the agent |
 | `GANTRY_PUBLIC_URL` | (none) | Address of the web UI, e.g. `https://gantry.example.com`. If set, cookie-authenticated requests must come from exactly this origin, and with `https` the session cookie is `Secure` and named `__Host-gantry_session` |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker socket (only `unix://` is supported) |
 
@@ -416,8 +418,9 @@ beyond your own machine:
   uses it, the web UI's on `127.0.0.1` or behind your proxy. Published
   Docker ports bypass host firewalls.
 - Use random tokens (`openssl rand -hex 24`, one for each); the agent
-  refuses obviously weak ones and the same token twice. Logins and bearer tokens are limited to 10 wrong attempts per
-  minute per client (per /64 for IPv6).
+  refuses obviously weak ones and the same token twice. Logins and bearer
+  tokens are limited to 10 wrong attempts per minute per client (per /64 for
+  IPv6).
 - Give it **its own hostname**, such as `gantry.example.com`. Browsers send
   cookies to every port of a host, so with the UI at `http://nas:8080`, the
   session cookie also reaches every other web app on `http://nas:<port>`,
@@ -425,6 +428,48 @@ beyond your own machine:
 - Set `GANTRY_PUBLIC_URL` on the agent to that address. Changing requests from
   the browser must then come from exactly this origin, and with HTTPS the
   cookie is always `Secure` and can't be set by other hosts (`__Host-`).
+
+**TLS in the agent.** The agent can encrypt its own connections too: between
+your reverse proxy or the web UI's container and the agent, or for API
+clients on other hosts. Set `GANTRY_TLS_CERT` and `GANTRY_TLS_KEY` to a PEM
+certificate and key. Replaced files (a renewal) take effect with the next
+connection, without a restart; files that don't load keep the current
+certificate. The agent warns two weeks before the certificate expires. It
+doesn't obtain certificates itself: use your own CA, your proxy's
+certificates, or a self-signed one, valid for the names clients use (the
+web UI below reaches the agent as `gantry-agent`):
+
+```bash
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 825 \
+  -subj /CN=gantry -addext "subjectAltName=DNS:gantry-agent,DNS:localhost,IP:127.0.0.1" \
+  -keyout key.pem -out cert.pem
+```
+
+```yaml
+services:
+  gantry-agent:
+    environment:
+      GANTRY_TLS_CERT: /etc/gantry/tls/cert.pem
+      GANTRY_TLS_KEY: /etc/gantry/tls/key.pem
+    volumes:
+      - /etc/gantry/tls:/etc/gantry/tls:ro
+  gantry-web:
+    environment:
+      GANTRY_AGENT_URL: https://gantry-agent:7070
+      # Only for a self-signed certificate or your own CA: the web UI trusts
+      # just this one (it replaces the container's system CAs).
+      SSL_CERT_FILE: /etc/gantry/tls/cert.pem
+    volumes:
+      - /etc/gantry/tls/cert.pem:/etc/gantry/tls/cert.pem:ro
+```
+
+`SSL_CERT_FILE` is read when the web UI's container starts: after replacing a
+self-signed certificate, restart that container. With your own CA, point it
+at the CA's certificate instead, and renewals need nothing.
+
+Behind a proxy, what counts for `https_required` and the `Secure` cookie is
+still the browser's connection (`X-Forwarded-Proto`), not the proxy's. HSTS
+stays tied to an `https` `GANTRY_PUBLIC_URL`.
 
 ## Layout
 

@@ -431,9 +431,8 @@ enough to lose the host.
   Origin check compares the scheme over HTTPS, HSTS with an https public URL,
   event streams end with the session that opened them.
 
-Not done: TLS in the agent itself (a proxy does it, and the refusal above
-already keeps plain HTTP from working; planned for v0.1, see decision 25)
-and pinning images and actions by digest (backlog). A global failure budget
+Not done: pinning images and actions by digest (backlog). TLS in the agent
+itself came later (decision 27). A global failure budget
 was dropped: with enforced strong tokens it protects nothing.
 
 ## 22. License: AGPLv3
@@ -607,6 +606,39 @@ scripts included.
 - Rejected: a web UI password instead of a second token (weaker than a
   random token, decision 25), and accepting the API token at the login as a
   fallback (it would quietly undo the split).
+
+## 27. TLS in the agent
+
+**Decided 2026-11-17.** The agent serves HTTPS itself when `GANTRY_TLS_CERT`
+and `GANTRY_TLS_KEY` name a PEM certificate and key. A reverse proxy covers
+the browser's way, but between the proxy or the web UI's container and the
+agent, and for API clients on other hosts, tokens, cookies and `.env`
+values crossed the network in plain text.
+
+- **Files only, no ACME:** obtaining certificates is the job of reverse
+  proxies and existing tools; the agent stays without outside calls
+  (decision 25).
+- **Renewals without a restart:** the files are checked on every handshake
+  (two `stat` calls) and loaded again when they change. Files that don't
+  load (e.g. the certificate replaced, the key not yet) keep the current
+  certificate, with one warning. A warning two weeks before expiry. TLS 1.2
+  at least; HTTP/2 comes with it.
+- **Behind a proxy, the browser's connection counts.** `X-Forwarded-Proto`
+  from a trusted or private proxy decides, even if that proxy talks TLS to
+  the agent. Otherwise such a proxy would make plain HTTP from the internet
+  look safe (decision 21), and a browser on plain HTTP would get a `Secure`
+  cookie it never sends back.
+- **No HSTS from TLS alone:** it stays tied to an `https`
+  `GANTRY_PUBLIC_URL`. HSTS for a host with a self-signed certificate would
+  lock browsers out, since they then refuse to let anyone click through
+  the warning.
+- **The web UI's container needs no new setting:** `GANTRY_AGENT_URL=https://…`,
+  and for a self-signed certificate or a private CA, `SSL_CERT_FILE`
+  pointing at it. Its Caddy keeps the browser's `Host` header for the agent
+  (it would send the agent's address to an HTTPS upstream), so the
+  same-origin check still works; the certificate is checked against the
+  agent's address.
+- Not now: client certificates (mTLS).
 
 ## Open questions
 
