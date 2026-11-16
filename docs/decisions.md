@@ -435,8 +435,9 @@ enough to lose the host.
   event streams end with the session that opened them.
 
 Not done: TLS in the agent itself (a proxy does it, and the refusal above
-already keeps plain HTTP from working), a global failure budget, and pinning
-images and actions by digest.
+already keeps plain HTTP from working; planned for v0.1, see decision 25)
+and pinning images and actions by digest (backlog). A global failure budget
+was dropped: with enforced strong tokens it protects nothing.
 
 ## 22. License: AGPLv3
 
@@ -551,6 +552,41 @@ its operations every 5 seconds, per open tab, and every list request ran
   through the API drops the entry at once; errors aren't cached. Service
   action plans always read the files fresh. A file watcher (inotify) was
   rejected: not in the standard library, and the key plus expiry is enough.
+
+## 25. Scope: a lightweight manager for one host
+
+**Decided 2026-11-17**, after reviewing the backlog: gantry stays small. The
+larger infrastructure app comes later and separately (decision 4); features
+that belong there don't go into gantry first.
+
+- **What lightweight means here:**
+  - **No state of its own:** no database and no files of its own. The stack
+    folders and Docker are the truth; sessions and operations live in
+    memory.
+  - **One host per agent.**
+  - **Only what Docker and Compose can do**, made safe to use over an API
+    and a web UI.
+  - **No background calls to outside services.**
+
+  An exception to these needs a decision of its own.
+- **In scope:** packaging, release notes, supply chain (pinning, signing),
+  TLS in the agent, separate tokens for the API and the web login, an
+  optional OIDC login after v0.1 (it stores nothing in gantry), UI polish,
+  splitting the web bundle.
+- **Not in gantry** (the infrastructure app's job): several hosts in one UI,
+  user accounts and roles, resource usage and its history, a history of
+  Compose files, a console in containers, renaming stacks with their
+  volumes.
+- **Dropped:**
+  - **"Update available" hints for images:** with `latest`, the update
+    action pulls and recreates only what changed; with pinned versions,
+    picking the next one is a decision of its own. Checking registries in
+    the background would need their credentials and run into rate limits.
+  - **A global failure budget** (decision 21): tokens are random and long.
+  - **A web UI password with TOTP:** a password isn't safer than the token;
+    only a second factor is, and setting one up in the browser needs stored
+    state. An identity provider (OIDC) gives that without state. Revisit
+    only for a concrete need on servers without one.
 
 ## Open questions
 

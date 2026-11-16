@@ -513,6 +513,14 @@ This is a development tool only; the agent doesn't serve docs itself.
   exist or variables are set.
 - Logs exist only as long as Docker keeps them; with log drivers such as
   `none` or `syslog` Docker returns none.
+
+## Non-goals
+
+gantry stays a lightweight manager for one host: no database or files of its
+own, only what Docker and Compose can do, no background calls to outside
+services. Several hosts in one UI, user accounts and roles, resource
+history, a history of Compose files, a console in containers and "update
+available" hints are out of scope (`docs/decisions.md`, decision 25).
 - The web UI keeps at most 10,000 log lines and searches only those, in the
   browser.
 
