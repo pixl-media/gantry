@@ -117,7 +117,7 @@ type ContainerLister interface {
 
 // ServiceLister lists the services a Compose file defines.
 type ServiceLister interface {
-	Services(ctx context.Context, dir, file string) ([]string, error)
+	Services(ctx context.Context, p compose.Project) ([]string, error)
 }
 
 // Manager finds stacks in a stacks directory and on the Docker host.
@@ -429,7 +429,7 @@ func (m *Manager) loadServices(ctx context.Context, stacks []*stack) {
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			services, err := m.compose.Services(ctx, st.path, st.composeFile)
+			services, err := m.compose.Services(ctx, compose.Project{Name: st.name, Dir: st.path, File: st.composeFile})
 			if err != nil {
 				st.warnings = append(st.warnings, fmt.Sprintf("reading services: %v", err))
 				services = containerServices(st.containers)

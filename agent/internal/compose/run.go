@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
 	"syscall"
 	"time"
 )
@@ -29,17 +28,12 @@ const defaultCancelGrace = 15 * time.Second
 // plugin as a child of the docker CLI. If Compose hasn't stopped after
 // CancelGrace, the group is killed.
 func (c CLI) Run(ctx context.Context, p Project, args []string, out io.Writer) (int, error) {
-	full := append([]string{
-		"compose", "--ansi", "never", "--progress", "plain",
-		"-p", p.Name, "-f", p.File, "--project-directory", p.Dir,
-	}, args...)
 	grace := c.CancelGrace
 	if grace == 0 {
 		grace = defaultCancelGrace
 	}
 
-	cmd := exec.CommandContext(ctx, c.bin(), full...)
-	cmd.Dir = p.Dir
+	cmd := c.command(ctx, p, append([]string{"--ansi", "never", "--progress", "plain"}, args...)...)
 	// Same writer for both: os/exec then serializes the writes.
 	cmd.Stdout = out
 	cmd.Stderr = out

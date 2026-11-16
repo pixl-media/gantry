@@ -32,7 +32,7 @@ func (d dockerStub) ListComposeContainers(context.Context) ([]docker.Container, 
 
 type servicesStub struct{}
 
-func (servicesStub) Services(context.Context, string, string) ([]string, error) {
+func (servicesStub) Services(context.Context, compose.Project) ([]string, error) {
 	return []string{"app"}, nil
 }
 

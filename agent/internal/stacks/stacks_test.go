@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
 	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 )
@@ -28,11 +29,11 @@ type fakeCompose struct {
 	err      error
 }
 
-func (f fakeCompose) Services(_ context.Context, dir, _ string) ([]string, error) {
+func (f fakeCompose) Services(_ context.Context, p compose.Project) ([]string, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	return f.services[filepath.Base(dir)], nil
+	return f.services[filepath.Base(p.Dir)], nil
 }
 
 // stacksDir creates a stacks directory with a compose.yaml per name.

@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,7 +29,7 @@ func TestServices(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "compose.yaml")
 
-	got, err := CLI{Docker: bin}.Services(context.Background(), dir, file)
+	got, err := CLI{Docker: bin}.Services(context.Background(), Project{Name: "app", Dir: dir, File: file})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +42,7 @@ func TestServices(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := strings.Fields(string(raw))
-	want := []string{"compose", "-f", file, "--project-directory", dir, "config", "--services", "--no-interpolate"}
+	want := []string{"compose", "-p", "app", "-f", file, "--project-directory", dir, "config", "--services", "--no-interpolate"}
 	if !slices.Equal(args, want) {
 		t.Errorf("args = %v, want %v", args, want)
 	}
@@ -49,8 +50,46 @@ func TestServices(t *testing.T) {
 
 func TestServicesError(t *testing.T) {
 	bin, _ := fakeDocker(t, `echo "no such file" >&2; exit 1`)
-	_, err := CLI{Docker: bin}.Services(context.Background(), t.TempDir(), "compose.yaml")
+	dir := t.TempDir()
+	_, err := CLI{Docker: bin}.Services(context.Background(), Project{Name: "app", Dir: dir, File: filepath.Join(dir, "compose.yaml")})
 	if err == nil || !strings.Contains(err.Error(), "no such file") {
 		t.Fatalf("err = %v, want stderr in error", err)
+	}
+}
+
+// Compose interpolates ${...} from its environment, so it must never see the
+// agent's GANTRY_* settings, the token above all.
+func TestComposeDoesNotSeeGantrySettings(t *testing.T) {
+	t.Setenv("GANTRY_TOKEN", "secret-token-value")
+	t.Setenv("GANTRY_PUBLIC_URL", "https://gantry.example.com")
+	envFile := filepath.Join(t.TempDir(), "env")
+	t.Setenv("ENV_OUT", envFile)
+	bin, _ := fakeDocker(t, `env >> "$ENV_OUT"`)
+	dir := t.TempDir()
+	p := Project{Name: "app", Dir: dir, File: filepath.Join(dir, "compose.yaml")}
+	cli := CLI{Docker: bin}
+
+	if _, err := cli.Services(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if err := cli.Validate(context.Background(), p, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cli.Run(context.Background(), p, []string{"up", "-d"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := string(raw)
+	if strings.Count(env, "ENV_OUT=") != 3 {
+		t.Fatalf("expected three runs, env:\n%s", env)
+	}
+	if strings.Contains(env, "GANTRY_") || strings.Contains(env, "secret-token-value") {
+		t.Errorf("Compose saw GANTRY_* settings:\n%s", env)
+	}
+	if !strings.Contains(env, "PATH=") {
+		t.Error("the rest of the environment (PATH, HOME, DOCKER_HOST) must be passed on")
 	}
 }

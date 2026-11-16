@@ -25,8 +25,8 @@ func TestRun(t *testing.T) {
 	}
 
 	raw, _ := os.ReadFile(argsFile)
-	want := []string{"compose", "--ansi", "never", "--progress", "plain",
-		"-p", "app", "-f", p.File, "--project-directory", dir, "up", "-d"}
+	want := []string{"compose", "-p", "app", "-f", p.File, "--project-directory", dir,
+		"--ansi", "never", "--progress", "plain", "up", "-d"}
 	if args := strings.Fields(string(raw)); !slices.Equal(args, want) {
 		t.Errorf("args = %v\nwant   %v", args, want)
 	}

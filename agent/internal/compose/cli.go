@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -31,13 +32,34 @@ func (c CLI) bin() string {
 	return c.Docker
 }
 
-// Services returns the sorted service names of the Compose project in dir,
-// defined by file. Variables are not interpolated, so no values from .env
-// files are read into the agent.
-func (c CLI) Services(ctx context.Context, dir, file string) ([]string, error) {
-	out, err := c.run(ctx, dir,
-		"compose", "-f", file, "--project-directory", dir,
-		"config", "--services", "--no-interpolate")
+// command returns a Compose process for p, which always gets the project
+// explicitly and runs in its directory, with the agent's environment minus
+// its GANTRY_* settings: Compose interpolates ${...} from its environment,
+// so a Compose file could otherwise read GANTRY_TOKEN.
+func (c CLI) command(ctx context.Context, p Project, args ...string) *exec.Cmd {
+	full := append([]string{"compose", "-p", p.Name, "-f", p.File, "--project-directory", p.Dir}, args...)
+	cmd := exec.CommandContext(ctx, c.bin(), full...)
+	cmd.Dir = p.Dir
+	cmd.Env = childEnv()
+	return cmd
+}
+
+// childEnv is the agent's environment without GANTRY_* variables.
+func childEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GANTRY_") {
+			env = append(env, kv)
+		}
+	}
+	return env
+}
+
+// Services returns the sorted service names of the Compose project p.
+// Variables are not interpolated, so no values from .env files are read
+// into the agent.
+func (c CLI) Services(ctx context.Context, p Project) ([]string, error) {
+	out, err := c.output(ctx, p, "config", "--services", "--no-interpolate")
 	if err != nil {
 		return nil, err
 	}
@@ -51,8 +73,8 @@ func (c CLI) Services(ctx context.Context, dir, file string) ([]string, error) {
 	return services, nil
 }
 
-func (c CLI) run(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	bin := c.bin()
+// output runs a short Compose command for p and returns its stdout.
+func (c CLI) output(ctx context.Context, p Project, args ...string) ([]byte, error) {
 	timeout := c.Timeout
 	if timeout == 0 {
 		timeout = 30 * time.Second
@@ -60,17 +82,16 @@ func (c CLI) run(ctx context.Context, dir string, args ...string) ([]byte, error
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
+	cmd := c.command(ctx, p, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
-			return nil, fmt.Errorf("%s %s: %w", bin, strings.Join(args, " "), err)
+			return nil, fmt.Errorf("docker compose %s: %w", strings.Join(args, " "), err)
 		}
-		return nil, fmt.Errorf("%s %s: %w: %s", bin, strings.Join(args, " "), err, msg)
+		return nil, fmt.Errorf("docker compose %s: %w: %s", strings.Join(args, " "), err, msg)
 	}
 	return out, nil
 }

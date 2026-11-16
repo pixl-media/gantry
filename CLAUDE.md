@@ -73,7 +73,8 @@ Web UI (`web/`, pnpm, Node 24):
 - Container state comes from the Engine API; anything that is Compose logic
   goes through the `docker compose` CLI (see `docs/decisions.md`).
 - Run Compose only through `compose.CLI` (`Run` / `Services` / `Validate`),
-  which always passes `-p`, `-f` and `--project-directory`. Never use
+  which always passes `-p`, `-f` and `--project-directory` and removes
+  `GANTRY_*` variables (the token) from Compose's environment. Never use
   `down -v` or any other volume removal; the only exception is the `delete`
   operation with `volumes=true` (decision 19).
 - Read and write stack files only through `internal/stackfiles` (validated,
