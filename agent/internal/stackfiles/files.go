@@ -307,6 +307,11 @@ func (f *Files) UpdateEnv(p compose.Project, version string, set map[string]stri
 
 	env := parseEnv(data)
 	for _, key := range del {
+		// Lines without a variable (comments, blank lines) have no key;
+		// an invalid one must not match them.
+		if !ValidKey(key) {
+			return EnvInfo{}, &InvalidVariableError{Key: key, Reason: "not a valid name (letters, digits and _, not starting with a digit)"}
+		}
 		env.remove(key)
 	}
 	// Sorted, so new variables are appended in a stable order.

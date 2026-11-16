@@ -254,7 +254,9 @@ func TestComposeErrorFallsBackToContainers(t *testing.T) {
 	if app.ServicesTotal != 1 || app.Status != StatusRunning {
 		t.Errorf("app = %+v, want 1 service from containers", app)
 	}
-	if len(l.Warnings) != 1 || !strings.Contains(l.Warnings[0], "compose not installed") {
+	// A general warning, not Compose's message, which can quote lines of
+	// the .env file.
+	if len(l.Warnings) != 1 || !strings.Contains(l.Warnings[0], "Compose can't read") || strings.Contains(l.Warnings[0], "compose not installed") {
 		t.Errorf("warnings = %v", l.Warnings)
 	}
 }
@@ -533,5 +535,16 @@ func TestMissingStacksDirectory(t *testing.T) {
 	writeFile(t, filepath.Join(missing, "app", "compose.yaml"), "services: {}\n")
 	if l, _ := m.List(context.Background()); len(l.Stacks) != 2 || len(l.Warnings) != 0 {
 		t.Errorf("after creating the directory: stacks = %+v, warnings = %v", l.Stacks, l.Warnings)
+	}
+}
+
+// Whether a Compose project uses a name can't be told without Docker.
+func TestTargetDockerUnavailable(t *testing.T) {
+	m := newManager(t, stacksDir(t, "app"), fakeDocker{err: errors.New("connection refused")}, fakeCompose{})
+	if _, err := m.Target(context.Background(), "app"); err != nil {
+		t.Errorf("managed stack: %v, want it found without Docker", err)
+	}
+	if _, err := m.Target(context.Background(), "other"); !errors.Is(err, ErrDockerUnavailable) {
+		t.Errorf("unknown name: %v, want ErrDockerUnavailable", err)
 	}
 }

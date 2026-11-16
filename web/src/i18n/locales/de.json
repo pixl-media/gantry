@@ -137,7 +137,8 @@
     "generic": "Etwas ist schiefgelaufen: {{message}}",
     "version_conflict": "Die Datei wurde zwischenzeitlich geändert. Lade neu und versuch es noch einmal.",
     "stack_exists": "Einen Stack mit diesem Namen gibt es schon.",
-    "request_too_large": "Die Anfrage ist zu groß."
+    "request_too_large": "Die Anfrage ist zu groß.",
+    "docker_unavailable": "Docker ist gerade nicht erreichbar. Versuch es gleich noch einmal."
   },
   "notFound": {
     "title": "Seite nicht gefunden",

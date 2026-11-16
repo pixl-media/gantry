@@ -298,3 +298,25 @@ func TestDeleteStack(t *testing.T) {
 		t.Errorf("deleted stack still found: %d", rec.Code)
 	}
 }
+
+type downDocker struct{}
+
+func (downDocker) ListComposeContainers(context.Context) ([]docker.Container, error) {
+	return nil, errors.New("connection refused")
+}
+
+func TestCreateStackDockerUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	manager, err := stacks.New(dir, downDocker{}, servicesStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(Config{Token: "t", Stacks: manager, Files: stackfiles.New(validatorStub{})})
+	rec := send(t, h, http.MethodPost, "/api/v1/stacks", StackCreate{Name: "fresh", Compose: "services: {}\n"})
+	if e := decode[Error](t, rec); rec.Code != http.StatusServiceUnavailable || *e.Code != ErrorCodeDockerUnavailable {
+		t.Errorf("create = %d %+v", rec.Code, e)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "fresh")); err == nil {
+		t.Error("the stack was created although the name couldn't be checked")
+	}
+}

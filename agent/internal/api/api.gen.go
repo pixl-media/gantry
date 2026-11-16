@@ -44,6 +44,7 @@ func (e ContainerHealth) Valid() bool {
 
 // Defines values for ErrorCode.
 const (
+	ErrorCodeDockerUnavailable ErrorCode = "docker_unavailable"
 	ErrorCodeInvalidAction     ErrorCode = "invalid_action"
 	ErrorCodeInvalidCompose    ErrorCode = "invalid_compose"
 	ErrorCodeInvalidName       ErrorCode = "invalid_name"
@@ -65,6 +66,8 @@ const (
 // Valid indicates whether the value is a known member of the ErrorCode enum.
 func (e ErrorCode) Valid() bool {
 	switch e {
+	case ErrorCodeDockerUnavailable:
+		return true
 	case ErrorCodeInvalidAction:
 		return true
 	case ErrorCodeInvalidCompose:
@@ -1884,6 +1887,20 @@ func (response CreateStack413JSONResponse) VisitCreateStackResponse(w http.Respo
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStack503JSONResponse Error
+
+func (response CreateStack503JSONResponse) VisitCreateStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }

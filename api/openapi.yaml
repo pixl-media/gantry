@@ -220,6 +220,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "413":
           $ref: "#/components/responses/TooLarge"
+        "503":
+          description: "`docker_unavailable`: Docker can't be reached, so it can't be checked whether a Compose project already uses the name."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/stacks/{name}:
     get:
@@ -790,6 +796,7 @@ components:
             - not_found
             - stack_busy
             - stack_unmanaged
+            - docker_unavailable
             - operation_finished
         operation:
           type: string

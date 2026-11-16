@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -433,5 +434,17 @@ func TestListAndRetention(t *testing.T) {
 	now = now.Add(2 * time.Hour)
 	if l := m.List(""); len(l) != 0 {
 		t.Errorf("after retention: %+v", l)
+	}
+}
+
+// Output without line breaks is split instead of growing without limit.
+func TestLongLinesAreSplit(t *testing.T) {
+	op := newOperation("op_x", "app", ActionStart, time.Now(), 1<<20, func() {})
+	op.Write(bytes.Repeat([]byte("x"), 3*maxLineBytes+10))
+	op.mu.Lock()
+	partial, lines := len(op.partial), len(op.lines)
+	op.mu.Unlock()
+	if partial != 10 || lines != 3 {
+		t.Errorf("partial = %d bytes, lines = %d; want 10 and 3", partial, lines)
 	}
 }

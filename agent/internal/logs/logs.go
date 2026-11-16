@@ -44,6 +44,9 @@ const (
 	MaxTail = 5000
 	// maxBacklog is the most past lines in total.
 	maxBacklog = 10_000
+	// maxBacklogBytes bounds the past lines' text, so a stack of chatty
+	// containers can't make one request hold hundreds of megabytes.
+	maxBacklogBytes = 8 << 20
 )
 
 // Streamer streams stack logs from a Source.
@@ -83,17 +86,24 @@ func (s *Streamer) Stream(ctx context.Context, project string, opts Options, emi
 			continue // removed meanwhile
 		}
 		ttys[c.ID] = tty
+		// A container's lines arrive oldest first: drop the oldest ones
+		// while they exceed the byte budget.
+		var own []event
+		size := 0
 		_ = s.src.ContainerLogs(ctx, c.ID, tty, docker.LogOptions{Tail: opts.Tail}, func(e docker.LogEntry) error {
-			past = append(past, event{c.ID, toLine(c, e)})
+			ev := event{c.ID, toLine(c, e)}
+			own = append(own, ev)
+			size += len(ev.line.Text)
+			for size > maxBacklogBytes && len(own) > 1 {
+				size -= len(own[0].line.Text)
+				own = own[1:]
+			}
 			if e.Time.After(lastSeen[c.ID]) {
 				lastSeen[c.ID] = e.Time
 			}
 			return nil
 		})
-	}
-	slices.SortStableFunc(past, func(a, b event) int { return a.line.Time.Compare(b.line.Time) })
-	if len(past) > maxBacklog {
-		past = past[len(past)-maxBacklog:]
+		past = trimBacklog(append(past, own...))
 	}
 	for _, ev := range past {
 		if err := emit(ev.line); err != nil {
@@ -224,4 +234,21 @@ func toLine(c docker.Container, e docker.LogEntry) Line {
 		Stream:    e.Stream,
 		Text:      e.Line,
 	}
+}
+
+// trimBacklog sorts past lines by time and keeps the newest, at most
+// maxBacklog lines and maxBacklogBytes of text.
+func trimBacklog(past []event) []event {
+	slices.SortStableFunc(past, func(a, b event) int { return a.line.Time.Compare(b.line.Time) })
+	if len(past) > maxBacklog {
+		past = past[len(past)-maxBacklog:]
+	}
+	size := 0
+	for i := len(past) - 1; i >= 0; i-- {
+		size += len(past[i].line.Text)
+		if size > maxBacklogBytes {
+			return slices.Clone(past[i+1:])
+		}
+	}
+	return past
 }

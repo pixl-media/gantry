@@ -264,3 +264,21 @@ func TestCreate(t *testing.T) {
 		t.Errorf("stacks dir after failed create: %v", entries)
 	}
 }
+
+// Lines without a variable have no key; deleting "" must not remove them.
+func TestUpdateEnvRejectsInvalidDeleteKeys(t *testing.T) {
+	p := project(t, "services: {}\n")
+	original := "# database\n\nDB_USER=admin\n"
+	path := filepath.Join(p.Dir, EnvFileName)
+	os.WriteFile(path, []byte(original), 0o600)
+	f := New(&fakeValidator{})
+	for _, key := range []string{"", "1BAD", "A B"} {
+		_, err := f.UpdateEnv(p, Version([]byte(original)), nil, []string{key})
+		if _, ok := errors.AsType[*InvalidVariableError](err); !ok {
+			t.Errorf("delete %q: %v, want InvalidVariableError", key, err)
+		}
+	}
+	if got, _ := os.ReadFile(path); string(got) != original {
+		t.Errorf(".env = %q, want it unchanged", got)
+	}
+}

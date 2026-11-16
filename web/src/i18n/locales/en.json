@@ -137,7 +137,8 @@
     "generic": "Something went wrong: {{message}}",
     "version_conflict": "The file was changed in the meantime. Reload and try again.",
     "stack_exists": "A stack with this name exists.",
-    "request_too_large": "The request is too large."
+    "request_too_large": "The request is too large.",
+    "docker_unavailable": "Docker can't be reached right now. Try again in a moment."
   },
   "notFound": {
     "title": "Page not found",

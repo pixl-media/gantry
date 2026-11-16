@@ -31,6 +31,9 @@ var (
 	// ErrUnmanaged means the stack is a Compose project outside the stacks
 	// directory. gantry shows it but doesn't change it.
 	ErrUnmanaged = errors.New("stack is not managed by gantry")
+	// ErrDockerUnavailable means Docker couldn't be asked, so it is unknown
+	// whether a Compose project of that name exists.
+	ErrDockerUnavailable = errors.New("docker is unavailable")
 )
 
 // DefaultDir is the default stacks directory. It's the same as Dockge's, and
@@ -272,7 +275,8 @@ func (m *Manager) Remove(name string) error {
 
 // Target returns the Compose project of the managed stack called name, to run
 // actions on. It returns ErrUnmanaged for Compose projects outside the stacks
-// directory and ErrNotFound if there is no such stack at all.
+// directory, ErrNotFound if there is no such stack at all, and
+// ErrDockerUnavailable if that can't be told because Docker is unreachable.
 func (m *Manager) Target(ctx context.Context, name string) (compose.Project, error) {
 	if !ValidName(name) {
 		return compose.Project{}, ErrInvalidName
@@ -286,7 +290,10 @@ func (m *Manager) Target(ctx context.Context, name string) (compose.Project, err
 		return compose.Project{Name: st.name, Dir: st.path, File: st.composeFile}, nil
 	}
 	containers, err := m.docker.ListComposeContainers(ctx)
-	if err == nil && slices.ContainsFunc(containers, func(c docker.Container) bool {
+	if err != nil {
+		return compose.Project{}, fmt.Errorf("%w: %v", ErrDockerUnavailable, err)
+	}
+	if slices.ContainsFunc(containers, func(c docker.Container) bool {
 		return c.Labels[docker.LabelProject] == name
 	}) {
 		return compose.Project{}, ErrUnmanaged
@@ -431,7 +438,10 @@ func (m *Manager) loadServices(ctx context.Context, stacks []*stack) {
 			defer func() { <-sem }()
 			services, err := m.compose.Services(ctx, compose.Project{Name: st.name, Dir: st.path, File: st.composeFile})
 			if err != nil {
-				st.warnings = append(st.warnings, fmt.Sprintf("reading services: %v", err))
+				// Not Compose's message: it can quote lines of the .env file,
+				// and this warning is shown on every refresh, unaudited.
+				// Saving the Compose file in the editor shows why it fails.
+				st.warnings = append(st.warnings, "Compose can't read this stack's files; run `docker compose config` in its directory, or save the Compose file in the editor, to see why")
 				services = containerServices(st.containers)
 			}
 			st.services = services

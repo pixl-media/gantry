@@ -11,6 +11,7 @@ const translated = [
   'version_conflict',
   'stack_exists',
   'request_too_large',
+  'docker_unavailable',
 ] as const;
 
 type TranslatedCode = (typeof translated)[number];

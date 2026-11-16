@@ -103,6 +103,9 @@ func (o *Operation) snapshotLocked() Snapshot {
 	return s
 }
 
+// maxLineBytes is the longest output line kept in one piece.
+const maxLineBytes = 64 << 10
+
 // Output returns the output so far, limited to the last maxOutput bytes.
 func (o *Operation) Output() string {
 	o.mu.Lock()
@@ -130,6 +133,11 @@ func (o *Operation) Write(p []byte) (int, error) {
 		}
 		o.appendLineLocked(string(bytes.TrimRight(o.partial[:i], "\r")))
 		o.partial = o.partial[i+1:]
+	}
+	// Output without line breaks is split, so it can't grow without limit.
+	for len(o.partial) >= maxLineBytes {
+		o.appendLineLocked(string(o.partial[:maxLineBytes]))
+		o.partial = o.partial[maxLineBytes:]
 	}
 	o.notifyLocked()
 	return len(p), nil
