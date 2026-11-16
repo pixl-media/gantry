@@ -91,11 +91,40 @@ func TestPublic(t *testing.T) {
 	}
 }
 
+func withTLS(r *http.Request) *http.Request {
+	r.TLS = &tls.ConnectionState{}
+	return r
+}
+
+// Behind a proxy, the client's way to the proxy counts, not whether the
+// proxy talks TLS to the agent (decision 27).
+func TestSecureTransport(t *testing.T) {
+	trusted, _ := ParseTrustedProxies("203.0.113.50")
+	n := network{trusted: trusted}
+	tests := []struct {
+		name string
+		r    *http.Request
+		want bool
+	}{
+		{"TLS, directly", withTLS(req("192.168.1.20:5000")), true},
+		{"TLS from a LAN proxy, browser over HTTP", withTLS(req("192.168.1.1:5000", "X-Forwarded-Proto", "http")), false},
+		{"TLS from a trusted proxy, browser over HTTP", withTLS(req("203.0.113.50:5000", "X-Forwarded-Proto", "http")), false},
+		{"TLS from a LAN proxy, browser over HTTPS", withTLS(req("192.168.1.1:5000", "X-Forwarded-Proto", "https")), true},
+		{"TLS from the internet, forged header ignored", withTLS(req("203.0.113.9:5000", "X-Forwarded-Proto", "http")), true},
+		{"plain HTTP from a LAN proxy, browser over HTTPS", req("192.168.1.1:5000", "X-Forwarded-Proto", "https"), true},
+		{"plain HTTP from the internet, forged header ignored", req("203.0.113.9:5000", "X-Forwarded-Proto", "https"), false},
+		{"plain HTTP, directly", req("192.168.1.20:5000"), false},
+	}
+	for _, tt := range tests {
+		if got := n.secureTransport(tt.r); got != tt.want {
+			t.Errorf("%s: secureTransport = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestInsecure(t *testing.T) {
 	trusted, _ := ParseTrustedProxies("10.0.0.2")
 	n := network{trusted: trusted}
-	withTLS := req("203.0.113.9:5000")
-	withTLS.TLS = &tls.ConnectionState{}
 	tests := []struct {
 		name string
 		r    *http.Request
@@ -104,11 +133,15 @@ func TestInsecure(t *testing.T) {
 		{"plain HTTP from the internet", req("203.0.113.9:5000"), true},
 		{"plain HTTP from the LAN", req("192.168.1.20:5000"), false},
 		{"plain HTTP from a VPN", req("100.64.1.2:5000"), false},
-		{"TLS", withTLS, false},
+		{"TLS", withTLS(req("203.0.113.9:5000")), false},
 		{"forwarded HTTPS claimed by an internet client", req("203.0.113.9:5000", "X-Forwarded-Proto", "https"), true},
 		{"HTTPS terminated by a proxy in the LAN", req("192.168.1.1:5000", "X-Forwarded-Proto", "https"), false},
 		{"internet client behind a trusted plain-HTTP proxy", req("10.0.0.2:5000", "X-Forwarded-For", "203.0.113.9", "X-Forwarded-Proto", "http"), true},
 		{"internet client behind a trusted HTTPS proxy", req("10.0.0.2:5000", "X-Forwarded-For", "203.0.113.9", "X-Forwarded-Proto", "https"), false},
+		{"internet client over plain HTTP to a proxy that uses TLS to the agent",
+			withTLS(req("10.0.0.2:5000", "X-Forwarded-For", "203.0.113.9", "X-Forwarded-Proto", "http")), true},
+		{"TLS, with X-Forwarded-Proto forged by an internet client",
+			withTLS(req("203.0.113.9:5000", "X-Forwarded-Proto", "http")), false},
 	}
 	for _, tt := range tests {
 		if got := n.insecure(tt.r); got != tt.want {

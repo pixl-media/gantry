@@ -16,7 +16,7 @@ This file holds what applies everywhere. Details for one part are in
 | `agent/` | Go agent, see `agent/AGENTS.md` |
 | `agent/cmd/gantry-agent/main.go` | Configuration (`GANTRY_*`), token check, startup |
 | `agent/internal/api/` | HTTP wiring: `server.go`, `auth.go` (auth middleware, `publicRoutes`), `clients.go` (client address, plain-HTTP guard), `handlers.go`, `api.gen.go` (generated) |
-| `agent/internal/*/` | `docker`, `compose`, `stacks`, `operations`, `logs`, `session`, `stackfiles` (roles in `agent/AGENTS.md`) |
+| `agent/internal/*/` | `docker`, `compose`, `stacks`, `operations`, `logs`, `session`, `stackfiles`, `tlscert` (roles in `agent/AGENTS.md`) |
 | `agent/tools/devdocs/` | Dev-only Swagger UI (`make docs`) |
 | `web/` | Web UI, see `web/AGENTS.md` |
 | `web/src/` | `api/` (generated types, hooks), `components/`, `pages/`, `lib/`, `i18n/`, `theme.ts` |

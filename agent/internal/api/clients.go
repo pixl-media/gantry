@@ -110,18 +110,19 @@ func public(a netip.Addr) bool {
 		!a.IsUnspecified() && !sharedAddressSpace.Contains(a)
 }
 
-// secureTransport reports whether the request came over HTTPS: directly, or
-// through a proxy that says so and is trusted or in a private network.
-// X-Forwarded-Proto from anywhere else could be set by the client itself.
+// secureTransport reports whether the client's request came over HTTPS.
+// Through a proxy that is trusted or in a private network, the proxy's
+// X-Forwarded-Proto counts, even if the proxy itself connects over TLS: what
+// matters is the client's way to the proxy. Without such a proxy, the
+// connection itself counts. X-Forwarded-Proto from anywhere else could be
+// set by the client itself and is ignored.
 func (n network) secureTransport(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		if p := peer(r); n.isTrusted(p) || (p.IsValid() && !public(p)) {
+			return strings.EqualFold(proto, "https")
+		}
 	}
-	if !strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		return false
-	}
-	p := peer(r)
-	return n.isTrusted(p) || (p.IsValid() && !public(p))
+	return r.TLS != nil
 }
 
 // insecure reports whether credentials in r must be refused: they came over

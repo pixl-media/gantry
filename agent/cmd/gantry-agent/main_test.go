@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/pixl-media/gantry/agent/internal/tlscert/tlscerttest"
 )
 
 func TestCheckToken(t *testing.T) {
@@ -100,5 +103,37 @@ func TestLoopbackOnly(t *testing.T) {
 		if got := loopbackOnly(addr); got != want {
 			t.Errorf("loopbackOnly(%q) = %v, want %v", addr, got, want)
 		}
+	}
+}
+
+func TestTLSConfig(t *testing.T) {
+	certFile, keyFile, _ := tlscerttest.Write(t, t.TempDir(), 1, time.Now().AddDate(1, 0, 0))
+	for _, tt := range []struct{ cert, key, err string }{
+		{"", "", ""},
+		{certFile, keyFile, ""},
+		{certFile, "", "set both GANTRY_TLS_CERT and GANTRY_TLS_KEY, or neither"},
+		{"", keyFile, "set both GANTRY_TLS_CERT and GANTRY_TLS_KEY, or neither"},
+	} {
+		t.Setenv("GANTRY_TLS_CERT", tt.cert)
+		t.Setenv("GANTRY_TLS_KEY", tt.key)
+		c, err := loadConfig()
+		if tt.err == "" && (err != nil || c.tlsCert != tt.cert || c.tlsKey != tt.key) {
+			t.Errorf("%q, %q: %+v, %v", tt.cert, tt.key, c, err)
+		}
+		if tt.err != "" && (err == nil || err.Error() != tt.err) {
+			t.Errorf("%q, %q: err = %v, want %q", tt.cert, tt.key, err, tt.err)
+		}
+	}
+
+	conf, warning, err := tlsConfig(certFile, keyFile, nil)
+	if err != nil || conf.GetCertificate == nil || warning != "" {
+		t.Errorf("tlsConfig = %v, %q, %v", conf, warning, err)
+	}
+	os.Chmod(keyFile, 0o644)
+	if _, warning, _ := tlsConfig(certFile, keyFile, nil); !strings.Contains(warning, "GANTRY_TLS_KEY") {
+		t.Errorf("warning = %q, want one about GANTRY_TLS_KEY", warning)
+	}
+	if _, _, err := tlsConfig(keyFile, keyFile, nil); err == nil || !strings.Contains(err.Error(), "GANTRY_TLS_CERT") {
+		t.Errorf("broken pair: err = %v", err)
 	}
 }
