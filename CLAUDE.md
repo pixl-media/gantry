@@ -33,7 +33,8 @@ Run from the repo root:
   on either)
 - `make generate` – regenerate `agent/internal/api/api.gen.go` from
   `api/openapi.yaml` (CI fails if it's out of date)
-- `make run` – agent on 127.0.0.1:7070, token `dev`, stacks dir `dev/stacks`
+- `make run` – agent on 127.0.0.1:7070, stacks dir `dev/stacks`, token from
+  `.env` (git-ignored, created with a random token on first run)
 - `make docs` – dev-only Swagger UI on 127.0.0.1:8082, forwarding to the agent
   (`agent/tools/devdocs`, never part of the agent binary or image)
 - `make image` – build the Docker image

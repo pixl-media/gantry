@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -24,20 +25,40 @@ import (
 // version is set at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
-// minTokenLength is the length below which the agent warns about its token.
-const minTokenLength = 24
+// Token lengths: below minTokenLength the agent refuses to start, below
+// goodTokenLength it warns. The login limit slows guessing down, but only a
+// long random token makes it hopeless.
+const (
+	minTokenLength  = 16
+	goodTokenLength = 24
+)
+
+// checkToken returns an error for a missing or too short token, or a warning
+// for a short one.
+func checkToken(token string) (warning string, err error) {
+	const advice = "use at least 24 random characters, e.g. from `openssl rand -hex 24`"
+	switch {
+	case token == "":
+		return "", fmt.Errorf("GANTRY_TOKEN must be set; %s", advice)
+	case len(token) < minTokenLength:
+		return "", fmt.Errorf("GANTRY_TOKEN is too short (%d characters, at least %d); %s", len(token), minTokenLength, advice)
+	case len(token) < goodTokenLength:
+		return fmt.Sprintf("GANTRY_TOKEN is short (%d characters); %s", len(token), advice), nil
+	}
+	return "", nil
+}
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	token := os.Getenv("GANTRY_TOKEN")
-	if token == "" {
-		logger.Error("GANTRY_TOKEN must be set")
+	warning, err := checkToken(token)
+	if err != nil {
+		logger.Error(err.Error())
 		os.Exit(1)
 	}
-	if len(token) < minTokenLength {
-		logger.Warn("GANTRY_TOKEN is short; use at least 24 random characters, e.g. from `openssl rand -hex 24`",
-			"length", len(token))
+	if warning != "" {
+		logger.Warn(warning)
 	}
 
 	dockerClient, err := docker.New(os.Getenv("DOCKER_HOST"))

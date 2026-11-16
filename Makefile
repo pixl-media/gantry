@@ -1,11 +1,18 @@
-GANTRY_TOKEN ?= dev
 STACKS_DIR ?= $(CURDIR)/dev/stacks
+# Local development reads GANTRY_TOKEN from .env (git-ignored), which `make
+# run` creates with a random token; docker compose and api.http use it too.
+# A token set in the environment wins.
+dev_token = $${GANTRY_TOKEN:-$$(sed -n 's/^GANTRY_TOKEN=//p' $(CURDIR)/.env)}
 
 .PHONY: run docs test test-integration lint generate build image \
 	web web-install web-generate web-test web-lint web-build web-image
 
-run: ## Run the agent locally on 127.0.0.1:7070, managing dev/stacks
-	cd agent && GANTRY_TOKEN=$(GANTRY_TOKEN) GANTRY_STACKS_DIR=$(STACKS_DIR) GANTRY_LISTEN=127.0.0.1:7070 go run ./cmd/gantry-agent
+run: .env ## Run the agent locally on 127.0.0.1:7070, managing dev/stacks (token in .env)
+	cd agent && GANTRY_TOKEN="$(dev_token)" GANTRY_STACKS_DIR=$(STACKS_DIR) GANTRY_LISTEN=127.0.0.1:7070 go run ./cmd/gantry-agent
+
+.env:
+	@echo "GANTRY_TOKEN=$$(openssl rand -hex 24)" > $@
+	@echo "Created .env with a random GANTRY_TOKEN; log in with it."
 
 docs: ## Swagger UI for api/openapi.yaml on http://127.0.0.1:8082, forwarding requests to the agent on :7070
 	cd agent && go run ./tools/devdocs -spec $(CURDIR)/api/openapi.yaml -listen 127.0.0.1:8082 -agent http://127.0.0.1:7070

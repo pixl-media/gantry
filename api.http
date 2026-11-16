@@ -1,9 +1,9 @@
 # Requests for the VS Code "REST Client" extension (humao.rest-client):
 # click "Send Request" above each request.
-# `make run` uses the token "dev"; `docker compose up` uses GANTRY_TOKEN from .env.
+# `make run` and `docker compose up` both use GANTRY_TOKEN from .env.
 
 @host = http://127.0.0.1:7070
-@token = dev
+@token = {{$dotenv GANTRY_TOKEN}}
 
 ### Health (public, no token)
 GET {{host}}/healthz

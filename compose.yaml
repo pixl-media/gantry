@@ -1,8 +1,9 @@
 # Local development with the agent and the web UI in containers, managing
-# dev/stacks. Run from the repo root:
-#   cp .env.example .env && docker compose up --build
+# dev/stacks. Run from the repo root (`make .env` creates .env with a random
+# token if there is none yet):
+#   make .env && docker compose up --build
 # Web UI: http://127.0.0.1:8080 (log in with the token from .env)
-# API:    curl -H "Authorization: Bearer change-me" http://127.0.0.1:7070/api/v1/stacks
+# API:    curl -H "Authorization: Bearer $(sed -n 's/^GANTRY_TOKEN=//p' .env)" http://127.0.0.1:7070/api/v1/stacks
 services:
   agent:
     build: ./agent

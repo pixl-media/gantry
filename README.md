@@ -127,7 +127,7 @@ repeating lines. `service` and `container` filter; `follow=false` ends after
 the past lines with an `end` event. Unmanaged stacks can be read too.
 
 ```bash
-curl -N -H "Authorization: Bearer dev" "http://127.0.0.1:7070/api/v1/stacks/whoami/logs?tail=20"
+curl -N -H "Authorization: Bearer $GANTRY_TOKEN" "http://127.0.0.1:7070/api/v1/stacks/whoami/logs?tail=20"
 # event: log
 # data: {"time":"2026-11-12T20:15:03.112Z","service":"whoami","container":"whoami-whoami-1","stream":"stdout","line":"Starting up on port 80"}
 ```
@@ -150,9 +150,9 @@ over SSH or in another browser tab, the agent answers `409
 version_conflict` instead of overwriting it.
 
 ```bash
-curl -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/stacks/whoami | jq -r .composeFile.version
+curl -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/stacks/whoami | jq -r .composeFile.version
 # 3b1f…
-curl -X PUT -H "Authorization: Bearer dev" -H "Content-Type: application/json" \
+curl -X PUT -H "Authorization: Bearer $GANTRY_TOKEN" -H "Content-Type: application/json" \
   -d '{"version":"3b1f…","content":"services:\n  whoami:\n    image: traefik/whoami:v1.12\n"}' \
   http://127.0.0.1:7070/api/v1/stacks/whoami/compose
 ```
@@ -198,10 +198,10 @@ Actions can take minutes (image pulls), so they run as operations: the
 request returns `202` with the operation at once, and you follow it.
 
 ```bash
-curl -X POST -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/stacks/whoami/actions/update
+curl -X POST -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/stacks/whoami/actions/update
 # {"id":"op_3f9c2a71b0de","stack":"whoami","action":"update","status":"running",...}
 
-curl -N -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/operations/op_3f9c2a71b0de/events
+curl -N -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/operations/op_3f9c2a71b0de/events
 # event: output
 # data: $ docker compose pull --ignore-buildable
 # ...
@@ -230,7 +230,7 @@ curl -N -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/operations/o
 
 | Variable | Default | Description |
 |---|---|---|
-| `GANTRY_TOKEN` | (required) | Token for the API and the web UI login; use at least 24 random characters (`openssl rand -hex 24`) |
+| `GANTRY_TOKEN` | (required) | Token for the API and the web UI login; use at least 24 random characters (`openssl rand -hex 24`). Shorter than 16 characters: the agent refuses to start |
 | `GANTRY_STACKS_DIR` | `/opt/stacks` | Directory with the managed stacks (same default as Dockge) |
 | `GANTRY_LISTEN` | `:7070` | Listen address |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker socket (only `unix://` is supported) |
@@ -334,12 +334,17 @@ Try it: start an example stack with `docker compose up -d` in
 [`api.http`](api.http) (VS Code extension "REST Client"), or:
 
 ```bash
-curl -H "Authorization: Bearer dev" http://127.0.0.1:7070/api/v1/stacks
+export GANTRY_TOKEN=$(sed -n 's/^GANTRY_TOKEN=//p' .env)
+curl -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/stacks
 ```
 
-Agent and web UI in containers: `cp .env.example .env && docker compose up
---build` (run from the repo root), then open http://127.0.0.1:8080 and log in
-with the token from `.env`.
+`make run` takes the token from `.env` (git-ignored) and creates that file
+with a random token on first use, so the dev agent never runs with a token
+anyone could guess. The agent refuses tokens shorter than 16 characters.
+
+Agent and web UI in containers: `make .env && docker compose up --build`
+(run from the repo root), then open http://127.0.0.1:8080 and log in with the
+token from `.env`.
 
 ### API docs
 
