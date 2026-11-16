@@ -129,6 +129,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/TooLarge"
         "429":
           description: "`too_many_attempts`: wait `Retry-After` seconds."
           headers:
@@ -216,6 +218,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/TooLarge"
 
   /api/v1/stacks/{name}:
     get:
@@ -340,6 +344,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/TooLarge"
 
   /api/v1/stacks/{name}/env:
     get:
@@ -411,6 +417,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/TooLarge"
 
   /api/v1/stacks/{name}/env/reveal:
     post:
@@ -458,6 +466,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/TooLarge"
 
   /api/v1/stacks/{name}/logs:
     get:
@@ -741,6 +751,13 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
 
+    TooLarge:
+      description: "`request_too_large`: the request body exceeds the agent's limit."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
   schemas:
     Error:
       type: object
@@ -758,6 +775,7 @@ components:
             - too_many_attempts
             - origin_rejected
             - invalid_request
+            - request_too_large
             - invalid_name
             - invalid_action
             - invalid_compose

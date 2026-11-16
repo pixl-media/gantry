@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pixl-media/gantry/agent/internal/session"
+	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 )
 
 // publicRoutes are served without authentication, as "METHOD /path".
@@ -62,12 +63,26 @@ func (a *authenticator) authenticate(r *http.Request) (authInfo, bool) {
 	return authInfo{}, false
 }
 
+// Request body limits. Bodies are small JSON documents; the largest holds a
+// Compose file (at most stackfiles.MaxSize) as a JSON string, which escaping
+// can make a few times larger. The login is public, so its limit is tight:
+// the body is read before any check runs.
+const (
+	maxLoginBody = 4 << 10
+	maxBody      = 4 * stackfiles.MaxSize
+)
+
 // middleware enforces authentication on everything but publicRoutes. With
 // cookie authentication, changing requests must come from the same origin:
 // browsers attach cookies automatically, so this blocks cross-site request
-// forgery in addition to SameSite=Strict.
+// forgery in addition to SameSite=Strict. It also limits request bodies.
 func (a *authenticator) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limit := int64(maxBody)
+		if r.URL.Path == "/api/v1/session" {
+			limit = maxLoginBody
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			// API data is live and may include secrets (env reveal): never
 			// cache it. Event streams set their own value.

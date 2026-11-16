@@ -109,7 +109,10 @@ return the Compose file as stored: variables like `${DB_PASSWORD}` stay
 unresolved. `.env` values are only returned one at a time by the reveal
 endpoint. Errors carry a machine-readable `code` (e.g. `stack_busy`,
 `stack_unmanaged`, `invalid_compose`, `version_conflict`). All `/api/`
-responses are sent with `Cache-Control: no-store`.
+responses are sent with `Cache-Control: no-store`. Request bodies are limited
+to 4 MiB (4 KiB for the login); larger ones are refused with `413
+request_too_large`. Requests must arrive within a minute; responses such as
+event streams may run as long as needed.
 
 ### Logs
 

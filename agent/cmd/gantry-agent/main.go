@@ -62,20 +62,15 @@ func main() {
 	ops := operations.NewManager(ctx, compose.CLI{}, operations.Options{})
 
 	addr := envOr("GANTRY_LISTEN", ":7070")
-	srv := &http.Server{
-		Addr: addr,
-		Handler: api.New(api.Config{
-			Token:      token,
-			Version:    version,
-			Stacks:     manager,
-			Operations: ops,
-			Logs:       logs.New(dockerClient),
-			Files:      stackfiles.New(compose.CLI{}),
-			Logger:     logger,
-		}),
-		// No WriteTimeout: event streams stay open while an operation runs.
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	srv := api.NewServer(addr, api.New(api.Config{
+		Token:      token,
+		Version:    version,
+		Stacks:     manager,
+		Operations: ops,
+		Logs:       logs.New(dockerClient),
+		Files:      stackfiles.New(compose.CLI{}),
+		Logger:     logger,
+	}))
 
 	errc := make(chan error, 1)
 	go func() {

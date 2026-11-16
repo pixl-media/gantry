@@ -393,7 +393,7 @@ export interface components {
              * @description Machine-readable reason, for clients to act on.
              * @enum {string}
              */
-            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "invalid_name" | "invalid_action" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "stack_busy" | "stack_unmanaged" | "operation_finished";
+            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "request_too_large" | "invalid_name" | "invalid_action" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "stack_busy" | "stack_unmanaged" | "operation_finished";
             /** @description For `stack_busy`, the ID of the running operation. */
             operation?: string;
         };
@@ -660,6 +660,15 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description `request_too_large`: the request body exceeds the agent's limit. */
+        TooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         /** @description Compose project name. */
@@ -783,6 +792,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            413: components["responses"]["TooLarge"];
             /** @description `too_many_attempts`: wait `Retry-After` seconds. */
             429: {
                 headers: {
@@ -880,6 +890,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            413: components["responses"]["TooLarge"];
         };
     };
     getStack: {
@@ -1003,6 +1014,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            413: components["responses"]["TooLarge"];
         };
     };
     getEnv: {
@@ -1085,6 +1097,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            413: components["responses"]["TooLarge"];
         };
     };
     revealEnvValue: {
@@ -1140,6 +1153,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            413: components["responses"]["TooLarge"];
         };
     };
     streamStackLogs: {

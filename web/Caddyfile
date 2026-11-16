@@ -16,6 +16,11 @@
 	# and no CORS is needed. The Host header is passed through, which the
 	# agent's same-origin check relies on. Event streams are flushed at once.
 	handle /api/* {
+		# The agent has its own, smaller limits (4 MiB, 4 KiB for the login);
+		# this one only keeps oversized uploads from reaching it.
+		request_body {
+			max_size 5MiB
+		}
 		reverse_proxy {$GANTRY_AGENT_URL:http://agent:7070}
 	}
 

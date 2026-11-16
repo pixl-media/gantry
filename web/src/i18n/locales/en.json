@@ -136,7 +136,8 @@
     "unauthorized": "Your session has expired. Please sign in again.",
     "generic": "Something went wrong: {{message}}",
     "version_conflict": "The file was changed in the meantime. Reload and try again.",
-    "stack_exists": "A stack with this name exists."
+    "stack_exists": "A stack with this name exists.",
+    "request_too_large": "The request is too large."
   },
   "notFound": {
     "title": "Page not found",

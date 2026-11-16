@@ -6,6 +6,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -63,6 +65,12 @@ func New(cfg Config) http.Handler {
 	invalid := ErrorCodeInvalidRequest
 	strict := NewStrictHandlerWithOptions(h, []StrictMiddlewareFunc{withRequest}, StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if tooLarge, ok := errors.AsType[*http.MaxBytesError](err); ok {
+				code := ErrorCodeRequestTooLarge
+				msg := fmt.Sprintf("request body larger than %d bytes", tooLarge.Limit)
+				writeJSON(w, http.StatusRequestEntityTooLarge, Error{Error: msg, Code: &code})
+				return
+			}
 			writeJSON(w, http.StatusBadRequest, Error{Error: err.Error(), Code: &invalid})
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -78,6 +86,30 @@ func New(cfg Config) http.Handler {
 		},
 	})
 	return auth.middleware(routes)
+}
+
+// Server limits. Requests are small and quick to read; only responses run
+// long. ReadTimeout doesn't cut event streams: net/http lifts the read
+// deadline once a request has been read (TestEventStreamOutlivesReadTimeout).
+const (
+	readHeaderTimeout = 10 * time.Second
+	readTimeout       = time.Minute
+	idleTimeout       = 2 * time.Minute
+	maxHeaderBytes    = 64 << 10
+)
+
+// NewServer returns the HTTP server for handler with the agent's limits, so
+// slow or endless requests can't hold connections. There is no WriteTimeout:
+// event streams stay open while an operation runs.
+func NewServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
 }
 
 // maxFailedLogins is how many wrong tokens a client may send per minute.

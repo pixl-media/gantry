@@ -53,6 +53,7 @@ const (
 	ErrorCodeNotFound          ErrorCode = "not_found"
 	ErrorCodeOperationFinished ErrorCode = "operation_finished"
 	ErrorCodeOriginRejected    ErrorCode = "origin_rejected"
+	ErrorCodeRequestTooLarge   ErrorCode = "request_too_large"
 	ErrorCodeStackBusy         ErrorCode = "stack_busy"
 	ErrorCodeStackExists       ErrorCode = "stack_exists"
 	ErrorCodeStackUnmanaged    ErrorCode = "stack_unmanaged"
@@ -81,6 +82,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeOperationFinished:
 		return true
 	case ErrorCodeOriginRejected:
+		return true
+	case ErrorCodeRequestTooLarge:
 		return true
 	case ErrorCodeStackBusy:
 		return true
@@ -588,6 +591,9 @@ type InvalidName = Error
 
 // NotFound defines model for NotFound.
 type NotFound = Error
+
+// TooLarge defines model for TooLarge.
+type TooLarge = Error
 
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
@@ -1364,6 +1370,8 @@ type InvalidNameJSONResponse Error
 
 type NotFoundJSONResponse Error
 
+type TooLargeJSONResponse Error
+
 type UnauthorizedJSONResponse Error
 
 type ListOperationsRequestObject struct {
@@ -1719,6 +1727,20 @@ func (response CreateSession403JSONResponse) VisitCreateSessionResponse(w http.R
 	return err
 }
 
+type CreateSession413JSONResponse struct{ TooLargeJSONResponse }
+
+func (response CreateSession413JSONResponse) VisitCreateSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateSession429ResponseHeaders struct {
 	RetryAfter *int
 }
@@ -1848,6 +1870,20 @@ func (response CreateStack409JSONResponse) VisitCreateStackResponse(w http.Respo
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateStack413JSONResponse struct{ TooLargeJSONResponse }
+
+func (response CreateStack413JSONResponse) VisitCreateStackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2173,6 +2209,20 @@ func (response UpdateCompose409JSONResponse) VisitUpdateComposeResponse(w http.R
 	return err
 }
 
+type UpdateCompose413JSONResponse struct{ TooLargeJSONResponse }
+
+func (response UpdateCompose413JSONResponse) VisitUpdateComposeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetEnvRequestObject struct {
 	Name StackName `json:"name"`
 }
@@ -2330,6 +2380,20 @@ func (response UpdateEnv409JSONResponse) VisitUpdateEnvResponse(w http.ResponseW
 	return err
 }
 
+type UpdateEnv413JSONResponse struct{ TooLargeJSONResponse }
+
+func (response UpdateEnv413JSONResponse) VisitUpdateEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RevealEnvValueRequestObject struct {
 	Name StackName `json:"name"`
 	Body *RevealEnvValueJSONRequestBody
@@ -2405,6 +2469,20 @@ func (response RevealEnvValue409JSONResponse) VisitRevealEnvValueResponse(w http
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevealEnvValue413JSONResponse struct{ TooLargeJSONResponse }
+
+func (response RevealEnvValue413JSONResponse) VisitRevealEnvValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
 	_, err := buf.WriteTo(w)
 	return err
 }

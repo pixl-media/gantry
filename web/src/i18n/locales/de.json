@@ -136,7 +136,8 @@
     "unauthorized": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.",
     "generic": "Etwas ist schiefgelaufen: {{message}}",
     "version_conflict": "Die Datei wurde zwischenzeitlich geändert. Lade neu und versuch es noch einmal.",
-    "stack_exists": "Einen Stack mit diesem Namen gibt es schon."
+    "stack_exists": "Einen Stack mit diesem Namen gibt es schon.",
+    "request_too_large": "Die Anfrage ist zu groß."
   },
   "notFound": {
     "title": "Seite nicht gefunden",
