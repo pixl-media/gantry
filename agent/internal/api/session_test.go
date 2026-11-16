@@ -1,6 +1,9 @@
 package api
 
 import (
+	"bytes"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -159,12 +162,46 @@ func TestLoginFailures(t *testing.T) {
 
 	// The wrong attempt above counts; after 10 in total the client is blocked,
 	// even with the right token.
-	for range maxFailedLogins - 1 {
+	for range maxFailedAttempts - 1 {
 		login(t, h, "wrong", nil)
 	}
 	rec = login(t, h, "t", nil)
 	if e := decode[Error](t, rec); rec.Code != http.StatusTooManyRequests || *e.Code != ErrorCodeTooManyAttempts || rec.Header().Get("Retry-After") == "" {
-		t.Errorf("after %d failures = %d %+v, Retry-After %q", maxFailedLogins, rec.Code, e, rec.Header().Get("Retry-After"))
+		t.Errorf("after %d failures = %d %+v, Retry-After %q", maxFailedAttempts, rec.Code, e, rec.Header().Get("Retry-After"))
+	}
+}
+
+// Guessing the token with bearer headers is limited like logins, and shares
+// the limit with them.
+func TestBearerGuessingIsLimited(t *testing.T) {
+	var logs bytes.Buffer
+	h := New(Config{Token: "the-token", Stacks: fakeStacks{}, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	get := func(token, remote string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		if remote != "" {
+			req.RemoteAddr = remote
+		}
+		return serve(h, req)
+	}
+
+	for i := range maxFailedAttempts {
+		if rec := get(fmt.Sprintf("guess-%d", i), ""); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("guess %d = %d", i, rec.Code)
+		}
+	}
+	rec := get("the-token", "")
+	if e := decode[Error](t, rec); rec.Code != http.StatusTooManyRequests || *e.Code != ErrorCodeTooManyAttempts || rec.Header().Get("Retry-After") == "" {
+		t.Errorf("right token while blocked = %d %+v, Retry-After %q", rec.Code, e, rec.Header().Get("Retry-After"))
+	}
+	if rec := login(t, h, "the-token", nil); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("login while blocked = %d, want 429 (shared limit)", rec.Code)
+	}
+	if rec := get("the-token", "198.51.100.7:4000"); rec.Code != http.StatusOK {
+		t.Errorf("another client = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(logs.String(), "failed authentication") || strings.Contains(logs.String(), "guess-") {
+		t.Errorf("logs must record failures without the token sent:\n%s", logs.String())
 	}
 }
 

@@ -5,15 +5,13 @@ import (
 	"errors"
 
 	"github.com/pixl-media/gantry/agent/internal/docker"
-	"github.com/pixl-media/gantry/agent/internal/session"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
 )
 
 // handlers implements the generated StrictServerInterface.
 type handlers struct {
-	cfg     Config
-	auth    *authenticator
-	limiter *session.Limiter
+	cfg  Config
+	auth *authenticator
 }
 
 var _ StrictServerInterface = (*handlers)(nil)

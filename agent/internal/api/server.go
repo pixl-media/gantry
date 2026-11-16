@@ -60,8 +60,13 @@ func New(cfg Config) http.Handler {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	auth := &authenticator{token: cfg.Token, signer: session.NewSigner(cfg.Token, 0)}
-	h := &handlers{cfg: cfg, auth: auth, limiter: session.NewLimiter(maxFailedLogins, time.Minute)}
+	auth := &authenticator{
+		token:   cfg.Token,
+		signer:  session.NewSigner(cfg.Token, 0),
+		limiter: session.NewLimiter(maxFailedAttempts, time.Minute),
+		logger:  cfg.Logger,
+	}
+	h := &handlers{cfg: cfg, auth: auth}
 	invalid := ErrorCodeInvalidRequest
 	strict := NewStrictHandlerWithOptions(h, []StrictMiddlewareFunc{withRequest}, StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -112,8 +117,9 @@ func NewServer(addr string, handler http.Handler) *http.Server {
 	}
 }
 
-// maxFailedLogins is how many wrong tokens a client may send per minute.
-const maxFailedLogins = 10
+// maxFailedAttempts is how many wrong tokens a client may send per minute,
+// by login or bearer header.
+const maxFailedAttempts = 10
 
 type requestKey struct{}
 

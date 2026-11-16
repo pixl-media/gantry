@@ -2,6 +2,7 @@ package session
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -56,29 +57,53 @@ func TestLimiter(t *testing.T) {
 	l.now = func() time.Time { return now }
 
 	for i := range 3 {
-		if ok, _ := l.Allowed("a"); !ok {
+		if ok, _ := l.Attempt("a", false); !ok {
 			t.Fatalf("attempt %d blocked", i)
 		}
-		l.Fail("a")
 		now = now.Add(time.Second)
 	}
-	ok, wait := l.Allowed("a")
+	ok, wait := l.Attempt("a", false)
 	if ok || wait <= 0 || wait > time.Minute {
 		t.Errorf("after 3 failures: ok = %v, wait = %v", ok, wait)
 	}
-	if ok, _ := l.Allowed("b"); !ok {
+	// While blocked, a correct attempt is refused too, so a guesser can't
+	// tell a right guess from a wrong one.
+	if ok, _ := l.Attempt("a", true); ok {
+		t.Error("a correct attempt got through while blocked")
+	}
+	if ok, _ := l.Attempt("b", false); !ok {
 		t.Error("other keys must not be affected")
 	}
 
 	// The window slides: after a minute the oldest failure no longer counts.
 	now = now.Add(time.Minute - 2*time.Second)
-	if ok, _ := l.Allowed("a"); !ok {
+	if ok, _ := l.Attempt("a", true); !ok {
 		t.Error("still blocked after the window")
 	}
+	// The success cleared the failures.
+	for i := range 3 {
+		if ok, _ := l.Attempt("a", false); !ok {
+			t.Fatalf("attempt %d after a success blocked", i)
+		}
+	}
+}
 
-	l.Fail("a")
-	l.Reset("a")
-	if ok, _ := l.Allowed("a"); !ok {
-		t.Error("blocked after Reset")
+func TestLimiterParallel(t *testing.T) {
+	l := NewLimiter(10, time.Minute)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	passed := 0
+	for range 100 {
+		wg.Go(func() {
+			if ok, _ := l.Attempt("a", false); ok {
+				mu.Lock()
+				passed++
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	if passed != 10 {
+		t.Errorf("%d parallel failures got through, want 10", passed)
 	}
 }

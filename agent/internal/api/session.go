@@ -2,12 +2,12 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"math"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pixl-media/gantry/agent/internal/session"
 )
@@ -29,20 +29,18 @@ func (h *handlers) CreateSession(ctx context.Context, req CreateSessionRequestOb
 	}
 
 	client := clientAddr(r)
-	if ok, wait := h.limiter.Allowed(client); !ok {
-		secs := max(int(math.Ceil(wait.Seconds())), 1)
+	correct := req.Body != nil && h.auth.validToken(req.Body.Token)
+	if ok, wait := h.auth.limiter.Attempt(client, correct); !ok {
+		secs := retryAfter(wait)
 		return CreateSession429JSONResponse{
-			Body:    apiError(errors.New("too many failed login attempts"), ErrorCodeTooManyAttempts),
+			Body:    apiError(errors.New("too many failed attempts"), ErrorCodeTooManyAttempts),
 			Headers: CreateSession429ResponseHeaders{RetryAfter: &secs},
 		}, nil
 	}
-	if req.Body == nil || h.cfg.Token == "" ||
-		subtle.ConstantTimeCompare([]byte(req.Body.Token), []byte(h.cfg.Token)) != 1 {
-		h.limiter.Fail(client)
+	if !correct {
 		h.cfg.Logger.Warn("failed login", "client", client)
 		return CreateSession401JSONResponse(apiError(errors.New("invalid token"), ErrorCodeInvalidToken)), nil
 	}
-	h.limiter.Reset(client)
 
 	value, exp := h.auth.signer.Issue()
 	cookie := sessionCookie(r, value, int(h.auth.signer.TTL().Seconds()))
@@ -74,6 +72,11 @@ func sessionCookie(r *http.Request, value string, maxAge int) *http.Cookie {
 // through a reverse proxy that terminates TLS.
 func isHTTPS(r *http.Request) bool {
 	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+// retryAfter is the Retry-After value for wait, in whole seconds.
+func retryAfter(wait time.Duration) int {
+	return max(int(math.Ceil(wait.Seconds())), 1)
 }
 
 // clientAddr is the address failed logins are counted by. Behind a reverse

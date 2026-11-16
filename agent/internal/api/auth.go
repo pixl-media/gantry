@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,29 +41,52 @@ type authKey struct{}
 type authenticator struct {
 	token  string
 	signer *session.Signer
+	// limiter counts wrong tokens per client, from logins and bearer
+	// headers alike.
+	limiter *session.Limiter
+	logger  *slog.Logger
 }
 
-// authenticate checks the bearer token, or else the session cookie. An empty
-// configured token rejects everything. A wrong Authorization header doesn't
-// fall back to the cookie.
-func (a *authenticator) authenticate(r *http.Request) (authInfo, bool) {
-	if a.token == "" {
-		return authInfo{}, false
-	}
+// validToken compares got with the configured token in constant time. An
+// empty configured token matches nothing.
+func (a *authenticator) validToken(got string) bool {
+	return a.token != "" && subtle.ConstantTimeCompare([]byte(got), []byte(a.token)) == 1
+}
+
+// errTooManyAttempts carries how long a client has to wait.
+type errTooManyAttempts struct{ wait time.Duration }
+
+func (e errTooManyAttempts) Error() string { return "too many failed attempts" }
+
+// authenticate checks the bearer token, or else the session cookie. A wrong
+// Authorization header doesn't fall back to the cookie, and counts as a
+// failed attempt: guessing the token over the API is limited like logins.
+func (a *authenticator) authenticate(r *http.Request) (authInfo, error) {
 	if header := r.Header.Get("Authorization"); header != "" {
-		got, ok := strings.CutPrefix(header, "Bearer ")
-		if ok && subtle.ConstantTimeCompare([]byte(got), []byte(a.token)) == 1 {
-			return authInfo{method: authToken}, true
+		got, isBearer := strings.CutPrefix(header, "Bearer ")
+		correct := isBearer && a.validToken(got)
+		client := clientAddr(r)
+		if ok, wait := a.limiter.Attempt(client, correct); !ok {
+			return authInfo{}, errTooManyAttempts{wait}
 		}
-		return authInfo{}, false
+		if !correct {
+			a.logger.Warn("failed authentication", "client", client, "method", authToken)
+			return authInfo{}, errUnauthorized
+		}
+		return authInfo{method: authToken}, nil
+	}
+	if a.token == "" {
+		return authInfo{}, errUnauthorized
 	}
 	if c, err := r.Cookie(session.CookieName); err == nil {
 		if exp, ok := a.signer.Verify(c.Value); ok {
-			return authInfo{method: authCookie, expires: exp}, true
+			return authInfo{method: authCookie, expires: exp}, nil
 		}
 	}
-	return authInfo{}, false
+	return authInfo{}, errUnauthorized
 }
+
+var errUnauthorized = errors.New("unauthorized")
 
 // Request body limits. Bodies are small JSON documents; the largest holds a
 // Compose file (at most stackfiles.MaxSize) as a JSON string, which escaping
@@ -92,9 +117,14 @@ func (a *authenticator) middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		info, ok := a.authenticate(r)
-		if !ok {
-			writeJSON(w, http.StatusUnauthorized, apiError(errors.New("unauthorized"), ErrorCodeUnauthorized))
+		info, err := a.authenticate(r)
+		if limited, ok := errors.AsType[errTooManyAttempts](err); ok {
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter(limited.wait)))
+			writeJSON(w, http.StatusTooManyRequests, apiError(limited, ErrorCodeTooManyAttempts))
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, apiError(err, ErrorCodeUnauthorized))
 			return
 		}
 		if info.method == authCookie && !safeMethod(r.Method) && !sameOrigin(r) {

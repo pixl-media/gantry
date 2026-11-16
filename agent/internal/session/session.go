@@ -97,36 +97,32 @@ func NewLimiter(max int, window time.Duration) *Limiter {
 	return &Limiter{max: max, window: window, now: time.Now, failures: map[string][]time.Time{}}
 }
 
-// Allowed reports whether key may try again, and if not, how long it has to
-// wait.
-func (l *Limiter) Allowed(key string) (bool, time.Duration) {
+// Attempt records an attempt by key that succeeded or failed (the caller has
+// already checked the token) and reports whether it may proceed; if not, how
+// long key has to wait. While key has max failures within the window, every
+// attempt is refused, a correct one too: otherwise the answer would tell
+// which guess was right. Refused attempts aren't counted; a successful one
+// clears key's failures. Checking and counting happen under one lock, so
+// parallel attempts can't slip past the limit.
+func (l *Limiter) Attempt(key string, success bool) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	recent := l.recentLocked(key)
-	if len(recent) < l.max {
+	if len(recent) >= l.max {
+		return false, recent[0].Add(l.window).Sub(l.now())
+	}
+	if success {
+		delete(l.failures, key)
 		return true, 0
 	}
-	return false, recent[0].Add(l.window).Sub(l.now())
-}
-
-// Fail records a failed attempt.
-func (l *Limiter) Fail(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.failures[key] = append(l.recentLocked(key), l.now())
+	l.failures[key] = append(recent, l.now())
 	// Drop keys without recent failures, so the map can't grow unbounded.
 	for k := range l.failures {
 		if len(l.recentLocked(k)) == 0 {
 			delete(l.failures, k)
 		}
 	}
-}
-
-// Reset forgets the failures of key, e.g. after a successful login.
-func (l *Limiter) Reset(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.failures, key)
+	return true, 0
 }
 
 // recentLocked returns key's failures within the window, oldest first.

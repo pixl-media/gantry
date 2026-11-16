@@ -724,7 +724,10 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: The agent's `GANTRY_TOKEN`.
+      description: >-
+        The agent's `GANTRY_TOKEN`. Wrong tokens count against the same limit
+        as failed logins: after 10 within a minute, a client gets
+        `429 too_many_attempts` with `Retry-After`, even with the right token.
     cookieAuth:
       type: apiKey
       in: cookie
