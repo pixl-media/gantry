@@ -20,6 +20,7 @@ import (
 	"github.com/pixl-media/gantry/agent/internal/api"
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
+	"github.com/pixl-media/gantry/agent/internal/live"
 	"github.com/pixl-media/gantry/agent/internal/logs"
 	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/stackfiles"
@@ -190,7 +191,10 @@ func main() {
 	// gets an interrupt, and open event streams finish.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	ops := operations.NewManager(ctx, compose.CLI{}, operations.Options{})
+	// Tells web UIs which stacks changed: from Docker's events and from
+	// operations and file changes made through the API.
+	hub := live.New(dockerClient, live.Options{Logger: logger})
+	ops := operations.NewManager(ctx, compose.CLI{}, operations.Options{OnChange: hub.Notify})
 
 	addr := cfg.listen
 	srv := api.NewServer(addr, api.New(api.Config{
@@ -200,6 +204,7 @@ func main() {
 		Operations:        ops,
 		Logs:              logs.New(dockerClient),
 		Files:             stackfiles.New(compose.CLI{}),
+		Live:              hub,
 		Logger:            logger,
 		PublicOrigin:      cfg.publicOrigin,
 		TrustedProxies:    cfg.trustedProxies,

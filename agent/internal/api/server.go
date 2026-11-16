@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pixl-media/gantry/agent/internal/compose"
+	"github.com/pixl-media/gantry/agent/internal/live"
 	"github.com/pixl-media/gantry/agent/internal/logs"
 	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/session"
@@ -42,6 +43,12 @@ type OperationService interface {
 	Active(stack string) (operations.Snapshot, bool)
 }
 
+// LiveService is what the API needs from the live package.
+type LiveService interface {
+	Subscribe(ctx context.Context) *live.Subscription
+	Notify(stack string)
+}
+
 // LogService is what the API needs from the logs package.
 type LogService interface {
 	Stream(ctx context.Context, project string, opts logs.Options, emit func(logs.Line) error, flush func() error) error
@@ -56,6 +63,11 @@ type Config struct {
 	Operations OperationService
 	Logs       LogService
 	Files      FileService
+	// Live tells clients which stacks changed (GET /api/v1/events); optional.
+	Live LiveService
+	// EventsPing is how often an idle event stream gets a keepalive
+	// comment; zero means 25 seconds.
+	EventsPing time.Duration
 	Logger     *slog.Logger // optional
 	// PublicOrigin is the web UI's origin (see ParsePublicURL), or "".
 	PublicOrigin string

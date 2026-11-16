@@ -18,6 +18,7 @@ import (
 
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
+	"github.com/pixl-media/gantry/agent/internal/live"
 	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
@@ -69,6 +70,7 @@ type editEnv struct {
 	ops    *operations.Manager
 	runner *recordingRunner
 	audit  *bytes.Buffer
+	live   *recordingLive
 }
 
 // newEditEnv runs the real stacks, stackfiles and operations packages on a
@@ -90,14 +92,16 @@ func newEditEnv(t *testing.T) editEnv {
 	runner := &recordingRunner{}
 	ops := operations.NewManager(context.Background(), runner, operations.Options{})
 	var audit bytes.Buffer
+	rl := &recordingLive{Hub: live.New(nil, live.Options{})}
 	h := New(Config{
 		Token:      "t",
 		Stacks:     manager,
 		Operations: ops,
 		Files:      stackfiles.New(validatorStub{}),
+		Live:       rl,
 		Logger:     slog.New(slog.NewTextHandler(&audit, nil)),
 	})
-	return editEnv{h: h, dir: manager.Dir(), ops: ops, runner: runner, audit: &audit}
+	return editEnv{h: h, dir: manager.Dir(), ops: ops, runner: runner, audit: &audit, live: rl}
 }
 
 func send(t *testing.T, h http.Handler, method, path string, body any) *httptest.ResponseRecorder {
@@ -318,5 +322,26 @@ func TestCreateStackDockerUnavailable(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "fresh")); err == nil {
 		t.Error("the stack was created although the name couldn't be checked")
+	}
+}
+
+// Saving files through the API tells live clients at once; Docker sends no
+// event for file changes.
+func TestFileChangesNotify(t *testing.T) {
+	env := newEditEnv(t)
+	detail := decode[StackDetail](t, send(t, env.h, http.MethodGet, "/api/v1/stacks/app", nil))
+	if rec := send(t, env.h, http.MethodPut, "/api/v1/stacks/app/compose", ComposeUpdate{Content: "services:\n  web: {}\n", Version: *detail.ComposeFile.Version}); rec.Code != http.StatusOK {
+		t.Fatalf("save = %d: %s", rec.Code, rec.Body)
+	}
+	if rec := send(t, env.h, http.MethodPatch, "/api/v1/stacks/app/env", EnvUpdate{Set: &map[string]string{"A": "1"}}); rec.Code != http.StatusOK {
+		t.Fatalf("env = %d: %s", rec.Code, rec.Body)
+	}
+	if rec := send(t, env.h, http.MethodPost, "/api/v1/stacks", StackCreate{Name: "fresh", Compose: "services: {}\n"}); rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body)
+	}
+	// A failed save changes nothing and tells nobody.
+	send(t, env.h, http.MethodPut, "/api/v1/stacks/app/compose", ComposeUpdate{Content: "invalid", Version: "stale"})
+	if got := env.live.calls(); !slices.Equal(got, []string{"app", "app", "fresh"}) {
+		t.Errorf("notified %v", got)
 	}
 }

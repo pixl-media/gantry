@@ -496,3 +496,34 @@ func TestServiceActionNeverPreempts(t *testing.T) {
 	}
 	wait(t, start)
 }
+
+func TestOnChange(t *testing.T) {
+	var mu sync.Mutex
+	var calls []string
+	m := NewManager(context.Background(), &fakeRunner{}, Options{OnChange: func(stack string) {
+		mu.Lock()
+		calls = append(calls, stack)
+		mu.Unlock()
+	}})
+	op, err := m.Start(project, ActionStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait(t, op)
+	// finish is signaled before OnChange's second call; wait for it.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		n := len(calls)
+		mu.Unlock()
+		if n == 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(calls, ",") != "app,app" {
+		t.Errorf("calls = %v, want start and finish of app", calls)
+	}
+}

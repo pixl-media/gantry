@@ -257,6 +257,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which stacks changed, live
+         * @description A Server-Sent Events stream that tells clients when to reload stack
+         *     data, instead of polling. It carries no state itself; read it with
+         *     the usual endpoints.
+         *
+         *     - `ready` (data `{}`): sent on every connect. Reload everything, as
+         *       changes may have been missed while disconnected.
+         *     - `changed` (data `StackChanges`): these stacks changed, or with
+         *       `all: true` anything may have changed (e.g. Docker was
+         *       unreachable). Changes are collected for a quarter second, so a
+         *       burst arrives as one event.
+         *     - A comment line (`: ping`) every 25 seconds keeps proxies from
+         *       closing an idle connection.
+         *
+         *     Changes come from Docker's container events (also for changes made
+         *     outside gantry) and from the agent itself: operations starting and
+         *     finishing, and files saved through the API. Files edited directly on
+         *     the host don't cause an event. A cookie-authenticated stream ends
+         *     with the session.
+         */
+        get: operations["streamEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stacks/{name}/actions/{action}": {
         parameters: {
             query?: never;
@@ -629,6 +666,13 @@ export interface components {
         };
         /** @enum {string} */
         StackAction: "start" | "stop" | "restart" | "update" | "down";
+        /** @description Data of a `changed` event on `/api/v1/events`. */
+        StackChanges: {
+            /** @description Names of the stacks that changed. */
+            stacks: string[];
+            /** @description Anything may have changed; reload everything. */
+            all: boolean;
+        };
         /** @enum {string} */
         ServiceAction: "start" | "stop" | "restart" | "update";
         ServiceActionRequest: {
@@ -1278,6 +1322,27 @@ export interface operations {
             400: components["responses"]["InvalidName"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    streamEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The event stream. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     runStackAction: {

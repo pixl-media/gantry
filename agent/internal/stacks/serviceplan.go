@@ -113,7 +113,8 @@ func (m *Manager) PlanService(ctx context.Context, name, service string, action 
 	if !ok {
 		return compose.Project{}, ServicePlan{}, errors.New("service dependencies can't be read")
 	}
-	g, err := loader.Graph(ctx, p)
+	// Fresh, not cached: the plan must match the files as they are now.
+	g, err := m.graph(ctx, loader, p, true)
 	if err != nil {
 		// Compose's message can quote the file; the caller logs it.
 		return compose.Project{}, ServicePlan{}, fmt.Errorf("reading services of %s: %w", name, err)
