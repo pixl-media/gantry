@@ -28,7 +28,10 @@ import { consoleColors, monoFont } from '../theme';
 import { useNotify } from './Notifications';
 import { OperationStatusChip } from './StatusChip';
 
-type Target = Pick<Operation, 'id' | 'stack' | 'action' | 'startedAt'>;
+type Target = Pick<
+  Operation,
+  'id' | 'stack' | 'action' | 'startedAt' | 'service'
+>;
 
 const PanelContext = createContext<(op: Target) => void>(() => {});
 
@@ -90,10 +93,16 @@ export function OperationView({
         sx={{ alignItems: 'center', gap: 1.5, p: 2, pb: 1 }}
       >
         <Typography variant="h6" sx={{ flex: 1 }} noWrap>
-          {t('operation.title', {
-            action: t(`actions.${target.action}`),
-            stack: target.stack,
-          })}
+          {target.service
+            ? t('operation.titleService', {
+                action: t(`actions.${target.action}`),
+                stack: target.stack,
+                service: target.service,
+              })
+            : t('operation.title', {
+                action: t(`actions.${target.action}`),
+                stack: target.stack,
+              })}
         </Typography>
         {status === 'running' && <CircularProgress size={18} />}
         <OperationStatusChip status={status} />

@@ -82,6 +82,15 @@ export function useRunAction() {
   });
 }
 
+export function useRunServiceAction() {
+  const invalidate = useInvalidateState();
+  return $api.useMutation(
+    'post',
+    '/api/v1/stacks/{name}/services/{service}/actions/{action}',
+    { onSettled: invalidate },
+  );
+}
+
 export function useUpdateCompose() {
   const invalidate = useInvalidateState();
   return $api.useMutation('put', '/api/v1/stacks/{name}/compose', {

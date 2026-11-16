@@ -131,7 +131,8 @@
     "startedAt": "Gestartet {{time}}",
     "action": "Aktion",
     "started": "Gestartet",
-    "result": "Ergebnis"
+    "result": "Ergebnis",
+    "titleService": "{{action}} · {{stack}} / {{service}}"
   },
   "errors": {
     "stack_busy": "Auf diesem Stack läuft bereits ein anderer Vorgang.",
@@ -145,7 +146,8 @@
     "stack_exists": "Einen Stack mit diesem Namen gibt es schon.",
     "request_too_large": "Die Anfrage ist zu groß.",
     "docker_unavailable": "Docker ist gerade nicht erreichbar. Versuch es gleich noch einmal.",
-    "https_required": "Aus Sicherheitsgründen nimmt gantry Anmeldungen aus dem Internet nur über HTTPS an. Betreibe es hinter einem Reverse Proxy mit HTTPS."
+    "https_required": "Aus Sicherheitsgründen nimmt gantry Anmeldungen aus dem Internet nur über HTTPS an. Betreibe es hinter einem Reverse Proxy mit HTTPS.",
+    "service_not_found": "Diesen Service gibt es (nicht mehr) in der Compose-Datei."
   },
   "notFound": {
     "title": "Seite nicht gefunden",
@@ -211,5 +213,39 @@
     "confirmLabel": "Zum Bestätigen {{name}} eintippen",
     "submit": "Endgültig löschen",
     "cancel": "Abbrechen"
+  },
+  "service": {
+    "actions": "Aktionen für {{name}}",
+    "busy": "Ein anderer Vorgang läuft für diesen Stack",
+    "hint": {
+      "start": "Diesen Service starten und die Services, die er braucht",
+      "stop": "Diesen Service stoppen und die Services, die ihn brauchen",
+      "restart": "Diesen Service neu starten und die Services, die ihn brauchen",
+      "update": "Image holen, diesen Service neu erstellen und die Services neu starten, die ihn brauchen"
+    },
+    "confirmTitle": {
+      "start": "{{name}} starten?",
+      "stop": "{{name}} stoppen?",
+      "restart": "{{name}} neu starten?",
+      "update": "{{name}} aktualisieren?"
+    },
+    "alsoAffected": "Das betrifft auch:",
+    "effect": {
+      "start": "wird gestartet",
+      "stop": "wird gestoppt",
+      "restart": "wird neu gestartet",
+      "recreate": "wird aktualisiert"
+    },
+    "reason": {
+      "dependency": "{{name}} braucht ihn",
+      "dependent": "braucht {{name}}"
+    },
+    "confirm": {
+      "start": "{{n}} Services starten",
+      "stop": "{{n}} Services stoppen",
+      "restart": "{{n}} Services neu starten",
+      "update": "{{n}} Services aktualisieren"
+    },
+    "changed": "Der Zustand der Services hat sich inzwischen geändert. Bitte prüfe die Liste noch einmal."
   }
 }

@@ -39,6 +39,7 @@ import { DeleteStackDialog } from '../components/DeleteStackDialog';
 import { EnvTab } from '../components/EnvTab';
 import { LogView } from '../components/LogView';
 import { useOperationPanel } from '../components/OperationPanel';
+import { ServiceMenu } from '../components/ServiceMenu';
 import { OperationStatusChip, StatusChip } from '../components/StatusChip';
 import { errorMessage } from '../lib/errors';
 import { formatDateTime, formatDuration, formatPorts } from '../lib/format';
@@ -222,8 +223,11 @@ function Services({
                 {svc.containers.length === 0 ? (
                   <TableRow>
                     <TableCell sx={{ fontWeight: 600 }}>{svc.name}</TableCell>
-                    <TableCell colSpan={6} sx={{ color: 'text.secondary' }}>
+                    <TableCell colSpan={5} sx={{ color: 'text.secondary' }}>
                       {t('stack.noContainers')}
+                    </TableCell>
+                    <TableCell padding="none" align="right">
+                      <ServiceMenu stack={stack} service={svc} />
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -259,16 +263,26 @@ function Services({
                           <div key={p}>{p}</div>
                         ))}
                       </TableCell>
-                      <TableCell padding="checkbox">
-                        <Tooltip title={t('stack.showLogs')}>
-                          <IconButton
-                            size="small"
-                            aria-label={t('stack.showLogsOf', { name: c.name })}
-                            onClick={() => onShowLogs(c.name)}
-                          >
-                            <ArticleIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                      <TableCell padding="none" align="right">
+                        <Stack
+                          direction="row"
+                          sx={{ justifyContent: 'flex-end', px: 0.5 }}
+                        >
+                          <Tooltip title={t('stack.showLogs')}>
+                            <IconButton
+                              size="small"
+                              aria-label={t('stack.showLogsOf', {
+                                name: c.name,
+                              })}
+                              onClick={() => onShowLogs(c.name)}
+                            >
+                              <ArticleIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          {i === 0 && (
+                            <ServiceMenu stack={stack} service={svc} />
+                          )}
+                        </Stack>
                       </TableCell>
                     </TableRow>
                   ))
@@ -303,7 +317,11 @@ function Operations({ stack }: { stack: string }) {
             {list.slice(0, 10).map((op) => (
               <ListItemButton key={op.id} onClick={() => openPanel(op)}>
                 <ListItemText
-                  primary={t(`actions.${op.action}`)}
+                  primary={
+                    op.service
+                      ? `${t(`actions.${op.action}`)} · ${op.service}`
+                      : t(`actions.${op.action}`)
+                  }
                   secondary={[
                     formatDateTime(op.startedAt, i18n.language),
                     op.finishedAt &&

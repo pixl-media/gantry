@@ -1,4 +1,9 @@
-import type { StackAction, StackSummary } from '../api/client';
+import type {
+  Service,
+  ServiceAction,
+  StackAction,
+  StackSummary,
+} from '../api/client';
 
 /** All actions, in the order they are shown. */
 export const stackActions: readonly StackAction[] = [
@@ -31,4 +36,30 @@ export function actionEnabled(
 /** Actions that ask before running. */
 export function needsConfirmation(action: StackAction): boolean {
   return action === 'down';
+}
+
+/** The actions on a single service, in the order they are shown. */
+export const serviceActions: readonly ServiceAction[] = [
+  'start',
+  'stop',
+  'restart',
+  'update',
+];
+
+/**
+ * Whether an action can be started on one service. Mirrors the agent: only
+ * managed stacks, and service actions never take precedence, so nothing runs
+ * while another operation does. Stopping or restarting needs a running
+ * container.
+ */
+export function serviceActionEnabled(
+  stack: Pick<StackSummary, 'managed' | 'activeOperation'>,
+  service: Service,
+  action: ServiceAction,
+): boolean {
+  if (!stack.managed || stack.activeOperation) return false;
+  if (action === 'stop' || action === 'restart') {
+    return service.containers.some((c) => c.state === 'running');
+  }
+  return true;
 }
