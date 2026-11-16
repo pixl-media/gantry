@@ -30,8 +30,7 @@ pnpm, Node 24+; CI and the image use Node 26 LTS. Run from the repo root:
   `App.tsx`), which `useBlocker` needs; tests for such components render with
   `renderWithDataRouter`. The CodeMirror editor (`components/CodeEditor.tsx`)
   is loaded lazily; tests replace it with `test/codeEditorStub.tsx`.
-- Prettier style: single quotes, trailing commas (as in the user's other
-  projects).
+- Prettier style: single quotes, trailing commas.
 
 ## Security
 
