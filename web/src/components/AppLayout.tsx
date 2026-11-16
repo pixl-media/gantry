@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import { Outlet, Link as RouterLink, useNavigate } from 'react-router';
+import { LiveProvider } from '../api/live';
 import { useLogout } from '../api/queries';
 import { languages } from '../i18n';
 import { ColorSchemeMenu } from './ColorSchemeMenu';
@@ -77,7 +78,9 @@ export function AppLayout() {
         </Toolbar>
       </AppBar>
       <Container maxWidth="lg" sx={{ py: 3 }}>
-        <Outlet />
+        <LiveProvider>
+          <Outlet />
+        </LiveProvider>
       </Container>
     </Box>
   );

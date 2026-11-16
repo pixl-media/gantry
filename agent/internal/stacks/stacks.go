@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/docker"
@@ -128,6 +129,7 @@ type Manager struct {
 	dir     string
 	docker  ContainerLister
 	compose ServiceLister
+	cache   graphCache
 }
 
 // New returns a Manager for the stacks directory dir. The directory may not
@@ -148,7 +150,7 @@ func New(dir string, d ContainerLister, c ServiceLister) (*Manager, error) {
 	case !info.IsDir():
 		return nil, fmt.Errorf("stacks directory %s is not a directory", abs)
 	}
-	return &Manager{dir: normPath(abs), docker: d, compose: c}, nil
+	return &Manager{dir: normPath(abs), docker: d, compose: c, cache: graphCache{now: time.Now}}, nil
 }
 
 // Dir returns the absolute stacks directory.
@@ -436,7 +438,7 @@ func (m *Manager) loadServices(ctx context.Context, stacks []*stack) {
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			services, err := m.compose.Services(ctx, compose.Project{Name: st.name, Dir: st.path, File: st.composeFile})
+			services, err := m.services(ctx, compose.Project{Name: st.name, Dir: st.path, File: st.composeFile})
 			if err != nil {
 				// Not Compose's message: it can quote lines of the .env file,
 				// and this warning is shown on every refresh, unaudited.

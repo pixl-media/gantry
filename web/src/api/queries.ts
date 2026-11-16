@@ -1,8 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { $api } from './client';
-
-/** How often lists and details refresh while visible. */
-export const refreshInterval = 5000;
+import { useRefreshInterval } from './live';
 
 export function useSession() {
   return $api.useQuery('get', '/api/v1/session', {}, { retry: false });
@@ -28,29 +26,27 @@ export function useLogout() {
 }
 
 export function useStacks() {
-  return $api.useQuery(
-    'get',
-    '/api/v1/stacks',
-    {},
-    { refetchInterval: refreshInterval },
-  );
+  const refetchInterval = useRefreshInterval();
+  return $api.useQuery('get', '/api/v1/stacks', {}, { refetchInterval });
 }
 
 export function useStack(name: string) {
+  const refetchInterval = useRefreshInterval();
   return $api.useQuery(
     'get',
     '/api/v1/stacks/{name}',
     { params: { path: { name } } },
-    { refetchInterval: refreshInterval, retry: false },
+    { refetchInterval, retry: false },
   );
 }
 
 export function useStackOperations(stack: string) {
+  const refetchInterval = useRefreshInterval();
   return $api.useQuery(
     'get',
     '/api/v1/operations',
     { params: { query: { stack } } },
-    { refetchInterval: refreshInterval },
+    { refetchInterval },
   );
 }
 

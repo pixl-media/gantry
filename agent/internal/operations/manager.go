@@ -123,6 +123,9 @@ type Options struct {
 	MaxOutput   int           // output bytes kept per operation; default 1 MiB
 	PreemptWait time.Duration // how long stop/down wait for a canceled operation; default 30 seconds
 	Now         func() time.Time
+	// OnChange, if set, is called with the stack's name when an operation
+	// starts and when it has finished, outside the manager's lock.
+	OnChange func(stack string)
 }
 
 // Manager starts and tracks operations.
@@ -249,6 +252,7 @@ func (m *Manager) start(p compose.Project, action Action, steps []step, svc serv
 
 func (m *Manager) run(ctx context.Context, op *Operation, p compose.Project, prev *Operation, steps []step) {
 	defer op.cancel()
+	m.changed(op.stack)
 	if prev != nil {
 		op.logf("canceling %s (%s) first", prev.id, prev.action)
 		_ = prev.requestCancel(fmt.Sprintf("canceled by %s (%s)", op.id, op.action), op.id)
@@ -290,6 +294,13 @@ func (m *Manager) run(ctx context.Context, op *Operation, p compose.Project, pre
 	}
 	op.finish(m.opts.Now(), code, err, ctx, m.opts.Timeout)
 	m.mu.Unlock()
+	m.changed(op.stack)
+}
+
+func (m *Manager) changed(stack string) {
+	if m.opts.OnChange != nil {
+		m.opts.OnChange(stack)
+	}
 }
 
 // Get returns the operation with id.

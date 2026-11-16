@@ -81,6 +81,7 @@ func (h *handlers) UpdateCompose(ctx context.Context, req UpdateComposeRequestOb
 		version, err = h.cfg.Files.ReplaceCompose(ctx, p, req.Body.Version, []byte(req.Body.Content))
 		if err == nil {
 			h.cfg.Logger.Info("compose file saved", "stack", req.Name, "bytes", len(req.Body.Content))
+			h.changed(req.Name)
 			return UpdateCompose200JSONResponse{Version: version}, nil
 		}
 		f = fileFailure(err)
@@ -151,6 +152,7 @@ func (h *handlers) UpdateEnv(ctx context.Context, req UpdateEnvRequestObject) (U
 			slices.Sort(keys)
 			// Names only, never values.
 			h.cfg.Logger.Info("env updated", "stack", req.Name, "set", keys, "deleted", del)
+			h.changed(req.Name)
 			return UpdateEnv200JSONResponse(toEnvFile(info)), nil
 		}
 		f = fileFailure(err)
@@ -238,6 +240,7 @@ func (h *handlers) CreateStack(ctx context.Context, req CreateStackRequestObject
 		}
 	}
 	h.cfg.Logger.Info("stack created", "stack", name, "dir", dir)
+	h.changed(name)
 	location := "/api/v1/stacks/" + name
 	return CreateStack201JSONResponse{
 		Body:    StackCreated{Name: name, Path: dir},

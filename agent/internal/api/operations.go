@@ -182,7 +182,7 @@ func (h *handlers) StreamOperationEvents(ctx context.Context, req StreamOperatio
 	if err != nil {
 		return StreamOperationEvents404JSONResponse{NotFoundJSONResponse(apiError(err, ErrorCodeNotFound))}, nil
 	}
-	return eventStream{ctx: ctx, op: op, bind: h.auth.sessionBound}, nil
+	return eventStream{ctx: ctx, op: op, bind: h.streamBound}, nil
 }
 
 // eventStream writes an operation's output as Server-Sent Events. It

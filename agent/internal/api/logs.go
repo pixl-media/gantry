@@ -41,7 +41,7 @@ func (h *handlers) StreamStackLogs(ctx context.Context, req StreamStackLogsReque
 	if p.Container != nil {
 		opts.Container = *p.Container
 	}
-	return logStream{ctx: ctx, bind: h.auth.sessionBound, logs: h.cfg.Logs, stack: req.Name, opts: opts, logger: h.cfg.Logger}, nil
+	return logStream{ctx: ctx, bind: h.streamBound, logs: h.cfg.Logs, stack: req.Name, opts: opts, logger: h.cfg.Logger}, nil
 }
 
 // logStream writes a stack's logs as Server-Sent Events.
