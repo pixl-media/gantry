@@ -15,8 +15,23 @@ import (
 const liveWindow = 250 * time.Millisecond
 
 // defaultEventsPing keeps idle event streams alive through proxies, which
-// often close connections after a minute without data.
+// often close connections after a minute without data, and lets clients
+// notice a connection that died silently.
 const defaultEventsPing = 25 * time.Second
+
+// streamBound returns the context of an event stream: it ends with the
+// session (for cookie auth) and when the agent shuts down.
+func (h *handlers) streamBound(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := h.auth.sessionBound(ctx)
+	if h.cfg.Context == nil {
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(h.cfg.Context, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
+}
 
 // stackForgetter drops cached data about a stack; stacks.Manager implements
 // it.
@@ -40,7 +55,7 @@ func (h *handlers) StreamEvents(ctx context.Context, _ StreamEventsRequestObject
 	if ping <= 0 {
 		ping = defaultEventsPing
 	}
-	return liveStream{ctx: ctx, bind: h.auth.sessionBound, live: h.cfg.Live, ping: ping}, nil
+	return liveStream{ctx: ctx, bind: h.streamBound, live: h.cfg.Live, ping: ping}, nil
 }
 
 // liveStream writes which stacks changed as Server-Sent Events.
@@ -82,7 +97,9 @@ func (s liveStream) VisitStreamEventsResponse(w http.ResponseWriter) error {
 		case <-ctx.Done():
 			return nil // client gone or session ended
 		case <-ping.C:
-			if !send(": ping\n\n") {
+			// An event, not a comment: EventSource hides comments, and
+			// clients use the pings to notice a dead connection.
+			if !send("event: ping\ndata: {}\n\n") {
 				return nil
 			}
 		case <-ready:

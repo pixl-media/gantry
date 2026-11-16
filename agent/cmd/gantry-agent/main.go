@@ -205,6 +205,7 @@ func main() {
 		Logs:              logs.New(dockerClient),
 		Files:             stackfiles.New(compose.CLI{}),
 		Live:              hub,
+		Context:           ctx,
 		Logger:            logger,
 		PublicOrigin:      cfg.publicOrigin,
 		TrustedProxies:    cfg.trustedProxies,

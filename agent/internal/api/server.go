@@ -65,10 +65,13 @@ type Config struct {
 	Files      FileService
 	// Live tells clients which stacks changed (GET /api/v1/events); optional.
 	Live LiveService
-	// EventsPing is how often an idle event stream gets a keepalive
-	// comment; zero means 25 seconds.
+	// EventsPing is how often the live event stream sends a ping event;
+	// zero means 25 seconds.
 	EventsPing time.Duration
-	Logger     *slog.Logger // optional
+	// Context, if set, ends open event streams when it is done, so that a
+	// shutting-down agent doesn't wait for them.
+	Context context.Context
+	Logger  *slog.Logger // optional
 	// PublicOrigin is the web UI's origin (see ParsePublicURL), or "".
 	PublicOrigin string
 	// TrustedProxies are reverse proxies whose X-Forwarded-For and

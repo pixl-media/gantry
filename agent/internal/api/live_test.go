@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -101,7 +102,7 @@ func TestStreamEvents(t *testing.T) {
 	}
 
 	// Idle streams get keepalive comments.
-	expect(t, events, func(s string) bool { return s == ": ping" }, "a ping")
+	expect(t, events, func(s string) bool { return s == "ping|{}" }, "a ping")
 }
 
 func TestStreamEventsWithoutHub(t *testing.T) {
@@ -110,7 +111,7 @@ func TestStreamEventsWithoutHub(t *testing.T) {
 	t.Cleanup(srv.Close) // after the stream's body is closed (cleanups run in reverse)
 	events := readSSE(openEvents(t, srv, nil).Body)
 	expect(t, events, func(s string) bool { return s == "ready|{}" }, "ready")
-	expect(t, events, func(s string) bool { return s == ": ping" }, "a ping")
+	expect(t, events, func(s string) bool { return s == "ping|{}" }, "a ping")
 }
 
 func TestStreamEventsNeedsAuth(t *testing.T) {
@@ -171,3 +172,27 @@ func (r *recordingLive) calls() []string {
 }
 
 var _ LiveService = (*recordingLive)(nil)
+
+// A shutting-down agent ends open streams instead of waiting for them.
+func TestStreamsEndOnShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	hub := live.New(nil, live.Options{})
+	h := New(Config{Token: "t", Stacks: fakeStacks{}, Live: hub, Context: ctx})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	events := readSSE(openEvents(t, srv, nil).Body)
+	expect(t, events, func(s string) bool { return s == "ready|{}" }, "ready")
+	cancel()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-events:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the stream outlived the shutdown")
+		}
+	}
+}

@@ -276,14 +276,15 @@ export interface paths {
          *       `all: true` anything may have changed (e.g. Docker was
          *       unreachable). Changes are collected for a quarter second, so a
          *       burst arrives as one event.
-         *     - A comment line (`: ping`) every 25 seconds keeps proxies from
-         *       closing an idle connection.
+         *     - `ping` (data `{}`) every 25 seconds keeps proxies from closing an
+         *       idle connection. A client that hears nothing for a minute or so
+         *       should assume the connection died and reconnect.
          *
          *     Changes come from Docker's container events (also for changes made
          *     outside gantry) and from the agent itself: operations starting and
          *     finishing, and files saved through the API. Files edited directly on
          *     the host don't cause an event. A cookie-authenticated stream ends
-         *     with the session.
+         *     with the session, and every stream ends when the agent shuts down.
          */
         get: operations["streamEvents"];
         put?: never;

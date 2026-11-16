@@ -1,5 +1,5 @@
 import { act, screen, waitFor } from '@testing-library/react';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   FakeEventSource,
   json,
@@ -9,6 +9,7 @@ import {
 import {
   LiveProvider,
   livePollInterval,
+  liveTimeout,
   pollInterval,
   useRefreshInterval,
 } from './live';
@@ -17,6 +18,10 @@ import { useStack, useStacks } from './queries';
 beforeEach(() => {
   FakeEventSource.instances = [];
   vi.stubGlobal('EventSource', FakeEventSource);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 function Probe() {
@@ -109,4 +114,35 @@ it('closes the stream when the app layout goes away', () => {
   const source = FakeEventSource.instances[0]!;
   unmount();
   expect(source.readyState).toBe(FakeEventSource.CLOSED);
+});
+
+it('starts over when the connection falls silent', async () => {
+  // Only the watchdog's clock is faked; queries keep real timers.
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+  const { source } = setup();
+  act(() => source.emit('ready', '{}'));
+  expect(
+    await screen.findByText(`interval ${livePollInterval}`),
+  ).toBeInTheDocument();
+
+  // Pings keep it alive.
+  act(() => {
+    vi.advanceTimersByTime(liveTimeout - 10_000);
+    source.emit('ping', '{}');
+    vi.advanceTimersByTime(liveTimeout - 10_000);
+  });
+  expect(FakeEventSource.instances).toHaveLength(1);
+
+  // Silence: the old stream is closed, a new one opened, and the page polls
+  // quickly until it is ready.
+  act(() => vi.advanceTimersByTime(liveTimeout + 10_000));
+  expect(FakeEventSource.instances).toHaveLength(2);
+  expect(source.readyState).toBe(FakeEventSource.CLOSED);
+  expect(
+    await screen.findByText(`interval ${pollInterval}`),
+  ).toBeInTheDocument();
+  act(() => FakeEventSource.instances[1]!.emit('ready', '{}'));
+  expect(
+    await screen.findByText(`interval ${livePollInterval}`),
+  ).toBeInTheDocument();
 });

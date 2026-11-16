@@ -14,6 +14,11 @@ type StackChanges = components['schemas']['StackChanges'];
 export const pollInterval = 5000;
 /** How often they refresh as a safety net while the live connection works. */
 export const livePollInterval = 60_000;
+/**
+ * Without any event for this long, the live connection counts as dead. The
+ * agent pings every 25 seconds.
+ */
+export const liveTimeout = 70_000;
 
 const LiveContext = createContext(false);
 
@@ -54,19 +59,43 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         ]),
       ]);
 
-    const source = new EventSource('/api/v1/events');
-    // Sent on every (re)connect: changes may have been missed meanwhile.
-    source.addEventListener('ready', () => {
-      setConnected(true);
-      void reloadAll();
-    });
-    source.addEventListener('changed', (e) => {
-      const c = JSON.parse((e as MessageEvent<string>).data) as StackChanges;
-      void (c.all ? reloadAll() : reload(c.stacks));
-    });
-    // EventSource reconnects by itself; poll quickly until it's back.
-    source.onerror = () => setConnected(false);
-    return () => source.close();
+    let source: EventSource | undefined;
+    let lastEvent = Date.now();
+    const connect = () => {
+      source?.close();
+      lastEvent = Date.now();
+      source = new EventSource('/api/v1/events');
+      // Sent on every (re)connect: changes may have been missed meanwhile.
+      source.addEventListener('ready', () => {
+        lastEvent = Date.now();
+        setConnected(true);
+        void reloadAll();
+      });
+      source.addEventListener('changed', (e) => {
+        lastEvent = Date.now();
+        const c = JSON.parse((e as MessageEvent<string>).data) as StackChanges;
+        void (c.all ? reloadAll() : reload(c.stacks));
+      });
+      source.addEventListener('ping', () => {
+        lastEvent = Date.now();
+      });
+      // EventSource reconnects by itself; poll quickly until it's back.
+      source.onerror = () => setConnected(false);
+    };
+    connect();
+    // A connection can die without an error reaching the browser (sleep,
+    // network change, a proxy that keeps the client side open). The agent
+    // pings regularly, so silence means it's gone: start over.
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastEvent > liveTimeout) {
+        setConnected(false);
+        connect();
+      }
+    }, 10_000);
+    return () => {
+      clearInterval(watchdog);
+      source?.close();
+    };
   }, [queryClient]);
 
   return <LiveContext value={connected}>{children}</LiveContext>;
