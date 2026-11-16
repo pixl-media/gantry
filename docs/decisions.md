@@ -219,6 +219,11 @@ Rejected: the token in `localStorage` (simplest, as Portainer and Dockge do,
 but exposed to any XSS) and Basic Auth at the proxy (no login page, no
 logout, the UI container would need the token).
 
+*Amended by decision 20:* sessions now live in the agent's memory (logout
+really ends them), wrong bearer tokens count against the same limit, tokens
+shorter than 16 characters are refused, and `GANTRY_PUBLIC_URL` can pin the
+cookie's origin.
+
 ## 15. Web UI stack and container
 
 **Decided 2026-11-12.**
@@ -285,7 +290,8 @@ read-only (decision 8). All file access goes through `internal/stackfiles`.
   changed since (another tab, an edit over SSH), the API answers
   `409 version_conflict` instead of overwriting. Saves to one stack are
   serialized by a mutex.
-- **Limits:** files up to 1 MiB; symlinks are never edited or followed, so
+- **Limits:** files up to 1 MiB; symlinks are never edited or followed
+  (since decision 20 a symlinked stack directory isn't managed at all), so
   a link can't redirect a write outside the stacks directory.
 - **`.env` keeps its layout:** comments, blank lines, order and `export`
   prefixes stay; changed keys are updated in place, new ones appended.
@@ -341,6 +347,52 @@ Deleting a stack is a separate, explicit action:
 
 Rejected: a trash folder (data would pile up unnoticed on small hosts;
 backups are the place for recovery) and deleting volumes by default.
+
+## 20. Hardening after the first security review
+
+**Decided 2026-11-16**, after an independent review of the agent and the
+web UI. None of the findings was an authentication bypass; these close the
+gaps at the edges.
+
+- **Request limits:** bodies at most 4 MiB, 4 KiB for the public login,
+  enforced before anything decodes them (`413 request_too_large`); the server
+  has read and idle timeouts. Responses may still run long: event streams
+  are unaffected.
+- **Sessions in memory** (replaces the stateless cookie of decision 14):
+  256-bit random IDs, stored only as SHA-256. Logging out ends a session at
+  once, so a captured cookie can be revoked; restarting the agent ends all
+  sessions. A re-login after updates is the price; a credential that can't
+  be revoked would be worse.
+- **One limit for token guessing:** wrong tokens from logins and bearer
+  headers count together, 10 per minute and client, checked and counted
+  atomically. While blocked, the right token is refused too; letting it
+  through would tell the guesser which guess was right. Behind the web UI's
+  proxy all browsers still share one limit.
+- **Tokens:** shorter than 16 characters, the agent doesn't start. Local
+  development uses a random token in the git-ignored `.env` instead of the
+  well-known `dev`.
+- **`GANTRY_PUBLIC_URL`** (optional): cookie requests must come from exactly
+  this origin, and with HTTPS the cookie is always `Secure` and named
+  `__Host-gantry_session`. Cookies are scoped to a host, not a port, so the
+  docs recommend giving the UI its own hostname: on `http://nas:8080` the
+  cookie would reach every web app on that host, including managed stacks.
+- **Symlinks:** a stack directory or Compose file that is a symbolic link
+  isn't managed (its containers show as an unmanaged stack). All file
+  access goes through `os.Root`, and opened files are checked against what
+  was checked, so swapping in a link meanwhile doesn't help.
+- **Compose's environment** never contains `GANTRY_*` variables: Compose
+  interpolates from it, so a Compose file could otherwise read the token.
+- **Errors:** creating a stack while Docker is unreachable gets `503
+  docker_unavailable` (an existing project of that name can't be ruled
+  out). Compose's raw errors aren't shown in the stack list, where they
+  could quote `.env` lines on every refresh. Unexpected errors (500) go to
+  the log, not to the client.
+- **Smaller:** bounded output and log buffers, `no-store` for event streams,
+  `nosniff`, no secrets lingering in the UI's mutation cache, Caddy running
+  as `nobody`.
+
+Not done yet: per-browser login limits behind the proxy (would need trusted
+proxy settings) and pinning images and actions by digest.
 
 ## Open questions
 

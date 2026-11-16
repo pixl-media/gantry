@@ -131,6 +131,15 @@ session cookie), never log the token, and keep the dev setup bound to
   or `HttpOnly`.
 - **Never store tokens in the browser** (`localStorage`, `sessionStorage`,
   JS-readable cookies). The web UI only uses the `HttpOnly` session cookie.
+  Mutations whose variables hold the token or `.env` values use `gcTime: 0`.
+- **Sessions live in memory** (`session.Store`); logout revokes them. Wrong
+  tokens, by login or bearer header, count against one limiter; never let
+  the right token past it while a client is blocked.
+- **Request bodies are limited** in the auth middleware (`maxBody`,
+  `maxLoginBody`); raise them only deliberately.
+- **Errors:** unexpected errors (500) are logged, never returned with
+  details. Never show raw Compose output where it isn't asked for: it can
+  quote `.env` lines.
 
 - **Never expose secrets from stacks:** return Compose files as stored, never
   the resolved configuration (`docker compose config` output). `.env` values
@@ -139,4 +148,6 @@ session cookie), never log the token, and keep the dev setup bound to
 - **Never log values:** audit logs name the stack, file and keys, never
   `.env` values or file contents.
 - Validate stack names with `stacks.ValidName` before using them in paths or
-  commands.
+  commands. Symlinked stack directories and Compose files are never managed;
+  file access goes through `os.Root`.
+- Settled hardening decisions are in `docs/decisions.md` (20).
