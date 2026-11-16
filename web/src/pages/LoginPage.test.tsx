@@ -6,7 +6,7 @@ import { json, mockFetch, renderWithProviders } from '../test/render';
 import { LoginPage } from './LoginPage';
 
 /** A fake agent: logged out until the right token is posted. */
-function fakeAgent() {
+function fakeAgent({ webLogin = true } = {}) {
   let loggedIn = false;
   return mockFetch(async (req) => {
     const path = new URL(req.url).pathname;
@@ -17,6 +17,9 @@ function fakeAgent() {
     }
     if (path === '/api/v1/session' && req.method === 'POST') {
       const { token } = (await req.json()) as { token: string };
+      if (!webLogin) {
+        return json({ error: 'web login off', code: 'login_disabled' }, 403);
+      }
       if (token !== 'right') {
         return json({ error: 'invalid token', code: 'invalid_token' }, 401);
       }
@@ -58,4 +61,16 @@ it('logs in and goes to the stacks', async () => {
     .filter((r) => r.method === 'POST');
   expect(posts).toHaveLength(1);
   expect(new URL(posts[0]!.url).pathname).toBe('/api/v1/session');
+});
+
+it('says when the web login is off', async () => {
+  fakeAgent({ webLogin: false });
+  renderLogin();
+  await userEvent.type(await screen.findByLabelText(/Token/), 'right');
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+  expect(
+    await screen.findByText(
+      'The web login is off: GANTRY_UI_TOKEN is not set on the agent.',
+    ),
+  ).toBeInTheDocument();
 });
