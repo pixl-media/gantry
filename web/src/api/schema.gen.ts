@@ -59,9 +59,9 @@ export interface paths {
         put?: never;
         /**
          * Log in
-         * @description Exchanges the agent token for a session cookie (`HttpOnly`,
-         *     `SameSite=Strict`, valid for 12 hours). Browsers never need to store
-         *     the token itself. Sessions live in the agent's memory: logging out
+         * @description Exchanges the web login token (`GANTRY_UI_TOKEN`, not the API's
+         *     `GANTRY_TOKEN`) for a session cookie (`HttpOnly`, `SameSite=Strict`,
+         *     valid for 12 hours). Browsers never need to store the token itself. Sessions live in the agent's memory: logging out
          *     ends a session at once, and restarting the agent ends all of them.
          *
          *     At most 10 failed attempts per minute and client address; after
@@ -471,13 +471,13 @@ export interface components {
              * @description Machine-readable reason, for clients to act on.
              * @enum {string}
              */
-            code?: "unauthorized" | "invalid_token" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "request_too_large" | "invalid_name" | "invalid_action" | "invalid_service" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "service_not_found" | "confirmation_required" | "stack_busy" | "stack_unmanaged" | "docker_unavailable" | "https_required" | "operation_finished";
+            code?: "unauthorized" | "invalid_token" | "login_disabled" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "request_too_large" | "invalid_name" | "invalid_action" | "invalid_service" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "service_not_found" | "confirmation_required" | "stack_busy" | "stack_unmanaged" | "docker_unavailable" | "https_required" | "operation_finished";
             /** @description For `stack_busy`, the ID of the running operation. */
             operation?: string;
             plan?: components["schemas"]["ServiceActionPlan"];
         };
         LoginRequest: {
-            /** @description The agent's `GANTRY_TOKEN`. */
+            /** @description The agent's `GANTRY_UI_TOKEN`. */
             token: string;
         };
         Session: {
@@ -899,7 +899,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `invalid_token`: wrong token. */
+            /** @description `invalid_token`: wrong token (also the API token). */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -908,7 +908,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description `origin_rejected`: sent from another site. */
+            /** @description `origin_rejected`: sent from another site. `https_required`: sent over plain HTTP from an internet address. `login_disabled`: the agent has no `GANTRY_UI_TOKEN`, so the web login is off. */
             403: {
                 headers: {
                     [name: string]: unknown;

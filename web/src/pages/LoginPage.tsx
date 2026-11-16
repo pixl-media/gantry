@@ -41,7 +41,9 @@ export function LoginPage() {
         ? t('login.invalidToken')
         : e?.code === 'too_many_attempts'
           ? t('login.tooManyAttempts')
-          : t('login.failed', { message: e?.error ?? String(login.error) });
+          : e?.code === 'login_disabled'
+            ? t('login.disabled')
+            : t('login.failed', { message: e?.error ?? String(login.error) });
   }
 
   return (

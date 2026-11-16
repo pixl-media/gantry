@@ -26,9 +26,13 @@ func (h *handlers) CreateSession(ctx context.Context, req CreateSessionRequestOb
 	if h.auth.net.insecure(r) {
 		return CreateSession403JSONResponse(apiError(errInsecure, ErrorCodeHttpsRequired)), nil
 	}
+	if h.auth.uiToken == "" {
+		return CreateSession403JSONResponse(apiError(errLoginDisabled, ErrorCodeLoginDisabled)), nil
+	}
 
+	// Only the web login token: the API token never gets a session.
 	client := h.auth.limitKey(r)
-	correct := req.Body != nil && h.auth.validToken(req.Body.Token)
+	correct := req.Body != nil && h.auth.validUIToken(req.Body.Token)
 	if ok, wait := h.auth.limiter.Attempt(client, correct); !ok {
 		secs := retryAfter(wait)
 		return CreateSession429JSONResponse{
@@ -47,6 +51,8 @@ func (h *handlers) CreateSession(ctx context.Context, req CreateSessionRequestOb
 	c := cookie.String()
 	return CreateSession204Response{Headers: CreateSession204ResponseHeaders{SetCookie: &c}}, nil
 }
+
+var errLoginDisabled = errors.New("the web login is off: the agent has no GANTRY_UI_TOKEN")
 
 // DeleteSession ends the session (it is public, so this also works with an
 // expired one) and clears the cookie.

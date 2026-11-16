@@ -81,7 +81,7 @@ func openEvents(t *testing.T, srv *httptest.Server, cookie *http.Cookie) *http.R
 
 func TestStreamEvents(t *testing.T) {
 	hub := live.New(nil, live.Options{})
-	h := New(Config{Token: "t", Stacks: fakeStacks{}, Live: hub, EventsPing: 50 * time.Millisecond})
+	h := New(Config{Token: "t", UIToken: testUIToken, Stacks: fakeStacks{}, Live: hub, EventsPing: 50 * time.Millisecond})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close) // after the stream's body is closed (cleanups run in reverse)
 
@@ -106,7 +106,7 @@ func TestStreamEvents(t *testing.T) {
 }
 
 func TestStreamEventsWithoutHub(t *testing.T) {
-	h := New(Config{Token: "t", Stacks: fakeStacks{}, EventsPing: 20 * time.Millisecond})
+	h := New(Config{Token: "t", UIToken: testUIToken, Stacks: fakeStacks{}, EventsPing: 20 * time.Millisecond})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close) // after the stream's body is closed (cleanups run in reverse)
 	events := readSSE(openEvents(t, srv, nil).Body)
@@ -115,7 +115,7 @@ func TestStreamEventsWithoutHub(t *testing.T) {
 }
 
 func TestStreamEventsNeedsAuth(t *testing.T) {
-	h := New(Config{Token: "t", Stacks: fakeStacks{}})
+	h := New(Config{Token: "t", UIToken: testUIToken, Stacks: fakeStacks{}})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, newRequest(http.MethodGet, "/api/v1/events", nil))
 	if rec.Code != http.StatusUnauthorized {
@@ -125,7 +125,7 @@ func TestStreamEventsNeedsAuth(t *testing.T) {
 
 func TestEventStreamEndsWithSession(t *testing.T) {
 	hub := live.New(nil, live.Options{})
-	h := New(Config{Token: "t", Stacks: fakeStacks{}, Live: hub})
+	h := New(Config{Token: "t", UIToken: testUIToken, Stacks: fakeStacks{}, Live: hub})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close) // after the stream's body is closed (cleanups run in reverse)
 	c := sessionCookieFrom(t, h)
@@ -177,7 +177,7 @@ var _ LiveService = (*recordingLive)(nil)
 func TestStreamsEndOnShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	hub := live.New(nil, live.Options{})
-	h := New(Config{Token: "t", Stacks: fakeStacks{}, Live: hub, Context: ctx})
+	h := New(Config{Token: "t", UIToken: testUIToken, Stacks: fakeStacks{}, Live: hub, Context: ctx})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 

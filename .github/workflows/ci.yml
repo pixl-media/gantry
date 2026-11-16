@@ -112,9 +112,10 @@ jobs:
         run: |
           stacks="$PWD/dev/stacks"
           token=$(openssl rand -hex 24)
+          ui_token=$(openssl rand -hex 24)
           docker network create gantry-smoke
           docker run -d --name gantry-smoke --network gantry-smoke --network-alias agent \
-            -e GANTRY_TOKEN="$token" -e GANTRY_STACKS_DIR="$stacks" \
+            -e GANTRY_TOKEN="$token" -e GANTRY_UI_TOKEN="$ui_token" -e GANTRY_STACKS_DIR="$stacks" \
             -v /var/run/docker.sock:/var/run/docker.sock -v "$stacks:$stacks" \
             -p 127.0.0.1:7070:7070 gantry-agent:smoke
           docker run -d --name gantry-web-smoke --network gantry-smoke \
@@ -164,9 +165,13 @@ jobs:
           curl -fsSI "$web/" | grep -qi '^content-security-policy:'
           # Through its proxy: no access without a session...
           test "$(curl -s -o /dev/null -w '%{http_code}' "$web/api/v1/stacks")" = 401
+          # ...each token works only in its own place...
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H "Origin: $web" -H "Content-Type: application/json" \
+            -d "{\"token\":\"$token\"}" "$web/api/v1/session")" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ui_token" "$web/api/v1/stacks")" = 401
           # ...log in, then the session cookie works...
           curl -fsS -c cookies.txt -H "Origin: $web" -H "Content-Type: application/json" \
-            -d "{\"token\":\"$token\"}" "$web/api/v1/session"
+            -d "{\"token\":\"$ui_token\"}" "$web/api/v1/session"
           grep -q gantry_session cookies.txt
           curl -fsS -b cookies.txt "$web/api/v1/stacks" | jq -e '.stacks | length > 0'
           # ...and changing requests need the page's Origin (CSRF protection).

@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,9 @@ import (
 
 // httptest.NewRequest uses this host; a matching Origin is same-origin.
 const sameOriginHeader = "http://example.com"
+
+// testUIToken is the web login token of the handlers under test.
+const testUIToken = "the-ui-token"
 
 func login(t *testing.T, h http.Handler, token string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -30,7 +34,7 @@ func login(t *testing.T, h http.Handler, token string, headers map[string]string
 // sessionCookieFrom logs in and returns the session cookie.
 func sessionCookieFrom(t *testing.T, h http.Handler) *http.Cookie {
 	t.Helper()
-	rec := login(t, h, "t", map[string]string{"Origin": sameOriginHeader})
+	rec := login(t, h, testUIToken, map[string]string{"Origin": sameOriginHeader})
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("login = %d: %s", rec.Code, rec.Body)
 	}
@@ -60,7 +64,7 @@ func serve(h http.Handler, req *http.Request) *httptest.ResponseRecorder {
 
 func TestLoginSetsSecureCookie(t *testing.T) {
 	h, _ := newOpsServer(t, runner{})
-	rec := login(t, h, "t", map[string]string{"Origin": sameOriginHeader})
+	rec := login(t, h, testUIToken, map[string]string{"Origin": sameOriginHeader})
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
 	}
@@ -75,7 +79,7 @@ func TestLoginSetsSecureCookie(t *testing.T) {
 	}
 
 	// Behind a TLS-terminating proxy the cookie is Secure.
-	rec = login(t, h, "t", map[string]string{"X-Forwarded-Proto": "https"})
+	rec = login(t, h, testUIToken, map[string]string{"X-Forwarded-Proto": "https"})
 	if !strings.Contains(rec.Header().Get("Set-Cookie"), "Secure") {
 		t.Errorf("Set-Cookie behind HTTPS proxy = %q, want Secure", rec.Header().Get("Set-Cookie"))
 	}
@@ -150,7 +154,7 @@ func TestLoginFailures(t *testing.T) {
 	if e := decode[Error](t, rec); rec.Code != http.StatusUnauthorized || *e.Code != ErrorCodeInvalidToken {
 		t.Errorf("wrong token = %d %+v", rec.Code, e)
 	}
-	if rec := login(t, h, "t", map[string]string{"Origin": "https://evil.example"}); rec.Code != http.StatusForbidden {
+	if rec := login(t, h, testUIToken, map[string]string{"Origin": "https://evil.example"}); rec.Code != http.StatusForbidden {
 		t.Errorf("login from another site = %d", rec.Code)
 	}
 
@@ -165,7 +169,7 @@ func TestLoginFailures(t *testing.T) {
 	for range maxFailedAttempts - 1 {
 		login(t, h, "wrong", nil)
 	}
-	rec = login(t, h, "t", nil)
+	rec = login(t, h, testUIToken, nil)
 	if e := decode[Error](t, rec); rec.Code != http.StatusTooManyRequests || *e.Code != ErrorCodeTooManyAttempts || rec.Header().Get("Retry-After") == "" {
 		t.Errorf("after %d failures = %d %+v, Retry-After %q", maxFailedAttempts, rec.Code, e, rec.Header().Get("Retry-After"))
 	}
@@ -175,7 +179,7 @@ func TestLoginFailures(t *testing.T) {
 // the limit with them.
 func TestBearerGuessingIsLimited(t *testing.T) {
 	var logs bytes.Buffer
-	h := New(Config{Token: "the-token", Stacks: fakeStacks{}, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	h := New(Config{Token: "the-token", UIToken: testUIToken, Stacks: fakeStacks{}, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
 	get := func(token, remote string) *httptest.ResponseRecorder {
 		req := newRequest(http.MethodGet, "/api/v1/version", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -194,7 +198,7 @@ func TestBearerGuessingIsLimited(t *testing.T) {
 	if e := decode[Error](t, rec); rec.Code != http.StatusTooManyRequests || *e.Code != ErrorCodeTooManyAttempts || rec.Header().Get("Retry-After") == "" {
 		t.Errorf("right token while blocked = %d %+v, Retry-After %q", rec.Code, e, rec.Header().Get("Retry-After"))
 	}
-	if rec := login(t, h, "the-token", nil); rec.Code != http.StatusTooManyRequests {
+	if rec := login(t, h, testUIToken, nil); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("login while blocked = %d, want 429 (shared limit)", rec.Code)
 	}
 	if rec := get("the-token", "10.0.0.7:4000"); rec.Code != http.StatusOK {
@@ -228,9 +232,9 @@ func TestParsePublicURL(t *testing.T) {
 // and cookie requests must come from exactly that origin.
 func TestPublicOrigin(t *testing.T) {
 	const origin = "https://gantry.example.com"
-	h := New(Config{Token: "the-token", Stacks: fakeStacks{}, PublicOrigin: origin})
+	h := New(Config{Token: "the-token", UIToken: testUIToken, Stacks: fakeStacks{}, PublicOrigin: origin})
 
-	rec := login(t, h, "the-token", map[string]string{"Origin": origin})
+	rec := login(t, h, testUIToken, map[string]string{"Origin": origin})
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("login = %d: %s", rec.Code, rec.Body)
 	}
@@ -245,7 +249,7 @@ func TestPublicOrigin(t *testing.T) {
 	}
 	c := rec.Result().Cookies()[0]
 
-	if rec := login(t, h, "the-token", map[string]string{"Origin": "http://gantry.example.com"}); rec.Code != http.StatusForbidden {
+	if rec := login(t, h, testUIToken, map[string]string{"Origin": "http://gantry.example.com"}); rec.Code != http.StatusForbidden {
 		t.Errorf("login from the http origin = %d, want 403", rec.Code)
 	}
 	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", c, "")); rec.Code != http.StatusOK {
@@ -295,5 +299,112 @@ func TestSessionNeedsAuthentication(t *testing.T) {
 	h, _ := newOpsServer(t, runner{})
 	if rec := serve(h, newRequest(http.MethodGet, "/api/v1/session", nil)); rec.Code != http.StatusUnauthorized {
 		t.Errorf("GET /api/v1/session without auth = %d", rec.Code)
+	}
+}
+
+// Each token works only in its own place (decision 26), and using the other
+// one counts as a failed attempt.
+func TestTokensAreSeparate(t *testing.T) {
+	h := New(Config{Token: "the-api-token", UIToken: testUIToken, Stacks: fakeStacks{}})
+
+	rec := login(t, h, "the-api-token", nil)
+	if e := decode[Error](t, rec); rec.Code != http.StatusUnauthorized || *e.Code != ErrorCodeInvalidToken {
+		t.Errorf("login with the API token = %d %+v, want 401 invalid_token", rec.Code, e)
+	}
+	if rec := do(t, h, "/api/v1/stacks", testUIToken); rec.Code != http.StatusUnauthorized {
+		t.Errorf("bearer with the web login token = %d, want 401", rec.Code)
+	}
+	if rec := login(t, h, testUIToken, nil); rec.Code != http.StatusNoContent {
+		t.Errorf("login with the web login token = %d, want 204", rec.Code)
+	}
+	if rec := do(t, h, "/api/v1/stacks", "the-api-token"); rec.Code != http.StatusOK {
+		t.Errorf("bearer with the API token = %d, want 200", rec.Code)
+	}
+
+	// Mix-ups are failed attempts: enough of them block the client.
+	h = New(Config{Token: "the-api-token", UIToken: testUIToken, Stacks: fakeStacks{}})
+	for i := range maxFailedAttempts {
+		if i%2 == 0 {
+			login(t, h, "the-api-token", nil)
+		} else {
+			do(t, h, "/api/v1/stacks", testUIToken)
+		}
+	}
+	if rec := do(t, h, "/api/v1/stacks", "the-api-token"); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("after %d mix-ups = %d, want 429", maxFailedAttempts, rec.Code)
+	}
+}
+
+// Without a web login token, the login is off and no cookie is accepted.
+func TestWebLoginOff(t *testing.T) {
+	h := New(Config{Token: "the-api-token", Stacks: fakeStacks{}})
+	for _, token := range []string{"the-api-token", testUIToken, ""} {
+		rec := login(t, h, token, nil)
+		if e := decode[Error](t, rec); rec.Code != http.StatusForbidden || *e.Code != ErrorCodeLoginDisabled {
+			t.Errorf("login with %q = %d %+v, want 403 login_disabled", token, rec.Code, e)
+		}
+	}
+	// A cookie that looks like a session gets nowhere.
+	req := withCookie(http.MethodGet, "/api/v1/stacks", &http.Cookie{Name: session.CookieName, Value: "forged"}, "")
+	if rec := serve(h, req); rec.Code != http.StatusUnauthorized {
+		t.Errorf("cookie without a web login = %d, want 401", rec.Code)
+	}
+	if rec := do(t, h, "/api/v1/stacks", "the-api-token"); rec.Code != http.StatusOK {
+		t.Errorf("bearer = %d, want 200", rec.Code)
+	}
+}
+
+// Without an API token, bearer headers never work; the web login does.
+func TestAPITokenOff(t *testing.T) {
+	h := New(Config{UIToken: testUIToken, Stacks: fakeStacks{}})
+	for _, token := range []string{testUIToken, "anything"} {
+		if rec := do(t, h, "/api/v1/stacks", token); rec.Code != http.StatusUnauthorized {
+			t.Errorf("bearer %q = %d, want 401", token, rec.Code)
+		}
+	}
+	c := sessionCookieFrom(t, h)
+	if rec := serve(h, withCookie(http.MethodGet, "/api/v1/stacks", c, "")); rec.Code != http.StatusOK {
+		t.Errorf("with the session = %d, want 200", rec.Code)
+	}
+}
+
+// Changing requests are logged with how they were authenticated, never with
+// their bodies; reading requests aren't.
+func TestAuditLog(t *testing.T) {
+	var logs bytes.Buffer
+	h := New(Config{Token: "the-api-token", UIToken: testUIToken, Stacks: fakeStacks{},
+		Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+
+	if rec := do(t, h, "/api/v1/stacks", "the-api-token"); rec.Code != http.StatusOK {
+		t.Fatalf("get = %d", rec.Code)
+	}
+	if strings.Contains(logs.String(), "api request") {
+		t.Errorf("a GET was logged: %s", logs.String())
+	}
+
+	// Invalid JSON: the handler never runs, the request is still logged.
+	req := newRequest(http.MethodPost, "/api/v1/stacks", strings.NewReader(`{"name":"body-secret"`))
+	req.Header.Set("Authorization", "Bearer the-api-token")
+	req.Header.Set("Content-Type", "application/json")
+	serve(h, req)
+	c := sessionCookieFrom(t, h)
+	req = withCookie(http.MethodPost, "/api/v1/stacks", c, sameOriginHeader)
+	req.Header.Set("Content-Type", "application/json")
+	req.Body = io.NopCloser(strings.NewReader(`{"name":"body-secret"`))
+	serve(h, req)
+
+	got := logs.String()
+	for _, want := range []string{
+		`msg="api request" method=POST path=/api/v1/stacks client=127.0.0.1 via=token`,
+		`msg="api request" method=POST path=/api/v1/stacks client=127.0.0.1 via=session`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("log lacks %q:\n%s", want, got)
+		}
+	}
+	for _, secret := range []string{"body-secret", "the-api-token", testUIToken} {
+		if strings.Contains(got, secret) {
+			t.Errorf("log contains %q:\n%s", secret, got)
+		}
 	}
 }

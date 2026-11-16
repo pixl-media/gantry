@@ -13,11 +13,12 @@
   },
   "login": {
     "title": "Anmelden",
-    "subtitle": "Gib den Agent-Token ein (GANTRY_TOKEN). Er wird gegen ein Session-Cookie getauscht und nicht im Browser gespeichert.",
+    "subtitle": "Gib den Token für den Web-Login ein (GANTRY_UI_TOKEN), nicht den API-Token. Er wird gegen ein Session-Cookie getauscht und nicht im Browser gespeichert.",
     "token": "Token",
     "submit": "Anmelden",
     "invalidToken": "Falscher Token.",
     "tooManyAttempts": "Zu viele Fehlversuche. Versuch es in einer Minute erneut.",
+    "disabled": "Der Web-Login ist aus: Auf dem Agent ist GANTRY_UI_TOKEN nicht gesetzt.",
     "failed": "Anmeldung fehlgeschlagen: {{message}}"
   },
   "status": {

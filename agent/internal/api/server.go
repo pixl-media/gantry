@@ -56,8 +56,13 @@ type LogService interface {
 
 // Config holds what the API needs to serve requests.
 type Config struct {
-	// Token is the shared secret clients send as "Authorization: Bearer <token>".
-	Token      string
+	// Token is the API token (GANTRY_TOKEN), sent by API clients as
+	// "Authorization: Bearer <token>". Empty turns bearer access off.
+	Token string
+	// UIToken is the web login token (GANTRY_UI_TOKEN), exchanged for a
+	// session at POST /api/v1/session. Empty turns the web login off. The
+	// two are never accepted in each other's place (decision 26).
+	UIToken    string
 	Version    string
 	Stacks     StackService
 	Operations OperationService
@@ -88,10 +93,12 @@ func New(cfg Config) http.Handler {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 	auth := &authenticator{
-		token:        cfg.Token,
+		apiToken:     cfg.Token,
+		uiToken:      cfg.UIToken,
 		sessions:     session.NewStore(0),
 		limiter:      session.NewLimiter(maxFailedAttempts, time.Minute),
 		failures:     newFailureLog(cfg.Logger),
+		logger:       cfg.Logger,
 		net:          network{trusted: cfg.TrustedProxies, allowInsecureHTTP: cfg.AllowInsecureHTTP},
 		publicOrigin: cfg.PublicOrigin,
 		cookieName:   session.CookieName,

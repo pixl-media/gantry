@@ -99,6 +99,7 @@ const (
 	ErrorCodeInvalidService       ErrorCode = "invalid_service"
 	ErrorCodeInvalidToken         ErrorCode = "invalid_token"
 	ErrorCodeInvalidVariable      ErrorCode = "invalid_variable"
+	ErrorCodeLoginDisabled        ErrorCode = "login_disabled"
 	ErrorCodeNotFound             ErrorCode = "not_found"
 	ErrorCodeOperationFinished    ErrorCode = "operation_finished"
 	ErrorCodeOriginRejected       ErrorCode = "origin_rejected"
@@ -134,6 +135,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeInvalidToken:
 		return true
 	case ErrorCodeInvalidVariable:
+		return true
+	case ErrorCodeLoginDisabled:
 		return true
 	case ErrorCodeNotFound:
 		return true
@@ -497,7 +500,7 @@ type LogLineStream string
 
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
-	// Token The agent's `GANTRY_TOKEN`.
+	// Token The agent's `GANTRY_UI_TOKEN`.
 	Token string `json:"token"`
 }
 

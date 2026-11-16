@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -41,12 +42,16 @@ type authInfo struct {
 type authKey struct{}
 
 type authenticator struct {
-	token    string
+	// apiToken is accepted only as "Authorization: Bearer", uiToken only by
+	// the login (decision 26). Either may be empty: that way is off.
+	apiToken string
+	uiToken  string
 	sessions *session.Store
 	// limiter counts wrong tokens per client, from logins and bearer
 	// headers alike.
 	limiter  *session.Limiter
 	failures *failureLog
+	logger   *slog.Logger
 	net      network
 
 	// publicOrigin is the web UI's origin from GANTRY_PUBLIC_URL, e.g.
@@ -73,13 +78,19 @@ func (a *authenticator) cookie(r *http.Request, value string, maxAge int) *http.
 	}
 }
 
-// validToken compares got with the configured token in constant time. It
-// compares SHA-256 digests, so the time doesn't depend on the lengths
-// either. An empty configured token matches nothing.
-func (a *authenticator) validToken(got string) bool {
-	want := sha256.Sum256([]byte(a.token))
-	have := sha256.Sum256([]byte(got))
-	return a.token != "" && subtle.ConstantTimeCompare(have[:], want[:]) == 1
+// validAPIToken reports whether got is the API token.
+func (a *authenticator) validAPIToken(got string) bool { return tokenMatches(a.apiToken, got) }
+
+// validUIToken reports whether got is the web login token.
+func (a *authenticator) validUIToken(got string) bool { return tokenMatches(a.uiToken, got) }
+
+// tokenMatches compares got with want in constant time. It compares SHA-256
+// digests, so the time doesn't depend on the lengths either. An empty want
+// matches nothing.
+func tokenMatches(want, got string) bool {
+	w := sha256.Sum256([]byte(want))
+	g := sha256.Sum256([]byte(got))
+	return want != "" && subtle.ConstantTimeCompare(g[:], w[:]) == 1
 }
 
 // limitKey is the key r's client is counted under by the login limit.
@@ -104,10 +115,11 @@ func bearerToken(r *http.Request) (string, bool) {
 
 // authenticate checks the bearer token, or else the session cookie. A wrong
 // bearer token doesn't fall back to the cookie, and counts as a failed
-// attempt: guessing the token over the API is limited like logins.
+// attempt: guessing the token over the API is limited like logins. Only the
+// API token works here; the web login token gets a session at the login.
 func (a *authenticator) authenticate(r *http.Request) (authInfo, error) {
 	if got, ok := bearerToken(r); ok {
-		correct := a.validToken(got)
+		correct := a.validAPIToken(got)
 		client := a.limitKey(r)
 		if ok, wait := a.limiter.Attempt(client, correct); !ok {
 			return authInfo{}, errTooManyAttempts{wait}
@@ -118,8 +130,8 @@ func (a *authenticator) authenticate(r *http.Request) (authInfo, error) {
 		}
 		return authInfo{method: authToken}, nil
 	}
-	if a.token == "" {
-		return authInfo{}, errUnauthorized
+	if a.uiToken == "" {
+		return authInfo{}, errUnauthorized // no web login, so no sessions
 	}
 	if c, err := r.Cookie(a.cookieName); err == nil {
 		if exp, ok := a.sessions.Verify(c.Value); ok {
@@ -228,8 +240,22 @@ func (a *authenticator) middleware(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusForbidden, apiError(errors.New("cross-origin request rejected"), ErrorCodeOriginRejected))
 			return
 		}
+		if !safeMethod(r.Method) {
+			// Who changed something, and whether from a browser (session)
+			// or a script (token). Never bodies: they can hold secrets.
+			a.logger.Info("api request", "method", r.Method, "path", r.URL.Path,
+				"client", a.net.client(r).String(), "via", auditVia(info.method))
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authKey{}, info)))
 	})
+}
+
+// auditVia names an authentication method in audit logs.
+func auditVia(m authMethod) string {
+	if m == authCookie {
+		return "session"
+	}
+	return "token"
 }
 
 func safeMethod(m string) bool {

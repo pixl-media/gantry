@@ -45,8 +45,8 @@ for development only.
 
 - Every feature exists as an API endpoint first; UIs only consume the API.
 - The API is versioned (`/api/v1/`) and described by an OpenAPI spec, from
-  which a TypeScript client is generated and shared by every consumer: the
-  gantry web UI and a future infrastructure app (Next.js).
+  which a TypeScript client is generated and shared by every consumer, such
+  as the gantry web UI.
 - Consumers that manage many agents keep agent tokens server-side; browsers
   never receive agent tokens from such an app.
 
@@ -56,10 +56,8 @@ for development only.
 Vite, served by a small web server container that proxies `/api` to the agent.
 
 - The agent is the backend, so the UI needs no server runtime.
-- Next.js was considered for consistency with the infrastructure app, but its
-  server features are unused here, and a static export can't serve runtime
-  dynamic routes such as `/stacks/[name]`.
-- React keeps components and knowledge portable to the Next.js app.
+- Next.js was considered, but its server features are unused here, and a
+  static export can't serve runtime dynamic routes such as `/stacks/[name]`.
 - The UI is built after the API, once its scope is clear.
 
 Details on the stack and the login: decisions 14 and 15.
@@ -67,7 +65,7 @@ Details on the stack and the login: decisions 14 and 15.
 ## 6. Standalone and publishable
 
 **Decided 2026-11-12.** gantry must be fully usable on its own (agent plus
-optional UI), without the future infrastructure app, and stay publishable as
+optional UI), without any other system, and stay publishable as
 open source: no organization-internal hosts, services or secrets, all
 configuration via `GANTRY_*` variables, all docs in English.
 
@@ -115,8 +113,8 @@ existing stack would be a deliberate feature of its own.
 generates Go types and a strict server interface for `net/http` into
 `agent/internal/api/api.gen.go`; handlers implement that interface, so code
 that drifts from the spec doesn't compile. CI fails if the generated code is
-out of date. API clients (web UI, infrastructure app) are generated from the
-same file.
+out of date. API clients (such as the web UI) are generated from the same
+file.
 
 Rejected: hand-written spec and handlers (drift only caught by tests, types
 maintained twice) and code-first (the contract becomes a by-product, and it
@@ -212,9 +210,8 @@ answers with a `gantry_session` cookie:
   `Retry-After`). Behind the UI's proxy that is one shared limit, which is
   fine for a single shared token. The agent warns about tokens shorter than
   24 characters.
-- API clients (e.g. the infrastructure app) keep using the bearer token. The
-  middleware denies by default; public routes are listed explicitly as
-  method plus path.
+- API clients keep using the bearer token. The middleware denies by
+  default; public routes are listed explicitly as method plus path.
 - The cookie makes the browser's plain `EventSource` work for live output.
 
 Rejected: the token in `localStorage` (simplest, as Portainer and Dockge do,
@@ -224,14 +221,14 @@ logout, the UI container would need the token).
 *Amended by decision 20:* sessions now live in the agent's memory (logout
 really ends them), wrong bearer tokens count against the same limit, tokens
 shorter than 16 characters are refused, and `GANTRY_PUBLIC_URL` can pin the
-cookie's origin.
+cookie's origin. *Amended by decision 26:* the login takes its own token,
+`GANTRY_UI_TOKEN`, not the API's.
 
 ## 15. Web UI stack and container
 
 **Decided 2026-11-12.**
 
-- **React 19 + Vite + MUI v9**, the same UI library as the planned
-  infrastructure app (Next.js), so components carry over. TanStack Query for
+- **React 19 + Vite + MUI v9.** TanStack Query for
   data (reloaded on live changes, decision 24), React Router, react-i18next with English
   and German from the start (typed keys, a test keeps both in sync).
 - **API types generated** from `api/openapi.yaml` with openapi-typescript;
@@ -435,8 +432,9 @@ enough to lose the host.
   event streams end with the session that opened them.
 
 Not done: TLS in the agent itself (a proxy does it, and the refusal above
-already keeps plain HTTP from working), a global failure budget, and pinning
-images and actions by digest.
+already keeps plain HTTP from working; planned for v0.1, see decision 25)
+and pinning images and actions by digest (backlog). A global failure budget
+was dropped: with enforced strong tokens it protects nothing.
 
 ## 22. License: AGPLv3
 
@@ -460,9 +458,8 @@ images and actions by digest.
   is under MIT, BSD, ISC or Apache-2.0, which are compatible with AGPLv3.
   Development tools (linters, generators) aren't shipped and don't matter
   here.
-- The infrastructure app is unaffected: it talks to gantry only over the
-  HTTP API, which doesn't make it a derived work, and the copyright holder
-  isn't bound by their own license anyway.
+- API clients are unaffected: talking to gantry over its HTTP API doesn't
+  make them derived works.
 - Open point: much of the code was written with an AI assistant, and how
   far such code is protected by copyright is legally unsettled.
 
@@ -551,6 +548,65 @@ its operations every 5 seconds, per open tab, and every list request ran
   through the API drops the entry at once; errors aren't cached. Service
   action plans always read the files fresh. A file watcher (inotify) was
   rejected: not in the standard library, and the key plus expiry is enough.
+
+## 25. Scope: a lightweight manager for one host
+
+**Decided 2026-11-17**, after reviewing the backlog: gantry stays small.
+
+- **What lightweight means here:**
+  - **No state of its own:** no database and no files of its own. The stack
+    folders and Docker are the truth; sessions and operations live in
+    memory.
+  - **One host per agent.**
+  - **Only what Docker and Compose can do**, made safe to use over an API
+    and a web UI.
+  - **No background calls to outside services.**
+
+  An exception to these needs a decision of its own.
+- **In scope:** packaging, release notes, supply chain (pinning, signing),
+  TLS in the agent, separate tokens for the API and the web login, an
+  optional OIDC login after v0.1 (it stores nothing in gantry), UI polish,
+  splitting the web bundle.
+- **Not in gantry:** several hosts in one UI, user accounts and roles,
+  resource usage and its history, a history of Compose files, a console in
+  containers, renaming stacks with their volumes.
+- **Dropped:**
+  - **"Update available" hints for images:** with `latest`, the update
+    action pulls and recreates only what changed; with pinned versions,
+    picking the next one is a decision of its own. Checking registries in
+    the background would need their credentials and run into rate limits.
+  - **A global failure budget** (decision 21): tokens are random and long.
+  - **A web UI password with TOTP:** a password isn't safer than the token;
+    only a second factor is, and setting one up in the browser needs stored
+    state. An identity provider (OIDC) gives that without state. Revisit
+    only for a concrete need on servers without one.
+
+## 26. Separate tokens for the API and the web login
+
+**Decided 2026-11-17.** One token served API clients and the web login. A
+token copied into the wrong place then had to be replaced everywhere,
+scripts included.
+
+- **`GANTRY_TOKEN`** works only as `Authorization: Bearer` (API clients,
+  scripts); **`GANTRY_UI_TOKEN`** only at `POST /api/v1/session`. Neither is
+  accepted in the other's place; using the wrong one is a failed attempt
+  and counts against the same limit.
+- **Each is optional**, which turns its way in off: without a web login
+  token the login answers `403 login_disabled` and no session exists;
+  without an API token, bearer headers never work. At least one is needed,
+  both follow the rules of decision 21 (also `_FILE`), and they must differ,
+  or the agent doesn't start.
+- **Replacing one** is a new value and a restart. The restart ends all
+  sessions, including any opened with the old token.
+- **Audit:** the auth middleware logs every changing request with method,
+  path, client and `via=token|session`, never its body, so a log shows
+  whether a change came from a browser or a script.
+- **Same power:** a session can do everything a bearer token can. The split
+  makes replacing and tracing easier, not a leaked token less dangerous;
+  only a second factor would (decision 25).
+- Rejected: a web UI password instead of a second token (weaker than a
+  random token, decision 25), and accepting the API token at the login as a
+  fallback (it would quietly undo the split).
 
 ## Open questions
 

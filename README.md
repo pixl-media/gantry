@@ -22,7 +22,7 @@ flowchart LR
   end
   browser["Browser"] --> web["gantry web (optional)<br/>React app, Caddy"]
   web -- "/api, session cookie" --> agent
-  clients["Other API clients<br/>curl, scripts"] -- "bearer token" --> agent
+  clients["Other API clients<br/>curl, scripts"] -- "bearer token (GANTRY_TOKEN)" --> agent
 ```
 
 - **Agent:** a single Go binary per Docker host. Recommended as a **systemd
@@ -86,9 +86,10 @@ Unmanaged stacks are read-only. The UI is in English and German (from the
 browser's language, switchable) and has a light and a dark mode (following
 the system by default, switchable in the app bar).
 
-**Login:** enter the agent token once. The agent exchanges it for a session
-cookie that JavaScript can't read (`HttpOnly`, `SameSite=Strict`, 12 hours);
-the token itself is never stored in the browser. Logging out ends the
+**Login:** enter the web login token (`GANTRY_UI_TOKEN`) once; the API token
+doesn't work here. The agent exchanges it for a session cookie that
+JavaScript can't read (`HttpOnly`, `SameSite=Strict`, 12 hours); the token
+itself is never stored in the browser. Logging out ends the
 session at once; restarting the agent ends all sessions, so you log in again
 after an update. After 10 wrong tokens
 within a minute, by login or `Authorization` header, a client has to wait
@@ -99,15 +100,17 @@ browser has its own.
 ## API
 
 Routes under `/api/` require authentication: `Authorization: Bearer
-<GANTRY_TOKEN>` for API clients, or the session cookie for the web UI. With
+<GANTRY_TOKEN>` for API clients, or the session cookie for the web UI (from a
+login with `GANTRY_UI_TOKEN`). Each token works only in its own place. With
 the cookie, changing requests (POST, PUT, PATCH, DELETE) must come from the
 same origin (`Origin` header), which protects against cross-site request
-forgery.
+forgery. The agent logs every changing request with how it was
+authenticated (`via=token` or `via=session`), never with its body.
 
 | Route | Description |
 |---|---|
 | `GET /healthz` | Liveness check, public. 200 while the agent runs, even if Docker is down |
-| `POST /api/v1/session` | Log in with `{"token": …}`; sets the session cookie (public) |
+| `POST /api/v1/session` | Log in with `{"token": …}` (`GANTRY_UI_TOKEN`); sets the session cookie (public) |
 | `GET /api/v1/session` | Whether and how the request is authenticated |
 | `DELETE /api/v1/session` | Log out; clears the cookie (public) |
 | `GET /api/v1/version` | Agent version |
@@ -306,14 +309,21 @@ curl -N -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/op
 
 | Variable | Default | Description |
 |---|---|---|
-| `GANTRY_TOKEN` | (required) | Token for the API and the web UI login. Generate it: `openssl rand -hex 24`. The agent refuses tokens shorter than 24 characters, with fewer than 8 different characters, or made of one repeated piece |
+| `GANTRY_TOKEN` | (none) | API token, only as `Authorization: Bearer` (scripts, curl). Generate it: `openssl rand -hex 24`. The agent refuses tokens shorter than 24 characters, with fewer than 8 different characters, or made of one repeated piece. Without it, bearer access is off; at least one of `GANTRY_TOKEN` and `GANTRY_UI_TOKEN` is required |
 | `GANTRY_TOKEN_FILE` | (none) | Instead of `GANTRY_TOKEN`: a file holding the token, e.g. a systemd credential (`LoadCredential=`) or a Docker secret, so it isn't in the process environment |
+| `GANTRY_UI_TOKEN` | (none) | Token for the web UI login, only there. Same rules as `GANTRY_TOKEN`, and different from it. Without it, the web login is off |
+| `GANTRY_UI_TOKEN_FILE` | (none) | Instead of `GANTRY_UI_TOKEN`: a file holding it |
 | `GANTRY_STACKS_DIR` | `/opt/stacks` | Directory with the managed stacks (same default as Dockge) |
 | `GANTRY_LISTEN` | `127.0.0.1:7070` (image: `:7070`) | Listen address. The binary only accepts local connections by default; set e.g. `:7070` to reach it from other hosts |
 | `GANTRY_TRUSTED_PROXIES` | (none) | Reverse proxies (IP addresses or CIDR prefixes, comma-separated) whose `X-Forwarded-For` and `X-Forwarded-Proto` the agent believes, such as the web UI's container. Then every client behind them has its own login limit |
 | `GANTRY_ALLOW_INSECURE_HTTP` | `false` | Accept tokens and session cookies over plain HTTP from internet addresses. Only if you know why: anyone on the way can read them. Also understood by the web UI's container |
 | `GANTRY_PUBLIC_URL` | (none) | Address of the web UI, e.g. `https://gantry.example.com`. If set, cookie-authenticated requests must come from exactly this origin, and with `https` the session cookie is `Secure` and named `__Host-gantry_session` |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker socket (only `unix://` is supported) |
+
+**Two tokens:** if one leaks or lands in the wrong place, replace just that
+one: set a new value and restart the agent. Restarting ends all sessions,
+including any opened with the old token; whatever uses the other token keeps
+working.
 
 The stacks directory uses the same default and layout as Dockge, so gantry
 picks up existing Dockge stacks without configuration. If the directory
@@ -346,6 +356,7 @@ services:
     image: ghcr.io/pixl-media/gantry-agent:edge
     environment:
       GANTRY_TOKEN: ${GANTRY_TOKEN}
+      GANTRY_UI_TOKEN: ${GANTRY_UI_TOKEN}
       GANTRY_STACKS_DIR: /opt/stacks
       # The web UI below is a trusted proxy: every browser gets its own
       # login limit.
@@ -404,8 +415,8 @@ beyond your own machine:
 - Publish ports deliberately: the agent's not at all if only the web UI
   uses it, the web UI's on `127.0.0.1` or behind your proxy. Published
   Docker ports bypass host firewalls.
-- Use a random token (`openssl rand -hex 24`); the agent refuses obviously
-  weak ones. Logins and bearer tokens are limited to 10 wrong attempts per
+- Use random tokens (`openssl rand -hex 24`, one for each); the agent
+  refuses obviously weak ones and the same token twice. Logins and bearer tokens are limited to 10 wrong attempts per
   minute per client (per /64 for IPv6).
 - Give it **its own hostname**, such as `gantry.example.com`. Browsers send
   cookies to every port of a host, so with the UI at `http://nas:8080`, the
@@ -437,9 +448,9 @@ Requirements: Go 1.27+, Docker with the Compose plugin; for the web UI
 Node 24 or newer (CI and the image use Node 26 LTS) and pnpm 10.
 
 ```bash
-make run               # agent on http://127.0.0.1:7070, token from .env, managing dev/stacks
+make run               # agent on http://127.0.0.1:7070, tokens from .env, managing dev/stacks
 make web-install       # once: install the web UI's dependencies
-make web               # web UI on http://127.0.0.1:5173 (in a second terminal), log in with the token from .env
+make web               # web UI on http://127.0.0.1:5173 (in a second terminal), log in with GANTRY_UI_TOKEN from .env
 make docs              # Swagger UI on http://127.0.0.1:8082 (in a second terminal)
 make test              # unit tests, no Docker needed
 make test-integration  # unit + integration tests against the local Docker daemon
@@ -465,13 +476,14 @@ export GANTRY_TOKEN=$(sed -n 's/^GANTRY_TOKEN=//p' .env)
 curl -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/stacks
 ```
 
-`make run` takes the token from `.env` (git-ignored) and creates that file
-with a random token on first use, so the dev agent never runs with a token
-anyone could guess. The agent refuses tokens shorter than 24 characters.
+`make run` takes both tokens from `.env` (git-ignored) and creates that file
+with random tokens on first use, or adds a missing one (`make dev-env`), so
+the dev agent never runs with a token anyone could guess. The agent refuses
+tokens shorter than 24 characters.
 
-Agent and web UI in containers: `make .env && docker compose up --build`
-(run from the repo root), then open http://127.0.0.1:8080 and log in with the
-token from `.env`.
+Agent and web UI in containers: `make dev-env && docker compose up --build`
+(run from the repo root), then open http://127.0.0.1:8080 and log in with
+`GANTRY_UI_TOKEN` from `.env`.
 
 Integration tests create their own stacks named `gantry-test-…` and remove
 them afterwards; other containers on the host are not touched.
@@ -503,7 +515,8 @@ This is a development tool only; the agent doesn't serve docs itself.
   known.
 - Operations are kept in memory only and are lost when the agent restarts.
 - Swagger UI (`make docs`) can't display the event stream; use `curl -N`.
-- One shared login (the agent token); there are no user accounts.
+- One shared web login (`GANTRY_UI_TOKEN`); there are no user accounts
+  (decision 25).
 - Files edited directly on the host (not through gantry) show up in the web
   UI within a minute; Docker reports no event for them.
 - Stacks can't be renamed (named volumes carry the project name).
@@ -513,6 +526,14 @@ This is a development tool only; the agent doesn't serve docs itself.
   exist or variables are set.
 - Logs exist only as long as Docker keeps them; with log drivers such as
   `none` or `syslog` Docker returns none.
+
+## Non-goals
+
+gantry stays a lightweight manager for one host: no database or files of its
+own, only what Docker and Compose can do, no background calls to outside
+services. Several hosts in one UI, user accounts and roles, resource
+history, a history of Compose files, a console in containers and "update
+available" hints are out of scope (`docs/decisions.md`, decision 25).
 - The web UI keeps at most 10,000 log lines and searches only those, in the
   browser.
 

@@ -13,11 +13,12 @@
   },
   "login": {
     "title": "Sign in",
-    "subtitle": "Enter the agent token (GANTRY_TOKEN). It is exchanged for a session cookie and not stored in the browser.",
+    "subtitle": "Enter the web login token (GANTRY_UI_TOKEN), not the API token. It is exchanged for a session cookie and not stored in the browser.",
     "token": "Token",
     "submit": "Sign in",
     "invalidToken": "Wrong token.",
     "tooManyAttempts": "Too many failed attempts. Try again in a minute.",
+    "disabled": "The web login is off: GANTRY_UI_TOKEN is not set on the agent.",
     "failed": "Sign-in failed: {{message}}"
   },
   "status": {

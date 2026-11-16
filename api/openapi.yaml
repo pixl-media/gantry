@@ -7,7 +7,9 @@ info:
 
     Routes under `/api/` require authentication, either
     `Authorization: Bearer <GANTRY_TOKEN>` (API clients) or the
-    `gantry_session` cookie set by `POST /api/v1/session` (the web UI).
+    `gantry_session` cookie set by `POST /api/v1/session` with
+    `GANTRY_UI_TOKEN` (the web UI). The two tokens are separate: each works
+    only in its own place.
     `/healthz`, `POST /api/v1/session` and `DELETE /api/v1/session` are public.
 
     With cookie authentication, changing requests (POST, DELETE) must send an
@@ -89,9 +91,9 @@ paths:
       tags: [session]
       summary: Log in
       description: |
-        Exchanges the agent token for a session cookie (`HttpOnly`,
-        `SameSite=Strict`, valid for 12 hours). Browsers never need to store
-        the token itself. Sessions live in the agent's memory: logging out
+        Exchanges the web login token (`GANTRY_UI_TOKEN`, not the API's
+        `GANTRY_TOKEN`) for a session cookie (`HttpOnly`, `SameSite=Strict`,
+        valid for 12 hours). Browsers never need to store the token itself. Sessions live in the agent's memory: logging out
         ends a session at once, and restarting the agent ends all of them.
 
         At most 10 failed attempts per minute and client address; after
@@ -118,13 +120,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: "`invalid_token`: wrong token."
+          description: "`invalid_token`: wrong token (also the API token)."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: "`origin_rejected`: sent from another site."
+          description: >-
+            `origin_rejected`: sent from another site. `https_required`: sent
+            over plain HTTP from an internet address. `login_disabled`: the
+            agent has no `GANTRY_UI_TOKEN`, so the web login is off.
           content:
             application/json:
               schema:
@@ -856,7 +861,8 @@ components:
       type: http
       scheme: bearer
       description: >-
-        The agent's `GANTRY_TOKEN`. Wrong tokens count against the same limit
+        The agent's `GANTRY_TOKEN` (not the web login's `GANTRY_UI_TOKEN`).
+        Without one, bearer authentication is off. Wrong tokens count against the same limit
         as failed logins: after 10 within a minute, a client gets
         `429 too_many_attempts` with `Retry-After`, even with the right token.
     cookieAuth:
@@ -908,6 +914,7 @@ components:
           enum:
             - unauthorized
             - invalid_token
+            - login_disabled
             - too_many_attempts
             - origin_rejected
             - invalid_request
@@ -939,7 +946,7 @@ components:
       properties:
         token:
           type: string
-          description: The agent's `GANTRY_TOKEN`.
+          description: The agent's `GANTRY_UI_TOKEN`.
 
     Session:
       type: object
