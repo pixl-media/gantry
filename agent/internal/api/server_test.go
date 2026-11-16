@@ -22,7 +22,25 @@ type fakeStacks struct {
 	list      stacks.List
 	detail    stacks.Detail
 	err       error
-	unmanaged []string // names Target reports as unmanaged
+	unmanaged []string                      // names Target reports as unmanaged
+	plans     map[string]stacks.ServicePlan // by service, for PlanService
+}
+
+// PlanService returns the plan in plans for service, with action filled in.
+func (f fakeStacks) PlanService(ctx context.Context, name, service string, action stacks.ServiceAction) (compose.Project, stacks.ServicePlan, error) {
+	p, err := f.Target(ctx, name)
+	switch {
+	case err != nil:
+		return compose.Project{}, stacks.ServicePlan{}, err
+	case !stacks.ValidServiceName(service):
+		return compose.Project{}, stacks.ServicePlan{}, stacks.ErrInvalidService
+	}
+	plan, ok := f.plans[service]
+	if !ok {
+		return compose.Project{}, stacks.ServicePlan{}, stacks.ErrServiceNotFound
+	}
+	plan.Action = action
+	return p, plan, nil
 }
 
 func (f fakeStacks) Dir() string         { return "/s" }

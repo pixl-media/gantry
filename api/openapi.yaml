@@ -605,6 +605,96 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/stacks/{name}/services/{service}/actions/{action}:
+    post:
+      operationId: runServiceAction
+      tags: [stacks]
+      summary: Run an action on one service of a stack
+      description: |
+        Starts an action on one service as an asynchronous operation, like
+        the stack actions. gantry follows the service's dependencies
+        (`depends_on`, `network_mode: service:…`, `volumes_from`) in both
+        directions and hands Compose exactly the affected services, with
+        `--no-deps`:
+
+        | Action | Compose | Affected |
+        |---|---|---|
+        | `start` | `up -d --no-deps` | The service, and its dependencies that aren't running |
+        | `stop` | `stop` | The service, and the running services that depend on it |
+        | `restart` | `stop`, then `start` | The service and its running dependents; stopped dependencies are started first |
+        | `update` | `pull --ignore-buildable`, then `up -d --no-deps` | Pulls and recreates the service, starts stopped dependencies, then restarts its running dependents |
+
+        If other services than the chosen one are affected, the agent
+        answers `409 confirmation_required` with the `plan`. Send the
+        request again with `confirm` listing exactly the affected services
+        to run it. The plan is worked out again when the action starts; if
+        it changed in between, the answer is another `confirmation_required`.
+
+        Only managed stacks can be changed. Service actions never cancel a
+        running operation: while one runs, the answer is `stack_busy`.
+      parameters:
+        - $ref: "#/components/parameters/StackName"
+        - name: service
+          in: path
+          required: true
+          description: Service name from the Compose file.
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        - name: action
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ServiceAction"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceActionRequest"
+      responses:
+        "202":
+          description: The operation was started.
+          headers:
+            Location:
+              description: URL of the operation.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          description: "`invalid_name`, `invalid_service`, `invalid_action` or `invalid_request`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found` (no such stack) or `service_not_found`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: |
+            `confirmation_required`: other services are affected; they are
+            listed in `plan`. `stack_busy`: another operation runs on this
+            stack (its ID is in `operation`). `stack_unmanaged`: the stack
+            isn't managed by gantry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "`docker_unavailable`: the services' state couldn't be read."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/operations:
     get:
       operationId: listOperations
@@ -789,11 +879,14 @@ components:
             - request_too_large
             - invalid_name
             - invalid_action
+            - invalid_service
             - invalid_compose
             - invalid_variable
             - version_conflict
             - stack_exists
             - not_found
+            - service_not_found
+            - confirmation_required
             - stack_busy
             - stack_unmanaged
             - docker_unavailable
@@ -802,6 +895,8 @@ components:
         operation:
           type: string
           description: For `stack_busy`, the ID of the running operation.
+        plan:
+          $ref: "#/components/schemas/ServiceActionPlan"
 
     LoginRequest:
       type: object
@@ -888,6 +983,9 @@ components:
           type: string
         action:
           $ref: "#/components/schemas/OperationAction"
+        service:
+          type: string
+          description: For a service action, the chosen service.
 
     StackList:
       type: object
@@ -1133,6 +1231,57 @@ components:
       type: string
       enum: [start, stop, restart, update, down]
 
+    ServiceAction:
+      type: string
+      enum: [start, stop, restart, update]
+
+    ServiceActionRequest:
+      type: object
+      properties:
+        confirm:
+          type: array
+          description: |
+            The affected services from a `confirmation_required` answer,
+            confirming that all of them may be changed. The order doesn't
+            matter.
+          items:
+            type: string
+
+    ServiceActionPlan:
+      type: object
+      description: What a service action would change.
+      required: [service, action, affected]
+      properties:
+        service:
+          type: string
+        action:
+          $ref: "#/components/schemas/ServiceAction"
+        affected:
+          type: array
+          description: Every service the action changes, the chosen one first.
+          items:
+            $ref: "#/components/schemas/AffectedService"
+
+    AffectedService:
+      type: object
+      required: [service, effect, reason]
+      properties:
+        service:
+          type: string
+        effect:
+          type: string
+          description: |
+            `start`: started if it isn't running. `stop`: stopped.
+            `restart`: stopped and started again. `recreate`: image pulled
+            and container recreated if it changed.
+          enum: [start, stop, restart, recreate]
+        reason:
+          type: string
+          description: |
+            `target`: the chosen service. `dependency`: the chosen service
+            needs it. `dependent`: it needs the chosen service.
+          enum: [target, dependency, dependent]
+
     OperationAction:
       type: string
       description: What an operation does; the stack actions plus `delete`.
@@ -1171,6 +1320,14 @@ components:
         canceledBy:
           type: string
           description: ID of the `stop` or `down` operation that canceled this one.
+        service:
+          type: string
+          description: For a service action, the chosen service.
+        services:
+          type: array
+          description: For a service action, every service it changes.
+          items:
+            type: string
 
     OperationDetail:
       allOf:
