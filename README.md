@@ -527,6 +527,7 @@ stays tied to an `https` `GANTRY_PUBLIC_URL`.
 | `.github/workflows/ci.yml` | Tests, image builds, packages and releases |
 | `packaging/` | systemd unit, settings template and scripts of the `.deb`/`.rpm` packages |
 | `.goreleaser.yaml`, `cliff.toml` | Release binaries and packages (GoReleaser); release notes (git-cliff) |
+| `CHANGELOG.md` | Merged pull requests per release (`make changelog`) |
 | `SECURITY.md` | How to report a vulnerability |
 | `AGENTS.md`, `agent/AGENTS.md`, `web/AGENTS.md` | Conventions for contributors and coding agents |
 | `LICENSE` | GNU AGPLv3 |

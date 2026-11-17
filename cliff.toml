@@ -36,6 +36,8 @@ commit_preprocessors = [
   { pattern = '(?s)^Merge pull request #(\d+) from [^/\s]+/(\S+)\s+(.*?)\s*$', replace = '${2}::${3} ([#${1}](https://github.com/pixl-media/gantry/pull/${1}))' },
 ]
 commit_parsers = [
+  # The release pull request itself only adds the changelog.
+  { message = "^chore/release-", skip = true },
   { message = "^feature/", group = "<!-- 0 -->Features" },
   { message = "^fix/", group = "<!-- 1 -->Fixes" },
   { message = "^dependabot/", group = "<!-- 3 -->Dependencies" },
