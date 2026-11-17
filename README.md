@@ -1,4 +1,10 @@
-# gantry
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/gantry-mark-dark.svg">
+    <img src="docs/logo/gantry-mark.svg" alt="" width="44" align="top">
+  </picture>
+  gantry
+</h1>
 
 Lightweight Docker Compose manager: a small headless **agent** that runs on a
 Docker host and exposes an HTTP API for managing Compose stacks, plus an
@@ -536,7 +542,7 @@ stays tied to an `https` `GANTRY_PUBLIC_URL`.
 | `api/openapi.yaml` | API contract; Go code is generated from it |
 | `web/` | Optional web UI: React, Vite, MUI; Dockerfile and Caddyfile |
 | `dev/stacks/` | Example stacks for local development |
-| `docs/` | Architecture decisions |
+| `docs/` | Architecture decisions; the logo in `docs/logo/` |
 | `compose.yaml` | Local development with agent and web UI as containers |
 | `api.http` | Example requests for the VS Code REST Client |
 | `agent/tools/devdocs/` | Dev-only Swagger UI server (`make docs`) |
