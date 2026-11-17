@@ -63,7 +63,15 @@
     "dockerUnavailable": "Docker ist nicht erreichbar. Verwaltete Stacks werden aus dem Ordner gelistet; ihr Status ist unbekannt.",
     "warnings_one": "{{count}} Warnung",
     "warnings_other": "{{count}} Warnungen",
-    "operationRunning": "{{action}} läuft"
+    "operationRunning": "{{action}} läuft",
+    "filterAll": "Alle",
+    "search": "Suchen",
+    "noMatch": "Kein Stack passt zum Filter.",
+    "resetFilter": "Filter zurücksetzen",
+    "filtered": "{{shown}} von {{total}}",
+    "viewTable": "Tabelle",
+    "viewCards": "Karten",
+    "servicesCount": "{{running}}/{{total}} Services"
   },
   "stack": {
     "back": "Alle Stacks",

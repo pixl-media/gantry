@@ -63,7 +63,15 @@
     "dockerUnavailable": "Docker is unreachable. Managed stacks are listed from disk; their status is unknown.",
     "warnings_one": "{{count}} warning",
     "warnings_other": "{{count}} warnings",
-    "operationRunning": "{{action}} running"
+    "operationRunning": "{{action}} running",
+    "filterAll": "All",
+    "search": "Search",
+    "noMatch": "No stack matches the filter.",
+    "resetFilter": "Reset filter",
+    "filtered": "{{shown}} of {{total}}",
+    "viewTable": "Table",
+    "viewCards": "Cards",
+    "servicesCount": "{{running}}/{{total}} services"
   },
   "stack": {
     "back": "All stacks",
