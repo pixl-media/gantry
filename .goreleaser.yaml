@@ -61,7 +61,10 @@ nfpms:
           - docker-compose-plugin | docker-compose-v2
 
 changelog:
-  disable: true
+  # Not `disable: true`: that also drops the notes passed with
+  # --release-notes, and the release would have none (as v0.1.0 at first).
+  # With --release-notes, GoReleaser doesn't build its own changelog anyway.
+  use: git
 
 release:
   github:
