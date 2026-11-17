@@ -595,6 +595,14 @@ GitHub Flow: `main` is always releasable. Work happens on short-lived branches
 
 Release: test `:edge`, then `git tag v0.1.0 && git push origin v0.1.0`.
 
+GitHub Actions are pinned by commit and base images by digest; Dependabot
+keeps both current. Pushed images carry signed build provenance (for the
+public repository), which `gh attestation verify` checks:
+
+```bash
+gh attestation verify oci://ghcr.io/pixl-media/gantry-agent:edge -R pixl-media/gantry
+```
+
 Planned: release binaries and `.deb`/`.rpm` packages with a systemd unit
 for amd64 and arm64.
 
