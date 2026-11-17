@@ -3,10 +3,12 @@ name: CI
 # GitHub Flow: PRs into main are tested and the images are built and
 # smoke-tested (not pushed). A push to main publishes :edge, a tag vX.Y.Z
 # publishes :X.Y.Z, :X.Y and :latest, for gantry-agent and gantry-web.
+# Actions are pinned by commit and base images by digest; Dependabot keeps
+# both current.
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*.*.*"]
   pull_request:
 
 permissions:
@@ -23,8 +25,8 @@ jobs:
       run:
         working-directory: agent
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
@@ -46,8 +48,8 @@ jobs:
       run:
         working-directory: agent
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
@@ -60,11 +62,11 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           package_json_file: web/package.json
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
           cache: pnpm
@@ -85,15 +87,18 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Provenance attestations for the pushed images (public repo only).
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Smoke test: run the real images like a user would. The agent gets the
       # Docker socket and the dev stacks at the same path as on the host; the
       # web UI forwards /api to it.
       - name: Build agent image for smoke test (amd64)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: agent
           platforms: linux/amd64
@@ -101,7 +106,7 @@ jobs:
           tags: gantry-agent:smoke
           cache-from: type=gha,scope=agent
       - name: Build web image for smoke test (amd64)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: web
           platforms: linux/amd64
@@ -276,14 +281,14 @@ jobs:
           docker logs gantry-web-tls-smoke || true
 
       - if: github.event_name == 'push'
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - id: agent-meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/gantry-agent
           tags: |
@@ -292,7 +297,8 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=pr
       - name: Build agent image (amd64, arm64)
-        uses: docker/build-push-action@v7
+        id: agent-push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: agent
           platforms: linux/amd64,linux/arm64
@@ -304,7 +310,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=agent
 
       - id: web-meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/gantry-web
           tags: |
@@ -313,7 +319,8 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=pr
       - name: Build web image (amd64, arm64)
-        uses: docker/build-push-action@v7
+        id: web-push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: web
           platforms: linux/amd64,linux/arm64
@@ -322,3 +329,21 @@ jobs:
           labels: ${{ steps.web-meta.outputs.labels }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
+
+      # Signed build provenance for each pushed image, stored with it in the
+      # registry: `gh attestation verify oci://ghcr.io/pixl-media/gantry-agent:<tag>
+      # -R pixl-media/gantry`. GitHub offers this for public repositories.
+      - name: Attest agent image
+        if: github.event_name == 'push' && github.event.repository.visibility == 'public'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/gantry-agent
+          subject-digest: ${{ steps.agent-push.outputs.digest }}
+          push-to-registry: true
+      - name: Attest web image
+        if: github.event_name == 'push' && github.event.repository.visibility == 'public'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/gantry-web
+          subject-digest: ${{ steps.web-push.outputs.digest }}
+          push-to-registry: true

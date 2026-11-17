@@ -431,8 +431,9 @@ enough to lose the host.
   Origin check compares the scheme over HTTPS, HSTS with an https public URL,
   event streams end with the session that opened them.
 
-Not done: pinning images and actions by digest (backlog). TLS in the agent
-itself came later (decision 27). A global failure budget
+TLS in the agent itself came later (decision 27); so did pinning GitHub
+Actions by commit and base images by digest (Dependabot keeps them current),
+with signed build provenance for the pushed images. A global failure budget
 was dropped: with enforced strong tokens it protects nothing.
 
 ## 22. License: AGPLv3
