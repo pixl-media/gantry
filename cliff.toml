@@ -1,0 +1,44 @@
+# git-cliff: CHANGELOG.md and the release notes, one line per merged pull
+# request, taken from the merge commits on main ("Merge pull request #N from
+# owner/branch" with the PR title below). Other commits are skipped. Grouped
+# by the branch prefix (docs/decisions.md, decision 28).
+#   make changelog TAG=v0.1.0
+
+[changelog]
+header = """
+# Changelog
+
+Every entry is a merged pull request.\n
+"""
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}](https://github.com/pixl-media/gantry/releases/tag/{{ version }}) ({{ timestamp | date(format="%Y-%m-%d") }})
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {{ commit.message | split(pat="::") | last | upper_first }}
+{%- endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = false
+filter_unconventional = false
+sort_commits = "oldest"
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+commit_preprocessors = [
+  # "Merge pull request #18 from pixl-media/feature/x\n\nTitle"
+  # becomes "feature/x::Title ([#18](…))".
+  { pattern = '(?s)^Merge pull request #(\d+) from [^/\s]+/(\S+)\s+(.*?)\s*$', replace = '${2}::${3} ([#${1}](https://github.com/pixl-media/gantry/pull/${1}))' },
+]
+commit_parsers = [
+  { message = "^feature/", group = "<!-- 0 -->Features" },
+  { message = "^fix/", group = "<!-- 1 -->Fixes" },
+  { message = "^dependabot/", group = "<!-- 3 -->Dependencies" },
+  { message = "^[a-z]+/[^:]*::", group = "<!-- 2 -->Maintenance" },
+  { message = ".*", skip = true },
+]
