@@ -30,7 +30,12 @@ import {
 } from '@mui/material';
 import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link as RouterLink, useParams, useSearchParams } from 'react-router';
+import {
+  Link as RouterLink,
+  useLocation,
+  useParams,
+  useSearchParams,
+} from 'react-router';
 import { apiError, type StackDetail } from '../api/client';
 import { useStack, useStackOperations } from '../api/queries';
 import { ActionButtons } from '../components/ActionButtons';
@@ -55,11 +60,18 @@ export function StackPage() {
   const logContainer = searchParams.get('container') ?? undefined;
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // The list's filter, passed along by its links, for the way back. Kept
+  // from the first render: switching tabs replaces the location's state.
+  const location = useLocation();
+  const [listSearch] = useState(() => {
+    const s = (location.state as { listSearch?: unknown } | null)?.listSearch;
+    return typeof s === 'string' && s.startsWith('?') ? s : '';
+  });
 
   const back = (
     <Button
       component={RouterLink}
-      to="/"
+      to={'/' + listSearch}
       startIcon={<ArrowBackIcon />}
       sx={{ alignSelf: 'flex-start' }}
     >
