@@ -305,6 +305,46 @@ curl -N -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/op
 - Browsers' `EventSource` can't send an `Authorization` header; read the event
   stream with `fetch`.
 
+## Installation
+
+The agent runs best as a systemd service (decision 2); a container image is
+available too (see "Running as a container"). The web UI is a container
+either way.
+
+**Packages** for Debian and Ubuntu (`.deb`) and Fedora and RHEL (`.rpm`),
+amd64 and arm64, are attached to every
+[release](https://github.com/pixl-media/gantry/releases). Install Docker with
+the Compose plugin first.
+
+```bash
+sudo apt install ./gantry-agent_0.1.0_amd64.deb     # Debian, Ubuntu
+sudo dnf install ./gantry-agent-0.1.0-1.x86_64.rpm   # Fedora, RHEL
+```
+
+The package:
+
+- installs `/usr/bin/gantry-agent` and the `gantry-agent` systemd service,
+  which runs as the system user `gantry` with access to Docker;
+- creates `/etc/gantry/gantry.env` once, with two random tokens
+  (`sudo grep TOKEN /etc/gantry/gantry.env`): `GANTRY_UI_TOKEN` for the web
+  login, `GANTRY_TOKEN` for API clients;
+- creates `/opt/stacks` for the `gantry` user, unless it exists (then:
+  `sudo chown -R gantry: /opt/stacks`);
+- starts the service. It listens on `127.0.0.1:7070`, this host only; see
+  "Exposing gantry" before changing that.
+
+Settings go into `/etc/gantry/gantry.env` (variables below), followed by
+`sudo systemctl restart gantry-agent`; logs with `journalctl -u gantry-agent`.
+To update, install the newer package; the settings stay. Removing the package
+keeps the settings and the stacks (`apt purge` also removes the settings).
+
+Releases also have plain binaries (`gantry-agent_<version>_linux_<arch>.tar.gz`)
+and `checksums.txt`. Every file has signed build provenance:
+
+```bash
+gh attestation verify gantry-agent_0.1.0_amd64.deb -R pixl-media/gantry
+```
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -342,7 +382,8 @@ the directory (e.g. `chown -R gantry: /opt/stacks`); otherwise stacks can
 only be listed and controlled. The container image runs as root.
 
 **Private registries:** Compose uses the Docker credentials of the user the
-agent runs as (`~/.docker/config.json`, from `docker login`). In container
+agent runs as (`~/.docker/config.json`, from `docker login`); with the
+package, that is `/var/lib/gantry/.docker/config.json`. In container
 mode, mount that file into the container (e.g.
 `/root/.docker/config.json:/root/.docker/config.json:ro`).
 
@@ -483,7 +524,10 @@ stays tied to an `https` `GANTRY_PUBLIC_URL`.
 | `compose.yaml` | Local development with agent and web UI as containers |
 | `api.http` | Example requests for the VS Code REST Client |
 | `agent/tools/devdocs/` | Dev-only Swagger UI server (`make docs`) |
-| `.github/workflows/ci.yml` | Tests, image builds and releases |
+| `.github/workflows/ci.yml` | Tests, image builds, packages and releases |
+| `packaging/` | systemd unit, settings template and scripts of the `.deb`/`.rpm` packages |
+| `.goreleaser.yaml`, `cliff.toml` | Release binaries and packages (GoReleaser); release notes (git-cliff) |
+| `SECURITY.md` | How to report a vulnerability |
 | `AGENTS.md`, `agent/AGENTS.md`, `web/AGENTS.md` | Conventions for contributors and coding agents |
 | `LICENSE` | GNU AGPLv3 |
 
@@ -589,11 +633,21 @@ GitHub Flow: `main` is always releasable. Work happens on short-lived branches
 
 | Event | CI |
 |---|---|
-| Pull request | Go and web tests, integration tests, both images built and smoke-tested, not pushed |
+| Pull request | Go and web tests, integration tests, both images built and smoke-tested, packages built and the `.deb` installed with systemd; nothing published |
 | Merge to `main` | same, then `ghcr.io/pixl-media/gantry-agent:edge` and `gantry-web:edge` are pushed |
-| Tag `vX.Y.Z` | same, then `:X.Y.Z`, `:X.Y`, `:latest` of both images are pushed |
+| Tag `vX.Y.Z` | same, then `:X.Y.Z`, `:X.Y`, `:latest` of both images are pushed, and a GitHub release with notes, binaries, `.deb`/`.rpm` packages and checksums is created |
 
-Release: test `:edge`, then `git tag v0.1.0 && git push origin v0.1.0`.
+Release:
+
+1. Test `:edge`.
+2. A release pull request with the changelog: `make changelog TAG=v0.1.0`
+   writes `CHANGELOG.md`, one line per merged pull request, grouped by branch
+   prefix (git-cliff, `cliff.toml`).
+3. After merging it: `git tag v0.1.0 && git push origin v0.1.0`. The release
+   notes are that version's part of the changelog.
+
+`make release-snapshot` builds the binaries and packages locally into `dist/`
+(GoReleaser in Docker), without releasing anything.
 
 GitHub Actions are pinned by commit and base images by digest; Dependabot
 keeps both current. Pushed images carry signed build provenance (for the
@@ -602,9 +656,6 @@ public repository), which `gh attestation verify` checks:
 ```bash
 gh attestation verify oci://ghcr.io/pixl-media/gantry-agent:edge -R pixl-media/gantry
 ```
-
-Planned: release binaries and `.deb`/`.rpm` packages with a systemd unit
-for amd64 and arm64.
 
 ## License
 

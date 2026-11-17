@@ -1,0 +1,33 @@
+[Unit]
+Description=gantry agent (Docker Compose manager)
+Documentation=https://github.com/pixl-media/gantry
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+# Its own user; the docker group gives access to the Docker socket, which
+# is root-equivalent anyway (docs/decisions.md, decision 2). The user's home
+# /var/lib/gantry is for the Docker CLI (e.g. `docker login` for private
+# registries), not for gantry itself.
+User=gantry
+Group=gantry
+SupplementaryGroups=docker
+# Tokens and settings; created with random tokens at installation.
+EnvironmentFile=/etc/gantry/gantry.env
+ExecStart=/usr/bin/gantry-agent
+Restart=on-failure
+RestartSec=5
+
+# Limits for the agent process itself. ProtectSystem=full, not strict, so
+# another GANTRY_STACKS_DIR works without a drop-in.
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

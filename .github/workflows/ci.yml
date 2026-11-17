@@ -81,6 +81,56 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+  # The release binaries and .deb/.rpm packages (GoReleaser, snapshot), and
+  # the .deb installed on the runner like on a server: with systemd and
+  # Docker, then upgraded and removed.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: v2.20.2
+          args: release --snapshot --clean
+      - name: Install, upgrade and remove the .deb
+        run: |
+          deb=$(ls dist/gantry-agent_*_amd64.deb)
+          # No recommends: the runner's Docker stays as it is.
+          sudo apt-get install -y --no-install-recommends "./$deb"
+          gantry-agent --version
+          if ! systemctl is-active --quiet gantry-agent; then
+            sudo journalctl -u gantry-agent --no-pager
+            exit 1
+          fi
+          test "$(sudo stat -c '%a %U %G' /etc/gantry/gantry.env)" = "640 root gantry"
+          api=$(sudo sed -n 's/^GANTRY_TOKEN=//p' /etc/gantry/gantry.env)
+          ui=$(sudo sed -n 's/^GANTRY_UI_TOKEN=//p' /etc/gantry/gantry.env)
+          test "${#api}" -ge 24 && test "${#ui}" -ge 24 && test "$api" != "$ui"
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:7070/healthz && break; sleep 1; done
+          curl -fsS -H "Authorization: Bearer $api" http://127.0.0.1:7070/api/v1/stacks | jq -e .dockerAvailable
+
+          # An upgrade keeps the settings and restarts the service.
+          sudo apt-get install -y --no-install-recommends --reinstall "./$deb"
+          test "$(sudo sed -n 's/^GANTRY_TOKEN=//p' /etc/gantry/gantry.env)" = "$api"
+          systemctl is-active --quiet gantry-agent
+
+          # Removing stops it and keeps the settings.
+          sudo apt-get remove -y gantry-agent
+          if systemctl is-active --quiet gantry-agent; then
+            echo "gantry-agent still runs after removal"
+            exit 1
+          fi
+          sudo test -f /etc/gantry/gantry.env
+      - name: Service log
+        if: always()
+        run: sudo journalctl -u gantry-agent --no-pager || true
+
   image:
     needs: [test, integration, web]
     runs-on: ubuntu-latest
@@ -347,3 +397,37 @@ jobs:
           subject-name: ghcr.io/${{ github.repository_owner }}/gantry-web
           subject-digest: ${{ steps.web-push.outputs.digest }}
           push-to-registry: true
+
+  # A tag vX.Y.Z: the GitHub release with notes from git-cliff, binaries,
+  # .deb/.rpm packages and checksums, each with signed build provenance.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [image, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Release notes
+        run: npx --yes git-cliff@2.13.1 --latest --strip all > "$RUNNER_TEMP/notes.md"
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: v2.20.2
+          args: release --clean --release-notes ${{ runner.temp }}/notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+            dist/checksums.txt

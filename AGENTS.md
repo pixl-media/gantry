@@ -27,6 +27,7 @@ This file holds what applies everywhere. Details for one part are in
 | `api.http` | Example requests (API token from `.env`) |
 | `dev/stacks/` | Example stacks for `make run` |
 | `.github/` | CI (`workflows/ci.yml`) and Dependabot |
+| `packaging/`, `.goreleaser.yaml`, `cliff.toml` | Packages and releases (decision 28): systemd unit, package scripts, GoReleaser, git-cliff |
 | `LICENSE` | AGPLv3 (decision 22) |
 
 ## Architecture rules
@@ -61,8 +62,10 @@ Run from the repo root:
 - GitHub Flow. `main` must always be releasable.
 - **Never commit or push directly to `main`.** Create a branch
   (`feature/…`, `fix/…`, `chore/…`) and open a pull request.
-- Releases are tags `vX.Y.Z` on `main`; CI publishes the images. Don't create
-  tags unless asked.
+- Releases are tags `vX.Y.Z` on `main`, after a release pull request with
+  `CHANGELOG.md` (`make changelog TAG=vX.Y.Z`); CI publishes the images and
+  the GitHub release with packages. Don't create tags unless asked. Merge
+  pull requests with merge commits (the changelog is built from them).
 - Commit messages, code, comments and docs in English.
 - **No outside code contributions** without a contributor license agreement;
   every line comes from the copyright holder (decision 22). Copy code or add

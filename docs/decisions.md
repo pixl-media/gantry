@@ -641,7 +641,33 @@ values crossed the network in plain text.
   agent's address.
 - Not now: client certificates (mTLS).
 
-## Open questions
+## 28. Packages and releases
 
-- **Release distribution:** GoReleaser for binaries, `.deb`/`.rpm` and images.
-  While the repo is private, downloads need a token.
+**Decided 2026-11-17**, for v0.1. The repository becomes public with it.
+
+- **GoReleaser builds the binaries and `.deb`/`.rpm` packages** (amd64,
+  arm64) and creates the GitHub release. The images stay with the CI's
+  buildx steps, which are smoke-tested.
+- **The package installs a systemd service** (decision 2) running as the
+  system user `gantry` with the `docker` group and systemd's sandboxing
+  (`ProtectSystem=full`, so another stacks directory needs no drop-in). Its
+  home `/var/lib/gantry` is for the Docker CLI (registry logins), not for
+  gantry's own data (decision 25).
+- **Ready after installing:** `/etc/gantry/gantry.env` is created once with
+  two random tokens (`0640 root:gantry`), `/opt/stacks` if it is missing,
+  and the service starts on `127.0.0.1:7070`. Upgrades leave the settings
+  alone; removing keeps them and the stacks. The tokens are never printed.
+- **Docker is recommended, not required** by the package: its package names
+  differ between Docker's repository and the distributions.
+- **Release notes from the merge commits:** git-cliff writes one line per
+  merged pull request, grouped by branch prefix, into `CHANGELOG.md` (in a
+  release pull request) and the release notes. Squash merges would lose
+  them; pull requests are merged with merge commits.
+- **Tags by hand,** after the release pull request; no automatic version
+  bumps.
+- **Signed build provenance** (GitHub artifact attestations) for every
+  release file and pushed image; `gh attestation verify` checks it. GitHub
+  offers this for public repositories.
+- Rejected: an apt or dnf repository (hosting and keys to maintain; for now
+  the packages are files in the release) and building the images with
+  GoReleaser too (the existing steps are tested).
