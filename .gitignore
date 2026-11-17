@@ -4,6 +4,8 @@
 
 # Go
 /agent/bin/
+# Release builds (make release-snapshot)
+/dist/
 *.test
 *.out
 coverage.*

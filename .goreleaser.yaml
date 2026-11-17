@@ -1,0 +1,73 @@
+# GoReleaser builds the agent's release binaries and .deb/.rpm packages and
+# creates the GitHub release (docs/decisions.md, decision 28). The container
+# images are built by the CI workflow, not here. Release notes come from
+# git-cliff (cliff.toml) via --release-notes.
+#   make release-snapshot   # local build into dist/, no release
+version: 2
+project_name: gantry-agent
+
+builds:
+  - id: gantry-agent
+    dir: agent
+    main: ./cmd/gantry-agent
+    binary: gantry-agent
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+nfpms:
+  - package_name: gantry-agent
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: pixl-media
+    homepage: https://github.com/pixl-media/gantry
+    maintainer: pixl-media <129320331+RGBPixl@users.noreply.github.com>
+    description: |-
+      Lightweight Docker Compose manager: the gantry agent, a systemd service
+      with an HTTP API for the Compose stacks on this host.
+    license: AGPL-3.0-only
+    section: admin
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    contents:
+      - src: packaging/gantry-agent.service
+        dst: /usr/lib/systemd/system/gantry-agent.service
+      - src: packaging/gantry.env.example
+        dst: /usr/share/gantry/gantry.env.example
+      - src: LICENSE
+        dst: /usr/share/doc/gantry-agent/LICENSE
+    scripts:
+      preinstall: packaging/scripts/preinstall.sh
+      postinstall: packaging/scripts/postinstall.sh
+      preremove: packaging/scripts/preremove.sh
+      postremove: packaging/scripts/postremove.sh
+    # The agent runs `docker compose`. Package names differ between Docker's
+    # own repository and distributions, so these are recommendations; RPM
+    # distributions vary too much to name them.
+    overrides:
+      deb:
+        recommends:
+          - docker-ce-cli | docker.io
+          - docker-compose-plugin | docker-compose-v2
+
+changelog:
+  disable: true
+
+release:
+  github:
+    owner: pixl-media
+    name: gantry
+  prerelease: auto
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
