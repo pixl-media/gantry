@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -208,6 +209,17 @@ func loopbackOnly(listen string) bool {
 }
 
 func main() {
+	// Configuration comes from GANTRY_* variables; the only argument is
+	// --version, e.g. to check an installed package.
+	if len(os.Args) > 1 {
+		if os.Args[1] == "--version" || os.Args[1] == "version" {
+			fmt.Println(version)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "gantry-agent: unknown argument %q; it is configured with GANTRY_* variables (see the README), and --version prints its version\n", os.Args[1])
+		os.Exit(2)
+	}
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	apiToken, uiToken, warnings, err := loadTokens()
@@ -245,6 +257,10 @@ func main() {
 	} else if !loopbackOnly(cfg.listen) && !strings.HasPrefix(cfg.publicOrigin, "https://") {
 		logger.Info("reachable from other hosts over plain HTTP; logins and tokens from internet addresses are refused, use HTTPS in front or GANTRY_TLS_CERT (see README)",
 			"addr", cfg.listen)
+	}
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		logger.Warn("the docker CLI (with the compose plugin) is not in PATH; stacks are listed, but actions and Compose checks need it")
 	}
 
 	dockerClient, err := docker.New(os.Getenv("DOCKER_HOST"))
