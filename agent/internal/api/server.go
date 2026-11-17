@@ -61,7 +61,7 @@ type Config struct {
 	Token string
 	// UIToken is the web login token (GANTRY_UI_TOKEN), exchanged for a
 	// session at POST /api/v1/session. Empty turns the web login off. The
-	// two are never accepted in each other's place (decision 26).
+	// two are never accepted in each other's place (docs/decisions.md, decision 26).
 	UIToken    string
 	Version    string
 	Stacks     StackService

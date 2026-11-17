@@ -302,7 +302,7 @@ func TestSessionNeedsAuthentication(t *testing.T) {
 	}
 }
 
-// Each token works only in its own place (decision 26), and using the other
+// Each token works only in its own place (docs/decisions.md, decision 26), and using the other
 // one counts as a failed attempt.
 func TestTokensAreSeparate(t *testing.T) {
 	h := New(Config{Token: "the-api-token", UIToken: testUIToken, Stacks: fakeStacks{}})

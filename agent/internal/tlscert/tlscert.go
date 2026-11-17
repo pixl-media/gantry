@@ -1,6 +1,6 @@
 // Package tlscert serves the agent's TLS certificate from a certificate and
 // a key file. Replacing the files (a renewal) takes effect with the next
-// connection, without a restart (decision 27).
+// connection, without a restart (docs/decisions.md, decision 27).
 package tlscert
 
 import (

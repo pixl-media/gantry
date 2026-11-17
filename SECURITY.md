@@ -19,4 +19,5 @@ Fixes go into the latest release.
 ## Design
 
 How gantry is hardened, including when it is exposed to the internet, is
-described in `docs/decisions.md` (decisions 20, 21, 26 and 27).
+described in the decision log, `docs/decisions.md`: decisions
+[20](docs/decisions.md#20-hardening-after-the-first-security-review), [21](docs/decisions.md#21-safe-even-when-exposed-to-the-internet), [26](docs/decisions.md#26-separate-tokens-for-the-api-and-the-web-login) and [27](docs/decisions.md#27-tls-in-the-agent).

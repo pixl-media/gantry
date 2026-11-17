@@ -4,10 +4,12 @@ Lightweight Docker Compose manager: a small headless **agent** that runs on a
 Docker host and exposes an HTTP API for managing Compose stacks, plus an
 optional **web UI** that runs as its own container.
 
-> Early stage. The agent lists stacks, shows their details and logs, starts,
-> stops, restarts, updates and removes them, and edits, creates and deletes
-> managed stacks; the web UI does all of that in the browser, in English and
-> German.
+> Version 0.1. The agent lists stacks and shows their details and logs;
+> starts, stops, restarts, updates and removes stacks or single services;
+> edits, creates and deletes managed stacks; and tells clients about changes
+> live. The web UI does all of that in the browser, in English and German.
+> Packages and images are on the
+> [releases](https://github.com/pixl-media/gantry/releases) page.
 
 ## Architecture
 
@@ -66,6 +68,10 @@ Changes appear right away, also those made outside gantry (e.g. `docker
 stop` in a shell): the UI follows the agent's live event stream and reloads
 what changed.
 
+- **Stack list:** filter by type (managed or external) and search by name;
+  the filter stays in the address, also when coming back from a stack. Shown
+  as a table or as cards (the default on phones); the choice is remembered in
+  the browser.
 - **Logs:** the logs of all containers merged and live, with colors, a
   service filter, search, timestamps and a download; each container's logs
   button opens it already filtered.
@@ -307,9 +313,9 @@ curl -N -H "Authorization: Bearer $GANTRY_TOKEN" http://127.0.0.1:7070/api/v1/op
 
 ## Installation
 
-The agent runs best as a systemd service (decision 2); a container image is
-available too (see "Running as a container"). The web UI is a container
-either way.
+The agent runs best as a systemd service ([decision 2](docs/decisions.md#2-systemd-service-first-container-optional)); a container image is
+available too (see [Running as a container](#running-as-a-container)). The
+web UI is a container either way.
 
 **Packages** for Debian and Ubuntu (`.deb`) and Fedora and RHEL (`.rpm`),
 amd64 and arm64, are attached to every
@@ -331,7 +337,7 @@ The package:
 - creates `/opt/stacks` for the `gantry` user, unless it exists (then:
   `sudo chown -R gantry: /opt/stacks`);
 - starts the service. It listens on `127.0.0.1:7070`, this host only; see
-  "Exposing gantry" before changing that.
+  [Exposing gantry](#exposing-gantry) before changing that.
 
 Settings go into `/etc/gantry/gantry.env` (variables below), followed by
 `sudo systemctl restart gantry-agent`; logs with `journalctl -u gantry-agent`.
@@ -357,7 +363,7 @@ gh attestation verify gantry-agent_0.1.0_amd64.deb -R pixl-media/gantry
 | `GANTRY_LISTEN` | `127.0.0.1:7070` (image: `:7070`) | Listen address. The binary only accepts local connections by default; set e.g. `:7070` to reach it from other hosts |
 | `GANTRY_TRUSTED_PROXIES` | (none) | Reverse proxies (IP addresses or CIDR prefixes, comma-separated) whose `X-Forwarded-For` and `X-Forwarded-Proto` the agent believes, such as the web UI's container. Then every client behind them has its own login limit |
 | `GANTRY_ALLOW_INSECURE_HTTP` | `false` | Accept tokens and session cookies over plain HTTP from internet addresses. Only if you know why: anyone on the way can read them. Also understood by the web UI's container |
-| `GANTRY_TLS_CERT` | (none) | PEM certificate (with its chain) for HTTPS on the agent itself, with `GANTRY_TLS_KEY`. Replaced files are picked up without a restart; see "TLS in the agent" |
+| `GANTRY_TLS_CERT` | (none) | PEM certificate (with its chain) for HTTPS on the agent itself, with `GANTRY_TLS_KEY`. Replaced files are picked up without a restart; see [TLS in the agent](#tls-in-the-agent) |
 | `GANTRY_TLS_KEY` | (none) | PEM private key for `GANTRY_TLS_CERT`; make it readable only by the agent |
 | `GANTRY_PUBLIC_URL` | (none) | Address of the web UI, e.g. `https://gantry.example.com`. If set, cookie-authenticated requests must come from exactly this origin, and with `https` the session cookie is `Secure` and named `__Host-gantry_session` |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker socket (only `unix://` is supported) |
@@ -372,14 +378,16 @@ picks up existing Dockge stacks without configuration. If the directory
 doesn't exist, the agent still starts, lists unmanaged stacks and reports the
 missing directory as a warning.
 
-The agent needs `docker compose` (the Compose plugin of Docker's official
-packages) on the host. The container image includes it.
+The agent needs `docker compose` on the host: Docker's Compose plugin
+(`docker-compose-plugin` from Docker's packages, `docker-compose-v2` on
+Ubuntu). The container image includes it.
 
 **Write access:** to create, edit and delete stacks, the user the agent runs
-as needs write access to `GANTRY_STACKS_DIR` and the stacks in it. For a
-systemd service that runs as a dedicated user, give that user ownership of
-the directory (e.g. `chown -R gantry: /opt/stacks`); otherwise stacks can
-only be listed and controlled. The container image runs as root.
+as needs write access to `GANTRY_STACKS_DIR` and the stacks in it. The
+package's service runs as `gantry` and creates `/opt/stacks` for it, but
+leaves an existing directory alone; then: `sudo chown -R gantry: /opt/stacks`.
+Without write access, stacks can only be listed and controlled. The
+container image runs as root.
 
 **Private registries:** Compose uses the Docker credentials of the user the
 agent runs as (`~/.docker/config.json`, from `docker login`); with the
@@ -396,7 +404,7 @@ the container as on the host. Docker resolves relative bind mounts of stacks
 ```yaml
 services:
   gantry-agent:
-    image: ghcr.io/pixl-media/gantry-agent:edge
+    image: ghcr.io/pixl-media/gantry-agent:0.1
     environment:
       GANTRY_TOKEN: ${GANTRY_TOKEN}
       GANTRY_UI_TOKEN: ${GANTRY_UI_TOKEN}
@@ -419,7 +427,7 @@ services:
 
   # Optional web UI. It forwards /api to the agent.
   gantry-web:
-    image: ghcr.io/pixl-media/gantry-web:edge
+    image: ghcr.io/pixl-media/gantry-web:0.1
     environment:
       GANTRY_AGENT_URL: http://gantry-agent:7070
     ports:
@@ -440,11 +448,17 @@ networks:
         - subnet: 172.30.250.0/24
 ```
 
+Image tags: `:0.1` gets the fixes of 0.1.x, `:0.1.0` is that exact
+release, `:latest` the newest release, and `:edge` the current `main`
+(untested beyond CI).
+
 The web UI speaks plain HTTP on port 8080. The web container also works with
 an agent running as a systemd service: point `GANTRY_AGENT_URL` at it, and
 set the agent's `GANTRY_LISTEN` so the container can reach it.
 
-**Exposing gantry.** The agent controls Docker, which is root on the host.
+### Exposing gantry
+
+The agent controls Docker, which is root on the host.
 gantry is built to stay safe even when exposed carelessly, but for access
 beyond your own machine:
 
@@ -470,7 +484,9 @@ beyond your own machine:
   the browser must then come from exactly this origin, and with HTTPS the
   cookie is always `Secure` and can't be set by other hosts (`__Host-`).
 
-**TLS in the agent.** The agent can encrypt its own connections too: between
+### TLS in the agent
+
+The agent can encrypt its own connections too: between
 your reverse proxy or the web UI's container and the agent, or for API
 clients on other hosts. Set `GANTRY_TLS_CERT` and `GANTRY_TLS_KEY` to a PEM
 certificate and key. Replaced files (a renewal) take effect with the next
@@ -530,6 +546,7 @@ stays tied to an `https` `GANTRY_PUBLIC_URL`.
 | `CHANGELOG.md` | Merged pull requests per release (`make changelog`) |
 | `SECURITY.md` | How to report a vulnerability |
 | `AGENTS.md`, `agent/AGENTS.md`, `web/AGENTS.md` | Conventions for contributors and coding agents |
+| `.vscode/extensions.json` | Recommended VS Code extensions |
 | `LICENSE` | GNU AGPLv3 |
 
 ## Development
@@ -538,6 +555,7 @@ Requirements: Go 1.27+, Docker with the Compose plugin; for the web UI
 Node 24 or newer (CI and the image use Node 26 LTS) and pnpm 10.
 
 ```bash
+make dev-env           # create .env with random tokens, or add a missing one
 make run               # agent on http://127.0.0.1:7070, tokens from .env, managing dev/stacks
 make web-install       # once: install the web UI's dependencies
 make web               # web UI on http://127.0.0.1:5173 (in a second terminal), log in with GANTRY_UI_TOKEN from .env
@@ -546,6 +564,7 @@ make test              # unit tests, no Docker needed
 make test-integration  # unit + integration tests against the local Docker daemon
 make lint              # gofmt + go vet
 make generate          # regenerate Go code after changing api/openapi.yaml
+make build             # build the agent binary into agent/bin/
 make image             # build the agent's Docker image locally
 make web-test          # web UI tests (Vitest)
 make web-lint          # ESLint, Prettier, typecheck
@@ -583,8 +602,8 @@ them afterwards; other containers on the host are not touched.
 `make docs` serves Swagger UI for `api/openapi.yaml` on
 http://127.0.0.1:8082 and forwards API requests to the agent on port 7070
 (`make run` or `docker compose up`). Everything comes from one address, so
-"Try it out" works without CORS: click "Authorize", enter the token (from
-`.env` for `make run`), and send requests. The spec is re-read on every page load.
+"Try it out" works without CORS: click "Authorize", enter the API token
+(`GANTRY_TOKEN`, from `.env` for `make run`), and send requests. The spec is re-read on every page load.
 This is a development tool only; the agent doesn't serve docs itself.
 
 ### Changing the API
@@ -606,7 +625,7 @@ This is a development tool only; the agent doesn't serve docs itself.
 - Operations are kept in memory only and are lost when the agent restarts.
 - Swagger UI (`make docs`) can't display the event stream; use `curl -N`.
 - One shared web login (`GANTRY_UI_TOKEN`); there are no user accounts
-  (decision 25).
+  ([decision 25](docs/decisions.md#25-scope-a-lightweight-manager-for-one-host)).
 - Files edited directly on the host (not through gantry) show up in the web
   UI within a minute; Docker reports no event for them.
 - Stacks can't be renamed (named volumes carry the project name).
@@ -616,6 +635,8 @@ This is a development tool only; the agent doesn't serve docs itself.
   exist or variables are set.
 - Logs exist only as long as Docker keeps them; with log drivers such as
   `none` or `syslog` Docker returns none.
+- The web UI keeps at most 10,000 log lines and searches only those, in the
+  browser.
 
 ## Non-goals
 
@@ -623,9 +644,7 @@ gantry stays a lightweight manager for one host: no database or files of its
 own, only what Docker and Compose can do, no background calls to outside
 services. Several hosts in one UI, user accounts and roles, resource
 history, a history of Compose files, a console in containers and "update
-available" hints are out of scope (`docs/decisions.md`, decision 25).
-- The web UI keeps at most 10,000 log lines and searches only those, in the
-  browser.
+available" hints are out of scope ([decision 25](docs/decisions.md#25-scope-a-lightweight-manager-for-one-host)).
 
 ## Workflow and releases
 

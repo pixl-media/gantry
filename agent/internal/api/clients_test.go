@@ -97,7 +97,7 @@ func withTLS(r *http.Request) *http.Request {
 }
 
 // Behind a proxy, the client's way to the proxy counts, not whether the
-// proxy talks TLS to the agent (decision 27).
+// proxy talks TLS to the agent (docs/decisions.md, decision 27).
 func TestSecureTransport(t *testing.T) {
 	trusted, _ := ParseTrustedProxies("203.0.113.50")
 	n := network{trusted: trusted}

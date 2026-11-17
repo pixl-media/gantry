@@ -1,7 +1,39 @@
 # Architecture decisions
 
-Settled decisions and the reasons behind them. Change one only deliberately,
-and record the new decision here instead of editing history.
+gantry's decision log: what was decided, when and why, oldest first. Later
+decisions can extend or change earlier ones; they say so, and the earlier
+entry points to them. Code and docs refer to these by number (e.g.
+"decision 26"). A decision is changed only deliberately, by adding a new one
+here instead of editing history.
+
+1. [Agent in Go](#1-agent-in-go)
+2. [systemd service first, container optional](#2-systemd-service-first-container-optional)
+3. [Platforms: linux/amd64 and linux/arm64](#3-platforms-linuxamd64-and-linuxarm64)
+4. [API-first](#4-api-first)
+5. [Web UI: React + Vite SPA](#5-web-ui-react--vite-spa)
+6. [Standalone and publishable](#6-standalone-and-publishable)
+7. [Docker access: Engine API for state, Compose CLI for Compose](#7-docker-access-engine-api-for-state-compose-cli-for-compose)
+8. [Stack model: stacks directory plus discovery](#8-stack-model-stacks-directory-plus-discovery)
+9. [OpenAPI spec-first with oapi-codegen](#9-openapi-spec-first-with-oapi-codegen)
+10. [The API never exposes secrets from stacks](#10-the-api-never-exposes-secrets-from-stacks)
+11. [`/healthz` is a liveness check](#11-healthz-is-a-liveness-check)
+12. [Actions run as asynchronous operations](#12-actions-run-as-asynchronous-operations)
+13. [What the actions do](#13-what-the-actions-do)
+14. [Web UI login: a session cookie from the agent](#14-web-ui-login-a-session-cookie-from-the-agent)
+15. [Web UI stack and container](#15-web-ui-stack-and-container)
+16. [Container logs: merged per stack, from the Engine API](#16-container-logs-merged-per-stack-from-the-engine-api)
+17. [Editing stack files](#17-editing-stack-files)
+18. [`.env` values only on request](#18-env-values-only-on-request)
+19. [Deleting a stack](#19-deleting-a-stack)
+20. [Hardening after the first security review](#20-hardening-after-the-first-security-review)
+21. [Safe even when exposed to the internet](#21-safe-even-when-exposed-to-the-internet)
+22. [License: AGPLv3](#22-license-agplv3)
+23. [Actions on single services](#23-actions-on-single-services)
+24. [Live stack changes instead of polling](#24-live-stack-changes-instead-of-polling)
+25. [Scope: a lightweight manager for one host](#25-scope-a-lightweight-manager-for-one-host)
+26. [Separate tokens for the API and the web login](#26-separate-tokens-for-the-api-and-the-web-login)
+27. [TLS in the agent](#27-tls-in-the-agent)
+28. [Packages and releases](#28-packages-and-releases)
 
 ## 1. Agent in Go
 
@@ -60,7 +92,9 @@ Vite, served by a small web server container that proxies `/api` to the agent.
   static export can't serve runtime dynamic routes such as `/stacks/[name]`.
 - The UI is built after the API, once its scope is clear.
 
-Details on the stack and the login: decisions 14 and 15.
+Details on the stack and the login: decisions
+[14](#14-web-ui-login-a-session-cookie-from-the-agent) and
+[15](#15-web-ui-stack-and-container).
 
 ## 6. Standalone and publishable
 
@@ -103,7 +137,7 @@ as Dockge, so existing Dockge setups work without configuration. A missing
 directory is reported as a warning, not a startup error: the agent still
 reports unmanaged stacks and Docker's state.
 
-Actions (decision 13) work on managed stacks only; unmanaged stacks stay
+Actions ([decision 13](#13-what-the-actions-do)) work on managed stacks only; unmanaged stacks stay
 read-only, so gantry never changes what it doesn't own. Taking over an
 existing stack would be a deliberate feature of its own.
 
@@ -128,7 +162,7 @@ configuration (`docker compose config` output) or `.env` contents, and the
 agent reads service names with `--no-interpolate`. Managing `.env` values
 needs its own feature with its own protection.
 
-*Amended by decision 18:* single `.env` values are available on explicit
+*Amended by [decision 18](#18-env-values-only-on-request):* single `.env` values are available on explicit
 request through their own endpoint.
 
 ## 11. `/healthz` is a liveness check
@@ -187,9 +221,9 @@ seconds later by the restart's start. Two separate commands stop after the
 current step.
 
 `down` never uses `-v`: removing volumes deletes data and would need its
-own, explicitly confirmed action. *That action is `delete` (decision 19).*
+own, explicitly confirmed action. *That action is `delete` ([decision 19](#19-deleting-a-stack)).*
 
-*Actions on single services: decision 23.*
+*Actions on single services: [decision 23](#23-actions-on-single-services).*
 
 ## 14. Web UI login: a session cookie from the agent
 
@@ -218,10 +252,10 @@ Rejected: the token in `localStorage` (simplest, as Portainer and Dockge do,
 but exposed to any XSS) and Basic Auth at the proxy (no login page, no
 logout, the UI container would need the token).
 
-*Amended by decision 20:* sessions now live in the agent's memory (logout
+*Amended by [decision 20](#20-hardening-after-the-first-security-review):* sessions now live in the agent's memory (logout
 really ends them), wrong bearer tokens count against the same limit, tokens
 shorter than 16 characters are refused, and `GANTRY_PUBLIC_URL` can pin the
-cookie's origin. *Amended by decision 26:* the login takes its own token,
+cookie's origin. *Amended by [decision 26](#26-separate-tokens-for-the-api-and-the-web-login):* the login takes its own token,
 `GANTRY_UI_TOKEN`, not the API's.
 
 ## 15. Web UI stack and container
@@ -229,7 +263,7 @@ cookie's origin. *Amended by decision 26:* the login takes its own token,
 **Decided 2026-11-12.**
 
 - **React 19 + Vite + MUI v9.** TanStack Query for
-  data (reloaded on live changes, decision 24), React Router, react-i18next with English
+  data (reloaded on live changes, [decision 24](#24-live-stack-changes-instead-of-polling)), React Router, react-i18next with English
   and German from the start (typed keys, a test keeps both in sync).
 - **API types generated** from `api/openapi.yaml` with openapi-typescript;
   `openapi-fetch`/`openapi-react-query` call the API type-safely. CI fails if
@@ -250,7 +284,7 @@ cookie's origin. *Amended by decision 26:* the login takes its own token,
 all containers of a stack as Server-Sent Events, like `docker compose logs
 -f`.
 
-- **Engine API, not the Compose CLI:** logs are container data (decision 7).
+- **Engine API, not the Compose CLI:** logs are container data ([decision 7](#7-docker-access-engine-api-for-state-compose-cli-for-compose)).
   One HTTP stream per container instead of a `docker compose logs` process
   per viewer, and stdout/stderr arrive separately. The agent decodes
   Docker's multiplexed frames itself (standard library only).
@@ -259,7 +293,7 @@ all containers of a stack as Server-Sent Events, like `docker compose logs
   re-attaches to containers that are started or recreated, continuing with
   `since` right after the last line sent, so restarts don't break the stream
   or repeat lines.
-- **Unmanaged stacks can be read:** reading changes nothing (decision 8).
+- **Unmanaged stacks can be read:** reading changes nothing ([decision 8](#8-stack-model-stacks-directory-plus-discovery)).
 - **Unfiltered:** lines come as written, including ANSI codes; the web UI
   renders colors with its own small parser and strips other control
   sequences. Logs may contain whatever programs print; they are only
@@ -273,7 +307,7 @@ all containers of a stack as Server-Sent Events, like `docker compose logs
 
 **Decided 2026-11-13.** Managed stacks can be created and their
 `compose.yaml` and `.env` edited through the API; unmanaged stacks stay
-read-only (decision 8). All file access goes through `internal/stackfiles`.
+read-only ([decision 8](#8-stack-model-stacks-directory-plus-discovery)). All file access goes through `internal/stackfiles`.
 
 - **Validated before saving:** a new Compose file is written to a temporary
   file next to the original and checked with `docker compose config --quiet
@@ -290,7 +324,7 @@ read-only (decision 8). All file access goes through `internal/stackfiles`.
   `409 version_conflict` instead of overwriting. Saves to one stack are
   serialized by a mutex.
 - **Limits:** files up to 1 MiB; symlinks are never edited or followed
-  (since decision 20 a symlinked stack directory isn't managed at all), so
+  (since [decision 20](#20-hardening-after-the-first-security-review) a symlinked stack directory isn't managed at all), so
   a link can't redirect a write outside the stacks directory.
 - **`.env` keeps its layout:** comments, blank lines, order and `export`
   prefixes stay; changed keys are updated in place, new ones appended.
@@ -357,7 +391,7 @@ gaps at the edges.
   enforced before anything decodes them (`413 request_too_large`); the server
   has read and idle timeouts. Responses may still run long: event streams
   are unaffected.
-- **Sessions in memory** (replaces the stateless cookie of decision 14):
+- **Sessions in memory** (replaces the stateless cookie of [decision 14](#14-web-ui-login-a-session-cookie-from-the-agent)):
   256-bit random IDs, stored only as SHA-256. Logging out ends a session at
   once, so a captured cookie can be revoked; restarting the agent ends all
   sessions. A re-login after updates is the price; a credential that can't
@@ -392,7 +426,7 @@ gaps at the edges.
 
 Not done yet: per-browser login limits behind the proxy (would need trusted
 proxy settings) and pinning images and actions by digest. *Extended by
-decision 21.*
+[decision 21](#21-safe-even-when-exposed-to-the-internet).*
 
 ## 21. Safe even when exposed to the internet
 
@@ -431,7 +465,7 @@ enough to lose the host.
   Origin check compares the scheme over HTTPS, HSTS with an https public URL,
   event streams end with the session that opened them.
 
-TLS in the agent itself came later (decision 27); so did pinning GitHub
+TLS in the agent itself came later ([decision 27](#27-tls-in-the-agent)); so did pinning GitHub
 Actions by commit and base images by digest (Dependabot keeps them current),
 with signed build provenance for the pushed images. A global failure budget
 was dropped: with enforced strong tokens it protects nothing.
@@ -460,8 +494,6 @@ was dropped: with enforced strong tokens it protects nothing.
   here.
 - API clients are unaffected: talking to gantry over its HTTP API doesn't
   make them derived works.
-- Open point: much of the code was written with an AI assistant, and how
-  far such code is protected by copyright is legally unsettled.
 
 ## 23. Actions on single services
 
@@ -485,11 +517,11 @@ stack, as an operation.
   Dependents are brought up with `up` after an update, not `start`: if they
   share the service's network namespace or volumes, their containers must
   be recreated for the new one. `restart` stays `stop` + `start`, for the
-  reasons in decision 13.
+  reasons in [decision 13](#13-what-the-actions-do).
 - **gantry works out the set, not Compose.** Compose's own handling of
   dependencies differs between commands and versions. gantry reads the graph
   with `docker compose config --format json --no-interpolate` (keeping only
-  names and dependencies, decision 10), takes the running state from the
+  names and dependencies, [decision 10](#10-the-api-never-exposes-secrets-from-stacks)), takes the running state from the
   Engine API, and passes every affected service explicitly with `--no-deps`.
   What was shown is exactly what runs.
 - **Confirmation without a race.** If more than the chosen service is
@@ -504,7 +536,7 @@ stack, as an operation.
   action is rejected with `stack_busy` while any operation runs, even a
   service `stop`; the stack's `stop`, `down` and `delete` cancel a running
   service action as before.
-- Unmanaged stacks have no service actions, like stack actions (decision 8).
+- Unmanaged stacks have no service actions, like stack actions ([decision 8](#8-stack-model-stacks-directory-plus-discovery)).
 
 ## 24. Live stack changes instead of polling
 
@@ -542,7 +574,7 @@ its operations every 5 seconds, per open tab, and every list request ran
 - **Path:** `/api/v1/events`, not `/api/v1/stacks/events`, which would hide
   a stack named `events`.
 - **Cached Compose reads:** each managed stack's services and dependencies
-  (decision 23) are cached, keyed by the Compose file's and `.env`'s size
+  ([decision 23](#23-actions-on-single-services)) are cached, keyed by the Compose file's and `.env`'s size
   and modification time (`.env` can set `COMPOSE_PROFILES`), for at most a
   minute (for files they pull in, like `include:` or `env_file`). Saving
   through the API drops the entry at once; errors aren't cached. Service
@@ -575,7 +607,7 @@ its operations every 5 seconds, per open tab, and every list request ran
     action pulls and recreates only what changed; with pinned versions,
     picking the next one is a decision of its own. Checking registries in
     the background would need their credentials and run into rate limits.
-  - **A global failure budget** (decision 21): tokens are random and long.
+  - **A global failure budget** ([decision 21](#21-safe-even-when-exposed-to-the-internet)): tokens are random and long.
   - **A web UI password with TOTP:** a password isn't safer than the token;
     only a second factor is, and setting one up in the browser needs stored
     state. An identity provider (OIDC) gives that without state. Revisit
@@ -594,7 +626,7 @@ scripts included.
 - **Each is optional**, which turns its way in off: without a web login
   token the login answers `403 login_disabled` and no session exists;
   without an API token, bearer headers never work. At least one is needed,
-  both follow the rules of decision 21 (also `_FILE`), and they must differ,
+  both follow the rules of [decision 21](#21-safe-even-when-exposed-to-the-internet) (also `_FILE`), and they must differ,
   or the agent doesn't start.
 - **Replacing one** is a new value and a restart. The restart ends all
   sessions, including any opened with the old token.
@@ -603,9 +635,9 @@ scripts included.
   whether a change came from a browser or a script.
 - **Same power:** a session can do everything a bearer token can. The split
   makes replacing and tracing easier, not a leaked token less dangerous;
-  only a second factor would (decision 25).
+  only a second factor would ([decision 25](#25-scope-a-lightweight-manager-for-one-host)).
 - Rejected: a web UI password instead of a second token (weaker than a
-  random token, decision 25), and accepting the API token at the login as a
+  random token, [decision 25](#25-scope-a-lightweight-manager-for-one-host)), and accepting the API token at the login as a
   fallback (it would quietly undo the split).
 
 ## 27. TLS in the agent
@@ -618,7 +650,7 @@ values crossed the network in plain text.
 
 - **Files only, no ACME:** obtaining certificates is the job of reverse
   proxies and existing tools; the agent stays without outside calls
-  (decision 25).
+  ([decision 25](#25-scope-a-lightweight-manager-for-one-host)).
 - **Renewals without a restart:** the files are checked on every handshake
   (two `stat` calls) and loaded again when they change. Files that don't
   load (e.g. the certificate replaced, the key not yet) keep the current
@@ -627,7 +659,7 @@ values crossed the network in plain text.
 - **Behind a proxy, the browser's connection counts.** `X-Forwarded-Proto`
   from a trusted or private proxy decides, even if that proxy talks TLS to
   the agent. Otherwise such a proxy would make plain HTTP from the internet
-  look safe (decision 21), and a browser on plain HTTP would get a `Secure`
+  look safe ([decision 21](#21-safe-even-when-exposed-to-the-internet)), and a browser on plain HTTP would get a `Secure`
   cookie it never sends back.
 - **No HSTS from TLS alone:** it stays tied to an `https`
   `GANTRY_PUBLIC_URL`. HSTS for a host with a self-signed certificate would
@@ -648,11 +680,11 @@ values crossed the network in plain text.
 - **GoReleaser builds the binaries and `.deb`/`.rpm` packages** (amd64,
   arm64) and creates the GitHub release. The images stay with the CI's
   buildx steps, which are smoke-tested.
-- **The package installs a systemd service** (decision 2) running as the
+- **The package installs a systemd service** ([decision 2](#2-systemd-service-first-container-optional)) running as the
   system user `gantry` with the `docker` group and systemd's sandboxing
   (`ProtectSystem=full`, so another stacks directory needs no drop-in). Its
   home `/var/lib/gantry` is for the Docker CLI (registry logins), not for
-  gantry's own data (decision 25).
+  gantry's own data ([decision 25](#25-scope-a-lightweight-manager-for-one-host)).
 - **Ready after installing:** `/etc/gantry/gantry.env` is created once with
   two random tokens (`0640 root:gantry`), `/opt/stacks` if it is missing,
   and the service starts on `127.0.0.1:7070`. Upgrades leave the settings
