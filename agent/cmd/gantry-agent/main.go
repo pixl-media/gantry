@@ -81,7 +81,7 @@ func repeats(s string, n int) bool {
 // login token (GANTRY_UI_TOKEN, login only), and warnings. Each is optional,
 // which turns its way in off, but at least one is needed. Both are checked,
 // and they must differ: the point of two is replacing one without the other
-// (decision 26).
+// (docs/decisions.md, decision 26).
 func loadTokens() (apiToken, uiToken string, warnings []string, err error) {
 	apiToken, warning, err := loadToken("GANTRY_TOKEN")
 	if err != nil {

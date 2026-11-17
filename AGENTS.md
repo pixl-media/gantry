@@ -27,8 +27,8 @@ This file holds what applies everywhere. Details for one part are in
 | `api.http` | Example requests (API token from `.env`) |
 | `dev/stacks/` | Example stacks for `make run` |
 | `.github/` | CI (`workflows/ci.yml`) and Dependabot |
-| `packaging/`, `.goreleaser.yaml`, `cliff.toml` | Packages and releases (decision 28): systemd unit, package scripts, GoReleaser, git-cliff |
-| `LICENSE` | AGPLv3 (decision 22) |
+| `packaging/`, `.goreleaser.yaml`, `cliff.toml` | Packages and releases ([decision 28](docs/decisions.md#28-packages-and-releases)): systemd unit, package scripts, GoReleaser, git-cliff |
+| `LICENSE` | AGPLv3 ([decision 22](docs/decisions.md#22-license-agplv3)) |
 
 ## Architecture rules
 
@@ -68,7 +68,7 @@ Run from the repo root:
   pull requests with merge commits (the changelog is built from them).
 - Commit messages, code, comments and docs in English.
 - **No outside code contributions** without a contributor license agreement;
-  every line comes from the copyright holder (decision 22). Copy code or add
+  every line comes from the copyright holder ([decision 22](docs/decisions.md#22-license-agplv3)). Copy code or add
   runtime dependencies only under permissive licenses (MIT, BSD, ISC,
   Apache-2.0), never GPL or similar.
 
@@ -82,7 +82,7 @@ and `web/AGENTS.md`.
 - Every `/api/` route stays behind authentication (bearer token or session
   cookie). **Public routes are explicit:** only the entries in `publicRoutes`
   (`agent/internal/api/auth.go`) are public; add one only deliberately.
-- **Two tokens, strictly separate** (decision 26): `GANTRY_TOKEN` only as
+- **Two tokens, strictly separate** ([decision 26](docs/decisions.md#26-separate-tokens-for-the-api-and-the-web-login)): `GANTRY_TOKEN` only as
   bearer for API clients, `GANTRY_UI_TOKEN` only for the web login.
 - Never log tokens; keep the dev setup bound to 127.0.0.1.
 - **Never store tokens in the browser** (`localStorage`, `sessionStorage`,
@@ -91,11 +91,11 @@ and `web/AGENTS.md`.
   cookie need a same-origin `Origin` header. Don't weaken `SameSite=Strict`
   or `HttpOnly`.
 - **Never expose secrets from stacks:** `.env` values only through the reveal
-  endpoint, one value per explicit request (decision 18); never return the
+  endpoint, one value per explicit request ([decision 18](docs/decisions.md#18-env-values-only-on-request)); never return the
   resolved Compose configuration; never log values.
 - **Never use `down -v`** or any other volume removal, except the `delete`
-  operation with `volumes=true` (decision 19).
-- **Assume exposure to the internet** (decision 21): credentials over plain
+  operation with `volumes=true` ([decision 19](docs/decisions.md#19-deleting-a-stack)).
+- **Assume exposure to the internet** ([decision 21](docs/decisions.md#21-safe-even-when-exposed-to-the-internet)): credentials over plain
   HTTP from internet addresses are refused, client addresses come from
   trusted proxies only, the binary listens on 127.0.0.1 by default.
 - Settled hardening decisions are in `docs/decisions.md` (20, 21).

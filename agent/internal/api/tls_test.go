@@ -18,7 +18,7 @@ import (
 )
 
 // The agent served over TLS, the way main sets it up: the limiting
-// listener, ServeTLS and the reloading certificate (decision 27).
+// listener, ServeTLS and the reloading certificate (docs/decisions.md, decision 27).
 func TestTLS(t *testing.T) {
 	certFile, keyFile, cert := tlscerttest.Write(t, t.TempDir(), 1, time.Now().AddDate(1, 0, 0))
 	certs, err := tlscert.New(certFile, keyFile, nil)

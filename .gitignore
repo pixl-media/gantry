@@ -18,6 +18,6 @@ coverage.*
 # Data written by the dev example stacks
 /dev/stacks/*/data/
 
-# Web UI (planned)
+# Web UI
 node_modules/
 /web/dist/

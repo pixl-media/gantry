@@ -42,13 +42,13 @@ Run from the repo root:
   which always passes `-p`, `-f` and `--project-directory` and removes
   `GANTRY_*` variables (the token) from Compose's environment. Never use
   `down -v` or any other volume removal; the only exception is the `delete`
-  operation with `volumes=true` (decision 19).
+  operation with `volumes=true` ([decision 19](../docs/decisions.md#19-deleting-a-stack)).
 - Read and write stack files only through `internal/stackfiles` (validated,
   atomic, versioned, no symlinks), and only for managed stacks.
 - Anything that can take longer than a moment (Compose actions, pulls) runs
   as an operation (`internal/operations`), never synchronously inside a
   request. Actions only work on managed stacks (`stacks.Target`).
-- Service actions (decision 23): the affected services and Compose commands
+- Service actions ([decision 23](../docs/decisions.md#23-actions-on-single-services)): the affected services and Compose commands
   come only from `planServiceAction` in `internal/stacks/serviceplan.go`;
   every command names its services explicitly, with `--no-deps` where Compose
   would add more. What the confirmation showed must be exactly what runs.
@@ -78,7 +78,7 @@ The root `AGENTS.md` has the rules for both parts. In the agent:
 - **Public routes are explicit:** the middleware denies by default; only the
   method + path entries in `publicRoutes` (`agent/internal/api/auth.go`) are
   public. Add one only deliberately.
-- **Two tokens, strictly separate** (decision 26): `GANTRY_TOKEN` only as
+- **Two tokens, strictly separate** ([decision 26](../docs/decisions.md#26-separate-tokens-for-the-api-and-the-web-login)): `GANTRY_TOKEN` only as
   bearer (`validAPIToken`), `GANTRY_UI_TOKEN` only at the login
   (`validUIToken`). Never accept one in the other's place; an empty one
   turns its way in off.
@@ -93,16 +93,16 @@ The root `AGENTS.md` has the rules for both parts. In the agent:
 - **Never expose secrets from stacks:** return Compose files as stored, never
   the resolved configuration (`docker compose config` output). `.env` values
   only through the reveal endpoint, one value per explicit request
-  (decision 18). Read Compose data with `--no-interpolate`.
+  ([decision 18](../docs/decisions.md#18-env-values-only-on-request)). Read Compose data with `--no-interpolate`.
 - **Never log values:** audit logs name the stack, file and keys, never
   `.env` values or file contents. The auth middleware logs every changing
   request with `via=token|session`, never its body.
 - Validate stack names with `stacks.ValidName` before using them in paths or
   commands. Symlinked stack directories and Compose files are never managed;
   file access goes through `os.Root`.
-- **Assume exposure to the internet** (decision 21): credentials over plain
+- **Assume exposure to the internet** ([decision 21](../docs/decisions.md#21-safe-even-when-exposed-to-the-internet)): credentials over plain
   HTTP from internet addresses are refused (`network.insecure`), client
   addresses come from `network.client` (trusted proxies only), the binary
   listens on 127.0.0.1 by default. Whether a request came over HTTPS is
   `network.secureTransport`: behind a trusted or private proxy its
-  `X-Forwarded-Proto`, not `r.TLS` (decision 27). Keep new endpoints behind these checks.
+  `X-Forwarded-Proto`, not `r.TLS` ([decision 27](../docs/decisions.md#27-tls-in-the-agent)). Keep new endpoints behind these checks.

@@ -4,6 +4,8 @@
     "ms-azuretools.vscode-containers",
     "github.vscode-github-actions",
     "editorconfig.editorconfig",
-    "humao.rest-client"
+    "humao.rest-client",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode"
   ]
 }

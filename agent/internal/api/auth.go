@@ -43,7 +43,7 @@ type authKey struct{}
 
 type authenticator struct {
 	// apiToken is accepted only as "Authorization: Bearer", uiToken only by
-	// the login (decision 26). Either may be empty: that way is off.
+	// the login (docs/decisions.md, decision 26). Either may be empty: that way is off.
 	apiToken string
 	uiToken  string
 	sessions *session.Store
