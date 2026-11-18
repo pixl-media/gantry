@@ -2,6 +2,24 @@
 
 Every entry is a merged pull request.
 
+## [0.1.1](https://github.com/pixl-media/gantry/releases/tag/v0.1.1) (2026-11-18)
+
+### Features
+
+- Web UI: logo in the header, English by default ([#26](https://github.com/pixl-media/gantry/pull/26))
+- Web UI: port configurable with GANTRY_WEB_PORT ([#27](https://github.com/pixl-media/gantry/pull/27))
+- Stack file access: report missing access, lock editing, targeted chown ([#28](https://github.com/pixl-media/gantry/pull/28))
+
+### Fixes
+
+- Keep the release notes in GoReleaser releases ([#22](https://github.com/pixl-media/gantry/pull/22))
+
+### Maintenance
+
+- Docs: link decisions, update the README for v0.1 ([#23](https://github.com/pixl-media/gantry/pull/23))
+- Logo: a gantry crane holding a container ([#24](https://github.com/pixl-media/gantry/pull/24))
+- Docs: resource usage tools and no self-update ([#25](https://github.com/pixl-media/gantry/pull/25))
+
 ## [0.1.0](https://github.com/pixl-media/gantry/releases/tag/v0.1.0) (2026-11-17)
 
 ### Features
