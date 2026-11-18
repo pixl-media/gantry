@@ -9,9 +9,26 @@ const agent = process.env.GANTRY_AGENT_URL ?? 'http://127.0.0.1:7070';
 export default defineConfig({
   plugins: [react()],
   build: {
-    // One bundle of ~220 KB gzip (mostly MUI). It's an admin UI that is
-    // loaded once and then cached as immutable, so splitting isn't worth it.
-    chunkSizeWarningLimit: 800,
+    rolldownOptions: {
+      output: {
+        // The libraries in chunks of their own: each stays below the size
+        // warning, loads in parallel, and stays cached across gantry
+        // releases that don't update it. The Compose editor (CodeMirror)
+        // is loaded lazily and keeps its own chunk.
+        codeSplitting: {
+          groups: [
+            {
+              name: 'react',
+              test: /[\\/]node_modules[\\/](react|react-dom|scheduler|react-router)[\\/]/,
+            },
+            {
+              name: 'mui',
+              test: /[\\/]node_modules[\\/](@mui|@emotion|@popperjs|stylis|react-transition-group)[\\/]/,
+            },
+          ],
+        },
+      },
+    },
   },
   server: {
     host: '127.0.0.1',
