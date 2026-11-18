@@ -17,6 +17,7 @@ import { LiveProvider } from '../api/live';
 import { useLogout } from '../api/queries';
 import { languages } from '../i18n';
 import { ColorSchemeMenu } from './ColorSchemeMenu';
+import { Logo } from './Logo';
 
 const languageNames: Record<(typeof languages)[number], string> = {
   en: 'English',
@@ -33,17 +34,24 @@ export function AppLayout() {
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppBar position="sticky" elevation={0}>
         <Toolbar sx={{ gap: 2 }}>
-          <Link
-            component={RouterLink}
-            to="/"
-            color="inherit"
-            underline="none"
-            sx={{ flex: 1 }}
-          >
-            <Typography variant="h6" component="span" sx={{ fontWeight: 700 }}>
-              {t('app.title')}
-            </Typography>
-          </Link>
+          <Box sx={{ flex: 1 }}>
+            <Link
+              component={RouterLink}
+              to="/"
+              color="inherit"
+              underline="none"
+              sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.25 }}
+            >
+              <Logo />
+              <Typography
+                variant="h6"
+                component="span"
+                sx={{ fontWeight: 700 }}
+              >
+                {t('app.title')}
+              </Typography>
+            </Link>
+          </Box>
           <Select
             size="small"
             value={current}
