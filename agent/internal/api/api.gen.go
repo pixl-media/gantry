@@ -563,6 +563,15 @@ type LogLine struct {
 // LogLineStream defines model for LogLine.Stream.
 type LogLineStream string
 
+// LoginMethods defines model for LoginMethods.
+type LoginMethods struct {
+	// Oidc Single sign-on (`GET /api/v1/session/oidc`) works.
+	Oidc bool `json:"oidc"`
+
+	// Token The web login token (`POST /api/v1/session`) works.
+	Token bool `json:"token"`
+}
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	// Token The agent's `GANTRY_UI_TOKEN`.
@@ -707,6 +716,11 @@ type Session struct {
 
 	// Method How this request was authenticated.
 	Method SessionMethod `json:"method"`
+
+	// User Who logged in, for sessions from single sign-on: the email
+	// address, or else the user name or subject from the identity
+	// provider.
+	User *string `json:"user,omitempty"`
 }
 
 // SessionMethod How this request was authenticated.
@@ -902,6 +916,23 @@ type ListOperationsParams struct {
 	Stack *string `form:"stack,omitempty" json:"stack,omitempty"`
 }
 
+// StartOidcLoginParams defines parameters for StartOidcLogin.
+type StartOidcLoginParams struct {
+	// ReturnTo Path of the web UI to return to after the login, such as
+	// `/stacks/whoami`. Only paths on this site count; anything else
+	// returns to `/`.
+	ReturnTo *string `form:"returnTo,omitempty" json:"returnTo,omitempty"`
+}
+
+// FinishOidcLoginParams defines parameters for FinishOidcLogin.
+type FinishOidcLoginParams struct {
+	Code  *string `form:"code,omitempty" json:"code,omitempty"`
+	State *string `form:"state,omitempty" json:"state,omitempty"`
+
+	// Error Set by the identity provider if the login failed there.
+	Error *string `form:"error,omitempty" json:"error,omitempty"`
+}
+
 // DeleteStackParams defines parameters for DeleteStack.
 type DeleteStackParams struct {
 	// Confirm The stack name again.
@@ -973,6 +1004,15 @@ type ServerInterface interface {
 	// CreateSession Log in
 	// (POST /api/v1/session)
 	CreateSession(w http.ResponseWriter, r *http.Request)
+	// GetLoginMethods Ways to log in
+	// (GET /api/v1/session/methods)
+	GetLoginMethods(w http.ResponseWriter, r *http.Request)
+	// StartOidcLogin Log in with single sign-on
+	// (GET /api/v1/session/oidc)
+	StartOidcLogin(w http.ResponseWriter, r *http.Request, params StartOidcLoginParams)
+	// FinishOidcLogin Return from the identity provider
+	// (GET /api/v1/session/oidc/callback)
+	FinishOidcLogin(w http.ResponseWriter, r *http.Request, params FinishOidcLoginParams)
 	// ListStacks List stacks
 	// (GET /api/v1/stacks)
 	ListStacks(w http.ResponseWriter, r *http.Request)
@@ -1201,6 +1241,112 @@ func (siw *ServerInterfaceWrapper) CreateSession(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateSession(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLoginMethods operation middleware
+func (siw *ServerInterfaceWrapper) GetLoginMethods(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLoginMethods(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartOidcLogin operation middleware
+func (siw *ServerInterfaceWrapper) StartOidcLogin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StartOidcLoginParams
+
+	// ------------- Optional query parameter "returnTo" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "returnTo", r.URL.Query(), &params.ReturnTo, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "returnTo"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "returnTo", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartOidcLogin(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// FinishOidcLogin operation middleware
+func (siw *ServerInterfaceWrapper) FinishOidcLogin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params FinishOidcLoginParams
+
+	// ------------- Optional query parameter "code" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "code", r.URL.Query(), &params.Code, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "code"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "error" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "error", r.URL.Query(), &params.Error, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "error"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "error", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FinishOidcLogin(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1777,6 +1923,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/session", wrapper.DeleteSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/session", wrapper.GetSession)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/session", wrapper.CreateSession)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/session/methods", wrapper.GetLoginMethods)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/session/oidc", wrapper.StartOidcLogin)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/session/oidc/callback", wrapper.FinishOidcLogin)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks", wrapper.ListStacks)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks", wrapper.CreateStack)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/stacks/{name}", wrapper.DeleteStack)
@@ -2295,6 +2444,83 @@ func (response CreateSession429JSONResponse) VisitCreateSessionResponse(w http.R
 	w.WriteHeader(429)
 	_, err := buf.WriteTo(w)
 	return err
+}
+
+type GetLoginMethodsRequestObject struct {
+}
+
+type GetLoginMethodsResponseObject interface {
+	VisitGetLoginMethodsResponse(w http.ResponseWriter) error
+}
+
+type GetLoginMethods200JSONResponse LoginMethods
+
+func (response GetLoginMethods200JSONResponse) VisitGetLoginMethodsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartOidcLoginRequestObject struct {
+	Params StartOidcLoginParams
+}
+
+type StartOidcLoginResponseObject interface {
+	VisitStartOidcLoginResponse(w http.ResponseWriter) error
+}
+
+type StartOidcLogin302ResponseHeaders struct {
+	Location  *string
+	SetCookie *string
+}
+
+type StartOidcLogin302Response struct {
+	Headers StartOidcLogin302ResponseHeaders
+}
+
+func (response StartOidcLogin302Response) VisitStartOidcLoginResponse(w http.ResponseWriter) error {
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(302)
+	return nil
+}
+
+type FinishOidcLoginRequestObject struct {
+	Params FinishOidcLoginParams
+}
+
+type FinishOidcLoginResponseObject interface {
+	VisitFinishOidcLoginResponse(w http.ResponseWriter) error
+}
+
+type FinishOidcLogin302ResponseHeaders struct {
+	Location  *string
+	SetCookie *string
+}
+
+type FinishOidcLogin302Response struct {
+	Headers FinishOidcLogin302ResponseHeaders
+}
+
+func (response FinishOidcLogin302Response) VisitFinishOidcLoginResponse(w http.ResponseWriter) error {
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(302)
+	return nil
 }
 
 type ListStacksRequestObject struct {
@@ -3430,6 +3656,15 @@ type StrictServerInterface interface {
 	// CreateSession Log in
 	// (POST /api/v1/session)
 	CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error)
+	// GetLoginMethods Ways to log in
+	// (GET /api/v1/session/methods)
+	GetLoginMethods(ctx context.Context, request GetLoginMethodsRequestObject) (GetLoginMethodsResponseObject, error)
+	// StartOidcLogin Log in with single sign-on
+	// (GET /api/v1/session/oidc)
+	StartOidcLogin(ctx context.Context, request StartOidcLoginRequestObject) (StartOidcLoginResponseObject, error)
+	// FinishOidcLogin Return from the identity provider
+	// (GET /api/v1/session/oidc/callback)
+	FinishOidcLogin(ctx context.Context, request FinishOidcLoginRequestObject) (FinishOidcLoginResponseObject, error)
 	// ListStacks List stacks
 	// (GET /api/v1/stacks)
 	ListStacks(ctx context.Context, request ListStacksRequestObject) (ListStacksResponseObject, error)
@@ -3740,6 +3975,82 @@ func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateSessionResponseObject); ok {
 		if err := validResponse.VisitCreateSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetLoginMethods operation middleware
+func (sh *strictHandler) GetLoginMethods(w http.ResponseWriter, r *http.Request) {
+	var request GetLoginMethodsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetLoginMethods(ctx, request.(GetLoginMethodsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetLoginMethods")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetLoginMethodsResponseObject); ok {
+		if err := validResponse.VisitGetLoginMethodsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartOidcLogin operation middleware
+func (sh *strictHandler) StartOidcLogin(w http.ResponseWriter, r *http.Request, params StartOidcLoginParams) {
+	var request StartOidcLoginRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartOidcLogin(ctx, request.(StartOidcLoginRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartOidcLogin")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartOidcLoginResponseObject); ok {
+		if err := validResponse.VisitStartOidcLoginResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// FinishOidcLogin operation middleware
+func (sh *strictHandler) FinishOidcLogin(w http.ResponseWriter, r *http.Request, params FinishOidcLoginParams) {
+	var request FinishOidcLoginRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.FinishOidcLogin(ctx, request.(FinishOidcLoginRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "FinishOidcLogin")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(FinishOidcLoginResponseObject); ok {
+		if err := validResponse.VisitFinishOidcLoginResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

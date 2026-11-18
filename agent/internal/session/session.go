@@ -35,7 +35,16 @@ type Store struct {
 
 type entry struct {
 	exp  time.Time
+	user string
 	done chan struct{} // closed when the session is revoked or dropped
+}
+
+// Info describes a live session.
+type Info struct {
+	Expires time.Time
+	// User is who logged in through single sign-on; empty for a login
+	// with the web login token.
+	User string
 }
 
 // NewStore returns an empty Store. A zero ttl means DefaultTTL.
@@ -49,8 +58,9 @@ func NewStore(ttl time.Duration) *Store {
 // TTL returns how long issued sessions are valid.
 func (s *Store) TTL() time.Duration { return s.ttl }
 
-// Issue starts a session and returns its cookie value and expiry.
-func (s *Store) Issue() (string, time.Time) {
+// Issue starts a session for user (empty for the web login token) and
+// returns its cookie value and expiry.
+func (s *Store) Issue(user string) (string, time.Time) {
 	var id [32]byte
 	rand.Read(id[:]) // never fails (crypto/rand)
 	value := base64.RawURLEncoding.EncodeToString(id[:])
@@ -74,17 +84,17 @@ func (s *Store) Issue() (string, time.Time) {
 		}
 		s.endLocked(first, firstEntry)
 	}
-	s.sessions[sha256.Sum256([]byte(value))] = &entry{exp: exp, done: make(chan struct{})}
+	s.sessions[sha256.Sum256([]byte(value))] = &entry{exp: exp, user: user, done: make(chan struct{})}
 	return value, exp
 }
 
-// Verify reports whether value is a live session, and its expiry.
-func (s *Store) Verify(value string) (time.Time, bool) {
+// Verify reports whether value is a live session, and what it is.
+func (s *Store) Verify(value string) (Info, bool) {
 	e, ok := s.live(value)
 	if !ok {
-		return time.Time{}, false
+		return Info{}, false
 	}
-	return e.exp, true
+	return Info{Expires: e.exp, User: e.user}, true
 }
 
 // Done returns a channel that is closed when the session value is revoked
@@ -189,6 +199,22 @@ func (l *Limiter) Attempt(key string, success bool) (bool, time.Duration) {
 	}
 	l.failures[key] = append(recent, now)
 	return true, 0
+}
+
+// Blocked reports whether key has to wait, and how long, without counting
+// anything: for work that must not start while key is blocked, before its
+// result is known. Attempt records the result afterwards.
+func (l *Limiter) Blocked(key string) (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, tracked := l.failures[key]; !tracked && len(l.failures) >= l.maxKeys {
+		key = overflowKey
+	}
+	recent := l.recentLocked(key)
+	if len(recent) >= l.max {
+		return true, recent[0].Add(l.window).Sub(l.now())
+	}
+	return false, 0
 }
 
 // pruneLocked drops keys without recent failures.

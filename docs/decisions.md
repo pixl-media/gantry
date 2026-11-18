@@ -35,6 +35,7 @@ here instead of editing history.
 27. [TLS in the agent](#27-tls-in-the-agent)
 28. [Packages and releases](#28-packages-and-releases)
 29. [Write access: checked, never changed](#29-write-access-checked-never-changed)
+30. [Single sign-on with OIDC](#30-single-sign-on-with-oidc)
 
 ## 1. Agent in Go
 
@@ -622,6 +623,8 @@ its operations every 5 seconds, per open tab, and every list request ran
     state. An identity provider (OIDC) gives that without state. Revisit
     only for a concrete need on servers without one.
 
+  *The OIDC login came with [decision 30](#30-single-sign-on-with-oidc).*
+
 ## 26. Separate tokens for the API and the web login
 
 **Decided 2026-11-17.** One token served API clients and the web login. A
@@ -648,6 +651,10 @@ scripts included.
 - Rejected: a web UI password instead of a second token (weaker than a
   random token, [decision 25](#25-scope-a-lightweight-manager-for-one-host)), and accepting the API token at the login as a
   fallback (it would quietly undo the split).
+
+*Extended by [decision 30](#30-single-sign-on-with-oidc):* single sign-on is a third way in, for the web
+UI only. Its sessions have the same power; `GANTRY_UI_TOKEN` becomes
+optional next to it.
 
 ## 27. TLS in the agent
 
@@ -746,3 +753,56 @@ from them.
 - The contents of a stack's directory aren't checked: deleting stops at
   files the agent may not remove, and the Compose file goes last, so the
   stack stays listed.
+
+## 30. Single sign-on with OIDC
+
+**Decided 2026-11-18.** The web login token is one factor, shared by
+everyone who logs in. An identity provider such as authentik or Keycloak
+brings two-factor login, passkeys and one account per person, which
+gantry shouldn't build itself ([decision 25](#25-scope-a-lightweight-manager-for-one-host)).
+
+- **Optional, for the web UI:** `GANTRY_OIDC_ISSUER`, `_CLIENT_ID` and
+  `_CLIENT_SECRET` turn it on. A finished login gets an ordinary session
+  (same store, 12 hours, same power as the token's); API clients keep the
+  bearer token. `GANTRY_UI_TOKEN` stays as a way in while the provider is
+  down, but is optional now.
+- **An allow list is required** (`GANTRY_OIDC_ALLOWED_GROUPS`,
+  `_EMAILS`), or the agent doesn't start: otherwise every account at the
+  provider, which may be one many people can sign up with, would be root on
+  the host. Groups from the ID token's `groups` claim, addresses only if
+  `email_verified` is true. No roles: everyone on the list can do
+  everything.
+- **The standard flow, nothing stored:** authorization code with PKCE,
+  state and nonce, as a confidential client. What the callback needs (state,
+  nonce, PKCE verifier, the page to return to) travels in a cookie the
+  agent signs with a key made at start, valid 10 minutes. No list of logins
+  in progress that requests could fill. That cookie is `SameSite=Lax`
+  because the provider's redirect back comes from another site; the
+  session cookie stays `Strict`.
+- **ID tokens only with key pairs:** RS256, ES256 and the like, checked
+  with the provider's published keys (go-oidc). HS256, signed with the
+  client secret, is refused: the secret sits in more places than a private
+  key. Issuer, audience (and `azp` with several audiences), expiry and
+  nonce are checked; claims come from the ID token, not the userinfo
+  endpoint.
+- **Calls to the provider only during logins:** discovery and keys when
+  first needed, then the code exchange. No background calls
+  ([decision 25](#25-scope-a-lightweight-manager-for-one-host)); the agent starts while the provider is down, and the
+  next login tries again.
+- **Bounded and logged:** codes and ID tokens that don't hold up count
+  against the same limit as wrong tokens ([decision 21](#21-safe-even-when-exposed-to-the-internet)), checked before the code
+  exchange, so a blocked client can't make the agent call the provider.
+  Callbacks without the flow cookie, logins ended at the provider and
+  accounts not on the allow list don't count: they ask nothing extra of the
+  provider, and behind a shared proxy address one person's tries would lock
+  everyone out. Sessions remember the user, and the audit log adds `user=`
+  to every change; the login's log line also has the provider's subject,
+  which users can't change, unlike a user name.
+- **`GANTRY_PUBLIC_URL` is required:** the redirect URI is built from it.
+  It and the issuer must be `https`, except on this host, for tests.
+- **Return paths** are plain paths of the web UI; anything a browser could
+  read as another host, and `/api/`, returns to `/`.
+- Not now: logging out at the provider (RP-initiated or back-channel
+  logout), claims from the userinfo endpoint, another claim name for groups,
+  roles. Taking someone off the allow list takes effect at their next
+  login; a restart of the agent ends all sessions at once.

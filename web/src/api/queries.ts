@@ -6,6 +6,16 @@ export function useSession() {
   return $api.useQuery('get', '/api/v1/session', {}, { retry: false });
 }
 
+/** Which ways to log in the agent offers (public). */
+export function useLoginMethods() {
+  return $api.useQuery(
+    'get',
+    '/api/v1/session/methods',
+    {},
+    { retry: false, staleTime: Infinity },
+  );
+}
+
 // gcTime 0 on mutations whose variables hold the token or .env values:
 // TanStack keeps a finished mutation, variables included, for 5 minutes by
 // default; this drops it once the component is gone.

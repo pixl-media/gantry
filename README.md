@@ -115,21 +115,31 @@ within a minute, by login or `Authorization` header, a client has to wait
 such limit, unless the proxy is listed in `GANTRY_TRUSTED_PROXIES`; then each
 browser has its own.
 
+**Single sign-on:** optionally, the login page also offers *Sign in with
+single sign-on* through an identity provider (OIDC), such as authentik or
+Keycloak, with its two-factor login and passkeys; only accounts on an allow
+list get in (see [Single sign-on](#single-sign-on-oidc)).
+
 ## API
 
 Routes under `/api/` require authentication: `Authorization: Bearer
 <GANTRY_TOKEN>` for API clients, or the session cookie for the web UI (from a
-login with `GANTRY_UI_TOKEN`). Each token works only in its own place. With
+login with `GANTRY_UI_TOKEN` or single sign-on). Each token works only in its
+own place. With
 the cookie, changing requests (POST, PUT, PATCH, DELETE) must come from the
 same origin (`Origin` header), which protects against cross-site request
 forgery. The agent logs every changing request with how it was
-authenticated (`via=token` or `via=session`), never with its body.
+authenticated (`via=token` or `via=session`, with `user=` after single
+sign-on), never with its body.
 
 | Route | Description |
 |---|---|
 | `GET /healthz` | Liveness check, public. 200 while the agent runs, even if Docker is down |
 | `POST /api/v1/session` | Log in with `{"token": …}` (`GANTRY_UI_TOKEN`); sets the session cookie (public) |
-| `GET /api/v1/session` | Whether and how the request is authenticated |
+| `GET /api/v1/session/methods` | Which ways to log in the agent offers: `{"token": …, "oidc": …}` (public) |
+| `GET /api/v1/session/oidc` | Single sign-on: redirects the browser to the identity provider (public) |
+| `GET /api/v1/session/oidc/callback` | Where the identity provider sends the browser back; sets the session cookie (public) |
+| `GET /api/v1/session` | Whether and how the request is authenticated, and who logged in by single sign-on |
 | `DELETE /api/v1/session` | Log out; clears the cookie (public) |
 | `GET /api/v1/version` | Agent version |
 | `GET /api/v1/info` | Agent version and its Docker host: name, system, architecture, kernel, Docker and Compose versions |
@@ -380,7 +390,13 @@ gh attestation verify gantry-agent_0.1.0_amd64.deb -R pixl-media/gantry
 | `GANTRY_ALLOW_INSECURE_HTTP` | `false` | Accept tokens and session cookies over plain HTTP from internet addresses. Only if you know why: anyone on the way can read them. Also understood by the web UI's container |
 | `GANTRY_TLS_CERT` | (none) | PEM certificate (with its chain) for HTTPS on the agent itself, with `GANTRY_TLS_KEY`. Replaced files are picked up without a restart; see [TLS in the agent](#tls-in-the-agent) |
 | `GANTRY_TLS_KEY` | (none) | PEM private key for `GANTRY_TLS_CERT`; make it readable only by the agent |
-| `GANTRY_PUBLIC_URL` | (none) | Address of the web UI, e.g. `https://gantry.example.com`. If set, cookie-authenticated requests must come from exactly this origin, and with `https` the session cookie is `Secure` and named `__Host-gantry_session` |
+| `GANTRY_PUBLIC_URL` | (none) | Address of the web UI, e.g. `https://gantry.example.com`. If set, cookie-authenticated requests must come from exactly this origin, and with `https` the session cookie is `Secure` and named `__Host-gantry_session`. Required for single sign-on |
+| `GANTRY_OIDC_ISSUER` | (none) | Identity provider for single sign-on, exactly as it announces itself, e.g. `https://auth.example.com/application/o/gantry/`. Together with the next two, turns single sign-on on; see [Single sign-on](#single-sign-on-oidc) |
+| `GANTRY_OIDC_CLIENT_ID` | (none) | gantry's client ID at the identity provider |
+| `GANTRY_OIDC_CLIENT_SECRET` | (none) | Its client secret; or `GANTRY_OIDC_CLIENT_SECRET_FILE` with a file holding it |
+| `GANTRY_OIDC_ALLOWED_GROUPS` | (none) | Groups whose members may log in (the ID token's `groups` claim), comma-separated. This one or the next is required |
+| `GANTRY_OIDC_ALLOWED_EMAILS` | (none) | Email addresses that may log in, comma-separated; only addresses the provider has verified count |
+| `GANTRY_OIDC_SCOPES` | `openid profile email` | Scopes to ask the provider for; add `groups` for providers that send groups only then (e.g. Dex) |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker socket (only `unix://` is supported) |
 
 **Two tokens:** if one leaks or lands in the wrong place, replace just that
@@ -572,6 +588,57 @@ Behind a proxy, what counts for `https_required` and the `Secure` cookie is
 still the browser's connection (`X-Forwarded-Proto`), not the proxy's. HSTS
 stays tied to an `https` `GANTRY_PUBLIC_URL`.
 
+### Single sign-on (OIDC)
+
+Next to the web login token, or instead of it, the web UI can log in
+through an identity provider that speaks OpenID Connect, such as authentik,
+Keycloak or Dex. Two-factor login and passkeys then come from the provider;
+gantry stores nothing.
+
+1. At the provider, create an application for gantry:
+   - a confidential client (with a client secret), authorization code flow;
+   - redirect URI: `GANTRY_PUBLIC_URL` plus `/api/v1/session/oidc/callback`,
+     e.g. `https://gantry.example.com/api/v1/session/oidc/callback`;
+   - ID tokens signed with a key pair (RS256, ES256 and the like). In
+     authentik, select a signing key: without one, it signs with the client
+     secret (HS256), which gantry refuses.
+2. Set on the agent, then restart it:
+
+   ```bash
+   GANTRY_PUBLIC_URL=https://gantry.example.com
+   GANTRY_OIDC_ISSUER=https://auth.example.com/application/o/gantry/
+   GANTRY_OIDC_CLIENT_ID=<client ID>
+   GANTRY_OIDC_CLIENT_SECRET_FILE=/etc/gantry/oidc-client-secret
+   GANTRY_OIDC_ALLOWED_GROUPS=gantry-admins
+   ```
+
+The login page then shows *Sign in with single sign-on*.
+
+- **An allow list is required:** only members of a group in
+  `GANTRY_OIDC_ALLOWED_GROUPS` or addresses in `GANTRY_OIDC_ALLOWED_EMAILS`
+  get in; without either, the agent doesn't start. Everyone on the list can
+  do everything, like with the token. Addresses count only if the provider
+  marks them verified (`email_verified`); authentik doesn't by default
+  (since 2025.10), so use a group there.
+- **Claims come from the ID token.** authentik puts the groups in it with
+  the `profile` scope ("Include claims in id_token"). Providers that send
+  groups only for a `groups` scope, such as Dex, need
+  `GANTRY_OIDC_SCOPES=openid profile email groups`.
+- **The issuer** must be exactly what the provider announces, trailing slash
+  included (authentik's ends with `/`).
+- **HTTPS:** the issuer and `GANTRY_PUBLIC_URL` must use `https` (`http`
+  only on this host, for tests). For a provider with a certificate from your
+  own CA, point the agent's `SSL_CERT_FILE` at the CA's certificate.
+- **Sessions** are the same as with the token: 12 hours, ended by logging
+  out. Logging out ends the session in gantry, not the one at the provider.
+  Taking someone off the allow list takes effect at their next login; to end
+  all sessions at once, restart the agent.
+- **Keep `GANTRY_UI_TOKEN`** as a way in while the provider is down; without
+  it, single sign-on is the only way into the web UI.
+- The agent talks to the provider only during logins, and starts without
+  it. Its log names who logged in (`single sign-on login`), who was refused,
+  and the user of every change (`user=`).
+
 ## Layout
 
 | Path | What |
@@ -668,7 +735,8 @@ This is a development tool only; the agent doesn't serve docs itself.
   known.
 - Operations are kept in memory only and are lost when the agent restarts.
 - Swagger UI (`make docs`) can't display the event stream; use `curl -N`.
-- One shared web login (`GANTRY_UI_TOKEN`); there are no user accounts
+- No user accounts or roles: the web login token is shared, and everyone on
+  the single sign-on allow list has the same rights
   ([decision 25](docs/decisions.md#25-scope-a-lightweight-manager-for-one-host)).
 - Files edited directly on the host (not through gantry) show up in the web
   UI within a minute; Docker reports no event for them.

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pixl-media/gantry/agent/internal/oidc"
 	"github.com/pixl-media/gantry/agent/internal/session"
 	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 )
@@ -24,6 +25,11 @@ var publicRoutes = map[string]bool{
 	"HEAD /healthz":          true,
 	"POST /api/v1/session":   true, // log in
 	"DELETE /api/v1/session": true, // log out, also with an expired session
+	// The login page asks which ways in exist; single sign-on starts and
+	// returns before there is a session.
+	"GET /api/v1/session/methods":       true,
+	"GET /api/v1/session/oidc":          true,
+	"GET /api/v1/session/oidc/callback": true,
 }
 
 type authMethod string
@@ -37,6 +43,7 @@ type authInfo struct {
 	method  authMethod
 	expires time.Time // cookie only
 	session string    // cookie only: the session, to end streams with it
+	user    string    // cookie only: who logged in by single sign-on
 }
 
 type authKey struct{}
@@ -46,6 +53,9 @@ type authenticator struct {
 	// the login (docs/decisions.md, decision 26). Either may be empty: that way is off.
 	apiToken string
 	uiToken  string
+	// sso logs in through an identity provider (docs/decisions.md,
+	// decision 30); nil means off.
+	sso      *oidc.Client
 	sessions *session.Store
 	// limiter counts wrong tokens per client, from logins and bearer
 	// headers alike.
@@ -60,9 +70,15 @@ type authenticator struct {
 	publicOrigin string
 	// cookieName is session.CookieName, with the __Host- prefix for an
 	// https public URL: browsers then accept the cookie only if it is
-	// Secure, for this host, and set by this host.
-	cookieName string
+	// Secure, for this host, and set by this host. flowCookieName is the
+	// same for single sign-on's flow cookie.
+	cookieName     string
+	flowCookieName string
 }
+
+// webLogin reports whether the web UI can log in at all, so that sessions
+// exist.
+func (a *authenticator) webLogin() bool { return a.uiToken != "" || a.sso != nil }
 
 // cookie returns the session cookie with its security attributes. maxAge
 // -1 deletes it.
@@ -130,12 +146,12 @@ func (a *authenticator) authenticate(r *http.Request) (authInfo, error) {
 		}
 		return authInfo{method: authToken}, nil
 	}
-	if a.uiToken == "" {
+	if !a.webLogin() {
 		return authInfo{}, errUnauthorized // no web login, so no sessions
 	}
 	if c, err := r.Cookie(a.cookieName); err == nil {
-		if exp, ok := a.sessions.Verify(c.Value); ok {
-			return authInfo{method: authCookie, expires: exp, session: c.Value}, nil
+		if s, ok := a.sessions.Verify(c.Value); ok {
+			return authInfo{method: authCookie, expires: s.Expires, session: c.Value, user: s.User}, nil
 		}
 	}
 	return authInfo{}, errUnauthorized
@@ -243,8 +259,12 @@ func (a *authenticator) middleware(next http.Handler) http.Handler {
 		if !safeMethod(r.Method) {
 			// Who changed something, and whether from a browser (session)
 			// or a script (token). Never bodies: they can hold secrets.
-			a.logger.Info("api request", "method", r.Method, "path", r.URL.Path,
-				"client", a.net.client(r).String(), "via", auditVia(info.method))
+			args := []any{"method", r.Method, "path", r.URL.Path,
+				"client", a.net.client(r).String(), "via", auditVia(info.method)}
+			if info.user != "" {
+				args = append(args, "user", info.user)
+			}
+			a.logger.Info("api request", args...)
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authKey{}, info)))
 	})

@@ -12,15 +12,19 @@ func TestIssueAndVerify(t *testing.T) {
 	s := NewStore(time.Hour)
 	s.now = func() time.Time { return now }
 
-	value, exp := s.Issue()
+	value, exp := s.Issue("")
 	if len(value) < 40 || !exp.Equal(now.Add(time.Hour)) {
 		t.Fatalf("value = %q, exp = %v", value, exp)
 	}
-	if got, ok := s.Verify(value); !ok || !got.Equal(exp) {
-		t.Errorf("Verify = %v, %v", got, ok)
+	if got, ok := s.Verify(value); !ok || !got.Expires.Equal(exp) || got.User != "" {
+		t.Errorf("Verify = %+v, %v", got, ok)
 	}
-	if other, _ := s.Issue(); other == value {
+	other, _ := s.Issue("alice@example.com")
+	if other == value {
 		t.Error("two sessions got the same ID")
+	}
+	if got, _ := s.Verify(other); got.User != "alice@example.com" {
+		t.Errorf("user = %q, want the one from Issue", got.User)
 	}
 
 	// Expired at the TTL.
@@ -32,7 +36,7 @@ func TestIssueAndVerify(t *testing.T) {
 
 func TestVerifyRejectsUnknownValues(t *testing.T) {
 	s := NewStore(time.Hour)
-	value, _ := s.Issue()
+	value, _ := s.Issue("")
 	for _, v := range []string{"", "garbage", value + "x", value[:len(value)-1]} {
 		if _, ok := s.Verify(v); ok {
 			t.Errorf("Verify(%q) = ok, want rejected", v)
@@ -46,8 +50,8 @@ func TestVerifyRejectsUnknownValues(t *testing.T) {
 
 func TestRevoke(t *testing.T) {
 	s := NewStore(time.Hour)
-	a, _ := s.Issue()
-	b, _ := s.Issue()
+	a, _ := s.Issue("")
+	b, _ := s.Issue("")
 	s.Revoke(a)
 	if _, ok := s.Verify(a); ok {
 		t.Error("revoked session still valid")
@@ -62,10 +66,10 @@ func TestStoreIsBounded(t *testing.T) {
 	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
 	s := NewStore(time.Hour)
 	s.now = func() time.Time { return now }
-	first, _ := s.Issue()
+	first, _ := s.Issue("")
 	for range maxSessions {
 		now = now.Add(time.Second) // later sessions expire later
-		s.Issue()
+		s.Issue("")
 	}
 	if len(s.sessions) != maxSessions {
 		t.Errorf("%d sessions stored, want at most %d", len(s.sessions), maxSessions)
@@ -112,6 +116,26 @@ func TestLimiter(t *testing.T) {
 	}
 }
 
+func TestLimiterBlocked(t *testing.T) {
+	l := NewLimiter(2, time.Minute)
+	for range 2 {
+		if blocked, _ := l.Blocked("a"); blocked {
+			t.Fatal("blocked before the limit")
+		}
+		l.Attempt("a", false)
+	}
+	if blocked, wait := l.Blocked("a"); !blocked || wait <= 0 {
+		t.Errorf("Blocked = %v, %v after the limit", blocked, wait)
+	}
+	// Asking counts nothing.
+	for range 5 {
+		l.Blocked("b")
+	}
+	if ok, _ := l.Attempt("b", false); !ok {
+		t.Error("Blocked counted as an attempt")
+	}
+}
+
 func TestLimiterParallel(t *testing.T) {
 	l := NewLimiter(10, time.Minute)
 	var wg sync.WaitGroup
@@ -134,7 +158,7 @@ func TestLimiterParallel(t *testing.T) {
 
 func TestDone(t *testing.T) {
 	s := NewStore(time.Hour)
-	value, _ := s.Issue()
+	value, _ := s.Issue("")
 	done, exp, ok := s.Done(value)
 	if !ok || exp.IsZero() {
 		t.Fatal("Done of a live session failed")

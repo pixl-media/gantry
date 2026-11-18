@@ -13,6 +13,9 @@ func (h *handlers) GetSession(ctx context.Context, _ GetSessionRequestObject) (G
 	if info.method == authCookie {
 		s.ExpiresAt = &info.expires
 	}
+	if info.user != "" {
+		s.User = &info.user
+	}
 	return GetSession200JSONResponse(s), nil
 }
 
@@ -45,7 +48,7 @@ func (h *handlers) CreateSession(ctx context.Context, req CreateSessionRequestOb
 		return CreateSession401JSONResponse(apiError(errors.New("invalid token"), ErrorCodeInvalidToken)), nil
 	}
 
-	value, exp := h.auth.sessions.Issue()
+	value, exp := h.auth.sessions.Issue("")
 	cookie := h.auth.cookie(r, value, int(h.auth.sessions.TTL().Seconds()))
 	cookie.Expires = exp
 	c := cookie.String()

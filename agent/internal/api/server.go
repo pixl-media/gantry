@@ -17,6 +17,7 @@ import (
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/live"
 	"github.com/pixl-media/gantry/agent/internal/logs"
+	"github.com/pixl-media/gantry/agent/internal/oidc"
 	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/session"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
@@ -63,7 +64,10 @@ type Config struct {
 	// UIToken is the web login token (GANTRY_UI_TOKEN), exchanged for a
 	// session at POST /api/v1/session. Empty turns the web login off. The
 	// two are never accepted in each other's place (docs/decisions.md, decision 26).
-	UIToken    string
+	UIToken string
+	// OIDC logs in through an identity provider (single sign-on); nil
+	// turns it off. Its sessions are the same as the web login token's.
+	OIDC       *oidc.Client
 	Version    string
 	Stacks     StackService
 	Operations OperationService
@@ -98,18 +102,21 @@ func New(cfg Config) http.Handler {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 	auth := &authenticator{
-		apiToken:     cfg.Token,
-		uiToken:      cfg.UIToken,
-		sessions:     session.NewStore(0),
-		limiter:      session.NewLimiter(maxFailedAttempts, time.Minute),
-		failures:     newFailureLog(cfg.Logger),
-		logger:       cfg.Logger,
-		net:          network{trusted: cfg.TrustedProxies, allowInsecureHTTP: cfg.AllowInsecureHTTP},
-		publicOrigin: cfg.PublicOrigin,
-		cookieName:   session.CookieName,
+		apiToken:       cfg.Token,
+		uiToken:        cfg.UIToken,
+		sso:            cfg.OIDC,
+		sessions:       session.NewStore(0),
+		limiter:        session.NewLimiter(maxFailedAttempts, time.Minute),
+		failures:       newFailureLog(cfg.Logger),
+		logger:         cfg.Logger,
+		net:            network{trusted: cfg.TrustedProxies, allowInsecureHTTP: cfg.AllowInsecureHTTP},
+		publicOrigin:   cfg.PublicOrigin,
+		cookieName:     session.CookieName,
+		flowCookieName: flowCookieName,
 	}
 	if strings.HasPrefix(cfg.PublicOrigin, "https://") {
 		auth.cookieName = "__Host-" + session.CookieName
+		auth.flowCookieName = "__Host-" + flowCookieName
 	}
 	h := &handlers{cfg: cfg, auth: auth}
 	invalid := ErrorCodeInvalidRequest

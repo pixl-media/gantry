@@ -4,7 +4,8 @@
     "stacks": "Stacks",
     "logout": "Log out",
     "language": "Language",
-    "colorScheme": "Appearance"
+    "colorScheme": "Appearance",
+    "logoutUser": "Log out ({{user}})"
   },
   "colorScheme": {
     "system": "System",
@@ -18,8 +19,16 @@
     "submit": "Sign in",
     "invalidToken": "Wrong token.",
     "tooManyAttempts": "Too many failed attempts. Try again in a minute.",
-    "disabled": "The web login is off: GANTRY_UI_TOKEN is not set on the agent.",
-    "failed": "Sign-in failed: {{message}}"
+    "disabled": "The web login is off: the agent has neither GANTRY_UI_TOKEN nor single sign-on (GANTRY_OIDC_*).",
+    "tokenDisabled": "Signing in with a token is off: GANTRY_UI_TOKEN is not set on the agent.",
+    "failed": "Sign-in failed: {{message}}",
+    "sso": "Sign in with single sign-on",
+    "or": "or",
+    "ssoDenied": "Your account isn't allowed to use gantry. Ask the administrator to add it to an allowed group.",
+    "ssoUnavailable": "The identity provider can't be reached. Try again later.",
+    "ssoFailed": "Single sign-on failed. Try again; the agent's log has the details.",
+    "ssoDisabled": "Single sign-on isn't set up on the agent.",
+    "httpsRequired": "Signing in from this address needs HTTPS."
   },
   "status": {
     "running": "Running",

@@ -16,7 +16,7 @@ This file holds what applies everywhere. Details for one part are in
 | `agent/` | Go agent, see `agent/AGENTS.md` |
 | `agent/cmd/gantry-agent/main.go` | Configuration (`GANTRY_*`), token check, startup |
 | `agent/internal/api/` | HTTP wiring: `server.go`, `auth.go` (auth middleware, `publicRoutes`), `clients.go` (client address, plain-HTTP guard), `handlers.go`, `api.gen.go` (generated) |
-| `agent/internal/*/` | `docker`, `compose`, `stacks`, `operations`, `logs`, `session`, `stackfiles`, `tlscert`, `volumes` (roles in `agent/AGENTS.md`) |
+| `agent/internal/*/` | `docker`, `compose`, `stacks`, `operations`, `logs`, `session`, `oidc`, `stackfiles`, `tlscert`, `volumes` (roles in `agent/AGENTS.md`) |
 | `agent/tools/devdocs/` | Dev-only Swagger UI (`make docs`) |
 | `web/` | Web UI, see `web/AGENTS.md` |
 | `web/src/` | `api/` (generated types, hooks), `components/`, `pages/`, `lib/`, `i18n/`, `theme.ts` |
@@ -84,6 +84,9 @@ and `web/AGENTS.md`.
   (`agent/internal/api/auth.go`) are public; add one only deliberately.
 - **Two tokens, strictly separate** ([decision 26](docs/decisions.md#26-separate-tokens-for-the-api-and-the-web-login)): `GANTRY_TOKEN` only as
   bearer for API clients, `GANTRY_UI_TOKEN` only for the web login.
+- **Single sign-on needs its allow list** ([decision 30](docs/decisions.md#30-single-sign-on-with-oidc)): no OIDC login without
+  `GANTRY_OIDC_ALLOWED_GROUPS` or `_EMAILS`; ID tokens only with key-pair
+  signatures.
 - Never log tokens; keep the dev setup bound to 127.0.0.1.
 - **Never store tokens in the browser** (`localStorage`, `sessionStorage`,
   JS-readable cookies). The web UI only uses the `HttpOnly` session cookie.
