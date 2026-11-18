@@ -32,6 +32,21 @@
     "external": "Fremd",
     "externalHint": "Läuft außerhalb des Stacks-Ordners. gantry zeigt ihn an, verändert ihn aber nicht."
   },
+  "access": {
+    "title": "Fehlende Dateirechte",
+    "intro": "Der Agent läuft als Benutzer {{user}} und darf nicht:",
+    "write": "{{path}} schreiben",
+    "read": "{{path}} lesen",
+    "readOnlyFs": "(schreibgeschütztes Dateisystem)",
+    "notEditable": "Bis dahin lassen sich Compose-Datei und .env hier nicht ändern.",
+    "notDeletable": "Bis dahin lässt sich der Stack hier nicht löschen.",
+    "fix": "Freigeben lässt sich das mit diesem Befehl auf dem Host. Er ändert nur den Besitzer dieser Pfade, nicht die Daten des Stacks:",
+    "readOnlyFsHint": "Bei einem schreibgeschützten Dateisystem hilft kein neuer Besitzer; prüfe die Sandbox des Agent-Dienstes oder wie der Ordner eingebunden ist.",
+    "copy": "Befehl kopieren",
+    "copied": "Kopiert.",
+    "cannotCreate": "Der Agent (Benutzer {{user}}) darf {{path}} nicht schreiben. Freigeben auf dem Host mit: {{command}}",
+    "cannotCreateReadOnly": "{{path}} liegt auf einem schreibgeschützten Dateisystem, dort kann der Agent keine Stacks anlegen."
+  },
   "actions": {
     "start": "Starten",
     "stop": "Stoppen",
@@ -156,7 +171,8 @@
     "request_too_large": "Die Anfrage ist zu groß.",
     "docker_unavailable": "Docker ist gerade nicht erreichbar. Versuch es gleich noch einmal.",
     "https_required": "Aus Sicherheitsgründen nimmt gantry Anmeldungen aus dem Internet nur über HTTPS an. Betreibe es hinter einem Reverse Proxy mit HTTPS.",
-    "service_not_found": "Diesen Service gibt es (nicht mehr) in der Compose-Datei."
+    "service_not_found": "Diesen Service gibt es (nicht mehr) in der Compose-Datei.",
+    "no_file_access": "Der Agent darf diese Dateien auf dem Host nicht ändern. Die Seite des Stacks zeigt, was fehlt."
   },
   "notFound": {
     "title": "Seite nicht gefunden",

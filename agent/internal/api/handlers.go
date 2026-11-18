@@ -33,6 +33,7 @@ func (h *handlers) ListStacks(ctx context.Context, _ ListStacksRequestObject) (L
 		DockerAvailable: l.DockerAvailable,
 		Warnings:        orEmpty(l.Warnings),
 		Stacks:          make([]StackSummary, 0, len(l.Stacks)),
+		FileAccess:      toFileAccess(l.Access),
 	}
 	for _, s := range l.Stacks {
 		summary := toSummary(s)
@@ -66,6 +67,11 @@ func (h *handlers) GetStack(ctx context.Context, req GetStackRequestObject) (Get
 		Warnings:        orEmpty(d.Warnings),
 		Services:        make([]Service, 0, len(d.Services)),
 		Volumes:         orEmpty(d.Volumes),
+	}
+	if d.Access != nil {
+		resp.Editable = d.Access.Editable
+		resp.Deletable = d.Access.Deletable
+		resp.FileAccess = ptr(toFileAccess(d.Access.FileAccess))
 	}
 	if d.ComposeFile != nil {
 		resp.ComposeFile = &ComposeFile{Path: d.ComposeFile.Path, Content: d.ComposeFile.Content}
@@ -146,4 +152,19 @@ func orEmpty(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func toFileAccess(a stacks.FileAccess) FileAccess {
+	out := FileAccess{User: a.User, Missing: make([]MissingAccess, 0, len(a.Missing))}
+	for _, m := range a.Missing {
+		ma := MissingAccess{Path: m.Path, Access: MissingAccessAccessRead}
+		if m.Write {
+			ma.Access = MissingAccessAccessWrite
+		}
+		if m.ReadOnlyFilesystem {
+			ma.ReadOnlyFilesystem = ptr(true)
+		}
+		out.Missing = append(out.Missing, ma)
+	}
+	return out
 }

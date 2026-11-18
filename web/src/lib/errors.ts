@@ -14,6 +14,7 @@ const translated = [
   'request_too_large',
   'docker_unavailable',
   'https_required',
+  'no_file_access',
 ] as const;
 
 type TranslatedCode = (typeof translated)[number];

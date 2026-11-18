@@ -51,7 +51,14 @@ function without(values: Record<string, string>, key: string) {
  * fetched on purpose (eye or edit) and kept in this component only, so it is
  * gone when the tab is left.
  */
-export function EnvTab({ stack }: { stack: string }) {
+export function EnvTab({
+  stack,
+  editable,
+}: {
+  stack: string;
+  /** False if the agent may not change the file; values can still be shown. */
+  editable: boolean;
+}) {
   const { t } = useTranslation();
   const notify = useNotify();
   const openPanel = useOperationPanel();
@@ -281,30 +288,34 @@ export function EnvTab({ stack }: { stack: string }) {
                             )}
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title={t('env.edit')}>
-                          <IconButton
-                            size="small"
-                            aria-label={`${t('env.edit')}: ${key}`}
-                            onClick={() =>
-                              shown
-                                ? setEditing({ key, value: revealed[key]! })
-                                : fetchValue(key, (value) =>
-                                    setEditing({ key, value }),
-                                  )
-                            }
-                          >
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title={t('env.delete')}>
-                          <IconButton
-                            size="small"
-                            aria-label={`${t('env.delete')}: ${key}`}
-                            onClick={() => setDeleting(key)}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {editable && (
+                          <>
+                            <Tooltip title={t('env.edit')}>
+                              <IconButton
+                                size="small"
+                                aria-label={`${t('env.edit')}: ${key}`}
+                                onClick={() =>
+                                  shown
+                                    ? setEditing({ key, value: revealed[key]! })
+                                    : fetchValue(key, (value) =>
+                                        setEditing({ key, value }),
+                                      )
+                                }
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title={t('env.delete')}>
+                              <IconButton
+                                size="small"
+                                aria-label={`${t('env.delete')}: ${key}`}
+                                onClick={() => setDeleting(key)}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </>
+                        )}
                       </>
                     )}
                   </TableCell>
@@ -373,7 +384,7 @@ export function EnvTab({ stack }: { stack: string }) {
         </Table>
       </TableContainer>
 
-      {!adding && (
+      {editable && !adding && (
         <Button
           startIcon={<AddIcon />}
           sx={{ alignSelf: 'flex-start' }}

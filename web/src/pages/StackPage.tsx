@@ -42,6 +42,7 @@ import { ActionButtons } from '../components/ActionButtons';
 import { ComposeTab } from '../components/ComposeTab';
 import { DeleteStackDialog } from '../components/DeleteStackDialog';
 import { EnvTab } from '../components/EnvTab';
+import { FileAccessHint } from '../components/FileAccessHint';
 import { LogView } from '../components/LogView';
 import { useOperationPanel } from '../components/OperationPanel';
 import { ServiceMenu } from '../components/ServiceMenu';
@@ -133,6 +134,7 @@ export function StackPage() {
             >
               <MenuItem
                 sx={{ color: 'error.main' }}
+                disabled={!s.deletable}
                 onClick={() => {
                   setMenu(null);
                   setDeleting(true);
@@ -157,6 +159,7 @@ export function StackPage() {
         {s.servicesRunning}/{s.servicesTotal}
       </Typography>
       {!s.managed && <Alert severity="info">{t('managed.externalHint')}</Alert>}
+      <FileAccessHint stack={s} />
       {s.warnings.map((w) => (
         <Alert key={w} severity="warning">
           {w}
@@ -189,7 +192,7 @@ export function StackPage() {
         />
       )}
       {tab === 'compose' && <ComposeTab stack={s} />}
-      {tab === 'env' && <EnvTab stack={s.name} />}
+      {tab === 'env' && <EnvTab stack={s.name} editable={s.editable} />}
       {tab === 'overview' && (
         <>
           <Services

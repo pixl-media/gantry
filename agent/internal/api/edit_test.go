@@ -346,3 +346,54 @@ func TestFileChangesNotify(t *testing.T) {
 		t.Errorf("notified %v", got)
 	}
 }
+
+// Without write access to a stack's directory, details say so, saving
+// answers no_file_access instead of a 500, and deleting is refused before
+// `down` runs.
+func TestNoFileAccess(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	env := newEditEnv(t)
+	app := filepath.Join(env.dir, "app")
+	if err := os.Chmod(app, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(app, 0o755) })
+
+	detail := decode[StackDetail](t, send(t, env.h, http.MethodGet, "/api/v1/stacks/app", nil))
+	if detail.Editable || detail.Deletable || detail.FileAccess == nil ||
+		!slices.Equal(detail.FileAccess.Missing, []MissingAccess{{Path: app, Access: MissingAccessAccessWrite}}) {
+		t.Errorf("detail = editable %v, deletable %v, access %+v", detail.Editable, detail.Deletable, detail.FileAccess)
+	}
+
+	rec := send(t, env.h, http.MethodPut, "/api/v1/stacks/app/compose", ComposeUpdate{Content: "services:\n  web: {}\n", Version: *detail.ComposeFile.Version})
+	if e := decode[Error](t, rec); rec.Code != http.StatusConflict || *e.Code != ErrorCodeNoFileAccess {
+		t.Errorf("save = %d %+v", rec.Code, e)
+	}
+	rec = send(t, env.h, http.MethodPatch, "/api/v1/stacks/app/env", EnvUpdate{Set: &map[string]string{"A": "1"}})
+	if e := decode[Error](t, rec); rec.Code != http.StatusConflict || *e.Code != ErrorCodeNoFileAccess {
+		t.Errorf("env = %d %+v", rec.Code, e)
+	}
+	rec = send(t, env.h, http.MethodDelete, "/api/v1/stacks/app?confirm=app", nil)
+	if e := decode[Error](t, rec); rec.Code != http.StatusConflict || *e.Code != ErrorCodeNoFileAccess || !strings.Contains(e.Error, app) {
+		t.Errorf("delete = %d %+v", rec.Code, e)
+	}
+	if len(env.runner.calls) != 0 {
+		t.Errorf("calls = %v, want none", env.runner.calls)
+	}
+
+	// The stacks directory: no new stacks.
+	if err := os.Chmod(env.dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(env.dir, 0o755) })
+	list := decode[StackList](t, send(t, env.h, http.MethodGet, "/api/v1/stacks", nil))
+	if len(list.FileAccess.Missing) != 1 || list.FileAccess.Missing[0].Path != env.dir {
+		t.Errorf("list access = %+v", list.FileAccess)
+	}
+	rec = send(t, env.h, http.MethodPost, "/api/v1/stacks", StackCreate{Name: "fresh", Compose: "services: {}\n"})
+	if e := decode[Error](t, rec); rec.Code != http.StatusConflict || *e.Code != ErrorCodeNoFileAccess {
+		t.Errorf("create = %d %+v", rec.Code, e)
+	}
+}

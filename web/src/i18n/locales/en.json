@@ -32,6 +32,21 @@
     "external": "External",
     "externalHint": "Runs outside the stacks directory. gantry shows it but doesn't change it."
   },
+  "access": {
+    "title": "Missing file access",
+    "intro": "The agent runs as user {{user}} and may not:",
+    "write": "write {{path}}",
+    "read": "read {{path}}",
+    "readOnlyFs": "(read-only file system)",
+    "notEditable": "Until then, the Compose file and .env can't be changed here.",
+    "notDeletable": "Until then, the stack can't be deleted here.",
+    "fix": "To allow it, run this on the host. It changes the owner of only these paths, not the stack's data:",
+    "readOnlyFsHint": "A new owner doesn't help on a read-only file system; check the agent service's sandbox or how the directory is mounted.",
+    "copy": "Copy command",
+    "copied": "Copied.",
+    "cannotCreate": "The agent (user {{user}}) may not write {{path}}. To allow it, run on the host: {{command}}",
+    "cannotCreateReadOnly": "{{path}} is on a read-only file system, so the agent can't create stacks in it."
+  },
   "actions": {
     "start": "Start",
     "stop": "Stop",
@@ -156,7 +171,8 @@
     "request_too_large": "The request is too large.",
     "docker_unavailable": "Docker can't be reached right now. Try again in a moment.",
     "https_required": "For security, gantry only accepts logins from the internet over HTTPS. Put it behind a reverse proxy with HTTPS.",
-    "service_not_found": "This service isn't in the Compose file (any more)."
+    "service_not_found": "This service isn't in the Compose file (any more).",
+    "no_file_access": "The agent may not change these files on the host. The stack's page shows what's missing."
   },
   "notFound": {
     "title": "Page not found",

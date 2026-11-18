@@ -93,6 +93,9 @@ what changed.
   confirm first.
 - **New stack** on the list page, **Delete stack** in a stack's menu (type
   the name to confirm; named volumes only if you tick the box).
+- **File access:** if the agent may not change a stack's files, its page
+  says what's missing and shows the command that allows it; editing is
+  locked until then (see [Write access](#configuration)).
 
 Unmanaged stacks are read-only. The UI is in English and German (English
 by default, switchable in the app bar) and has a light and a dark mode
@@ -388,12 +391,27 @@ The agent needs `docker compose` on the host: Docker's Compose plugin
 (`docker-compose-plugin` from Docker's packages, `docker-compose-v2` on
 Ubuntu). The container image includes it.
 
-**Write access:** to create, edit and delete stacks, the user the agent runs
-as needs write access to `GANTRY_STACKS_DIR` and the stacks in it. The
-package's service runs as `gantry` and creates `/opt/stacks` for it, but
-leaves an existing directory alone; then: `sudo chown -R gantry: /opt/stacks`.
-Without write access, stacks can only be listed and controlled. The
-container image runs as root.
+**Write access:** the user the agent runs as (`gantry` with the package)
+needs write access to `GANTRY_STACKS_DIR` to create and delete stacks, and
+to a stack's directory plus read access to its Compose file and `.env` to
+edit it. Files are replaced, never written in place, so they need not be
+writable themselves. The package creates `/opt/stacks` for `gantry` but
+leaves an existing one alone; for a directory from another tool, change the
+owner of the directories only:
+
+```sh
+sudo chown gantry /opt/stacks /opt/stacks/*/
+```
+
+Not `chown -R`: the data in a stack's directory (`./data`, `./config`)
+belongs to its containers, which could lose access to it. A stack's page
+names what the agent may not read or write, with the command for exactly
+that; ACLs work too (`setfacl -m u:gantry:rwx` on a directory, `u:gantry:r`
+on a file). gantry never changes owners itself. Without write access, stacks
+can still be listed and controlled. Deleting a stack stops at files the
+agent may not remove (such as data a container wrote as root); the Compose
+file goes last, so the stack stays listed. The container image runs as
+root.
 
 **Private registries:** Compose uses the Docker credentials of the user the
 agent runs as (`~/.docker/config.json`, from `docker login`); with the

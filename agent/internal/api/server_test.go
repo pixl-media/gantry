@@ -24,6 +24,14 @@ type fakeStacks struct {
 	err       error
 	unmanaged []string                      // names Target reports as unmanaged
 	plans     map[string]stacks.ServicePlan // by service, for PlanService
+	access    *stacks.Access                // for Access; nil: nothing missing
+}
+
+func (f fakeStacks) Access(compose.Project) stacks.Access {
+	if f.access != nil {
+		return *f.access
+	}
+	return stacks.Access{FileAccess: stacks.FileAccess{User: "test"}, Editable: true, Deletable: true}
 }
 
 // PlanService returns the plan in plans for service, with action filled in.
