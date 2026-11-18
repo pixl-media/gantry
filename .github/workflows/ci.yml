@@ -203,6 +203,9 @@ jobs:
           curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:7070/api/v1/info \
             | jq -e '.dockerAvailable and .hostname and .dockerVersion and .composeVersion'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7070/api/v1/info)" = 401
+          # Volume sizes, measured by Docker; never public.
+          curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:7070/api/v1/volumes | jq -e '.measuredAt and (.volumes | type == "array")'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7070/api/v1/volumes)" = 401
 
           # Actions: the agent in the container runs `docker compose` itself.
           api() { curl -fsS -H "Authorization: Bearer $token" "$@"; }

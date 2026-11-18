@@ -832,10 +832,50 @@ type StackSummary struct {
 	Status StackStatus `json:"status"`
 }
 
+// StackVolumes defines model for StackVolumes.
+type StackVolumes struct {
+	// MeasuredAt When Docker measured the sizes.
+	MeasuredAt time.Time `json:"measuredAt"`
+
+	// TotalSize The sum of the known sizes, in bytes.
+	TotalSize int64    `json:"totalSize"`
+	Volumes   []Volume `json:"volumes"`
+}
+
 // Version defines model for Version.
 type Version struct {
 	// Version Example: 0.1.0
 	Version string `json:"version"`
+}
+
+// Volume defines model for Volume.
+type Volume struct {
+	// Containers How many containers use the volume; left out if Docker doesn't know it.
+	Containers *int       `json:"containers,omitempty"`
+	CreatedAt  *time.Time `json:"createdAt,omitempty"`
+
+	// Driver Example: local
+	Driver string `json:"driver"`
+
+	// Name Example: romm_data
+	Name string `json:"name"`
+
+	// Size Size on disk in bytes; left out if Docker doesn't know it (e.g. other drivers than `local`).
+	//
+	// Example: 1048576
+	Size *int64 `json:"size,omitempty"`
+
+	// Stack The Compose project the volume belongs to.
+	//
+	// Example: romm
+	Stack string `json:"stack"`
+}
+
+// VolumeList defines model for VolumeList.
+type VolumeList struct {
+	// MeasuredAt When Docker measured the sizes.
+	MeasuredAt time.Time `json:"measuredAt"`
+	Volumes    []Volume  `json:"volumes"`
 }
 
 // OperationId Example: op_3f9c2a71b0de
@@ -966,9 +1006,15 @@ type ServerInterface interface {
 	// RunServiceAction Run an action on one service of a stack
 	// (POST /api/v1/stacks/{name}/services/{service}/actions/{action})
 	RunServiceAction(w http.ResponseWriter, r *http.Request, name StackName, service string, action ServiceAction)
+	// GetStackVolumes A stack's volumes, with their sizes
+	// (GET /api/v1/stacks/{name}/volumes)
+	GetStackVolumes(w http.ResponseWriter, r *http.Request, name StackName)
 	// GetVersion Agent version
 	// (GET /api/v1/version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
+	// ListVolumes Volumes of all stacks, with their sizes
+	// (GET /api/v1/volumes)
+	ListVolumes(w http.ResponseWriter, r *http.Request)
 	// GetHealth Liveness check
 	// (GET /healthz)
 	GetHealth(w http.ResponseWriter, r *http.Request)
@@ -1537,11 +1583,51 @@ func (siw *ServerInterfaceWrapper) RunServiceAction(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetStackVolumes operation middleware
+func (siw *ServerInterfaceWrapper) GetStackVolumes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name StackName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStackVolumes(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetVersion operation middleware
 func (siw *ServerInterfaceWrapper) GetVersion(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetVersion(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListVolumes operation middleware
+func (siw *ServerInterfaceWrapper) ListVolumes(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVolumes(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1695,6 +1781,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/stacks", wrapper.CreateStack)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/stacks/{name}", wrapper.DeleteStack)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}", wrapper.GetStack)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/volumes", wrapper.ListVolumes)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}/volumes", wrapper.GetStackVolumes)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/stacks/{name}/compose", wrapper.UpdateCompose)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/stacks/{name}/env", wrapper.GetEnv)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/stacks/{name}/env", wrapper.UpdateEnv)
@@ -3144,6 +3232,70 @@ func (response RunServiceAction503JSONResponse) VisitRunServiceActionResponse(w 
 	return err
 }
 
+type GetStackVolumesRequestObject struct {
+	Name StackName `json:"name"`
+}
+
+type GetStackVolumesResponseObject interface {
+	VisitGetStackVolumesResponse(w http.ResponseWriter) error
+}
+
+type GetStackVolumes200JSONResponse StackVolumes
+
+func (response GetStackVolumes200JSONResponse) VisitGetStackVolumesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStackVolumes400JSONResponse struct{ InvalidNameJSONResponse }
+
+func (response GetStackVolumes400JSONResponse) VisitGetStackVolumesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStackVolumes401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetStackVolumes401JSONResponse) VisitGetStackVolumesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStackVolumes503JSONResponse Error
+
+func (response GetStackVolumes503JSONResponse) VisitGetStackVolumesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetVersionRequestObject struct {
 }
 
@@ -3175,6 +3327,55 @@ func (response GetVersion401JSONResponse) VisitGetVersionResponse(w http.Respons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVolumesRequestObject struct {
+}
+
+type ListVolumesResponseObject interface {
+	VisitListVolumesResponse(w http.ResponseWriter) error
+}
+
+type ListVolumes200JSONResponse VolumeList
+
+func (response ListVolumes200JSONResponse) VisitListVolumesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVolumes401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListVolumes401JSONResponse) VisitListVolumesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVolumes503JSONResponse Error
+
+func (response ListVolumes503JSONResponse) VisitListVolumesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3262,9 +3463,15 @@ type StrictServerInterface interface {
 	// RunServiceAction Run an action on one service of a stack
 	// (POST /api/v1/stacks/{name}/services/{service}/actions/{action})
 	RunServiceAction(ctx context.Context, request RunServiceActionRequestObject) (RunServiceActionResponseObject, error)
+	// GetStackVolumes A stack's volumes, with their sizes
+	// (GET /api/v1/stacks/{name}/volumes)
+	GetStackVolumes(ctx context.Context, request GetStackVolumesRequestObject) (GetStackVolumesResponseObject, error)
 	// GetVersion Agent version
 	// (GET /api/v1/version)
 	GetVersion(ctx context.Context, request GetVersionRequestObject) (GetVersionResponseObject, error)
+	// ListVolumes Volumes of all stacks, with their sizes
+	// (GET /api/v1/volumes)
+	ListVolumes(ctx context.Context, request ListVolumesRequestObject) (ListVolumesResponseObject, error)
 	// GetHealth Liveness check
 	// (GET /healthz)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
@@ -3865,6 +4072,32 @@ func (sh *strictHandler) RunServiceAction(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// GetStackVolumes operation middleware
+func (sh *strictHandler) GetStackVolumes(w http.ResponseWriter, r *http.Request, name StackName) {
+	var request GetStackVolumesRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStackVolumes(ctx, request.(GetStackVolumesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStackVolumes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStackVolumesResponseObject); ok {
+		if err := validResponse.VisitGetStackVolumesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetVersion operation middleware
 func (sh *strictHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
 	var request GetVersionRequestObject
@@ -3882,6 +4115,30 @@ func (sh *strictHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetVersionResponseObject); ok {
 		if err := validResponse.VisitGetVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListVolumes operation middleware
+func (sh *strictHandler) ListVolumes(w http.ResponseWriter, r *http.Request) {
+	var request ListVolumesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListVolumes(ctx, request.(ListVolumesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListVolumes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListVolumesResponseObject); ok {
+		if err := validResponse.VisitListVolumesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

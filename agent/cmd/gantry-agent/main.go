@@ -28,6 +28,7 @@ import (
 	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
 	"github.com/pixl-media/gantry/agent/internal/tlscert"
+	"github.com/pixl-media/gantry/agent/internal/volumes"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -297,6 +298,7 @@ func main() {
 		Logs:              logs.New(dockerClient),
 		Files:             stackfiles.New(compose.CLI{}),
 		Host:              hostInfo{docker: dockerClient},
+		Volumes:           volumes.New(dockerClient),
 		Live:              hub,
 		Context:           ctx,
 		Logger:            logger,

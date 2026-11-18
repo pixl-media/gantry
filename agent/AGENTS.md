@@ -34,7 +34,8 @@ Run from the repo root:
   (in-memory sessions, login rate limit), `internal/stackfiles` (stack
   files: validated atomic writes, versions, layout-preserving `.env`),
   `internal/tlscert` (the TLS certificate from files, reloaded when they
-  change),
+  change), `internal/volumes` (volume sizes from Docker, one shared
+  measurement kept for a minute),
   `internal/api` (HTTP wiring, auth and mapping to generated types).
 - Container state comes from the Engine API; anything that is Compose logic
   goes through the `docker compose` CLI (see `docs/decisions.md`).

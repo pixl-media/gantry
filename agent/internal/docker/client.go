@@ -138,6 +138,79 @@ func (c *Client) Info(ctx context.Context) (Info, error) {
 	return info, nil
 }
 
+// Volume is a Docker volume with its disk usage.
+type Volume struct {
+	Name      string
+	Driver    string
+	Labels    map[string]string
+	CreatedAt time.Time // zero if unknown
+	Size      int64     // bytes; -1 if Docker doesn't know it
+	RefCount  int64     // containers using it; -1 if unknown
+}
+
+// dfTimeout limits VolumeUsage: Docker walks every volume, which takes a
+// while for large ones, longer than the client's usual timeout.
+const dfTimeout = 2 * time.Minute
+
+type apiVolume struct {
+	Name      string
+	Driver    string
+	Labels    map[string]string
+	CreatedAt string
+	UsageData *struct {
+		Size     int64
+		RefCount int64
+	}
+}
+
+func (v apiVolume) toVolume() Volume {
+	out := Volume{Name: v.Name, Driver: v.Driver, Labels: v.Labels, Size: -1, RefCount: -1}
+	if t, err := time.Parse(time.RFC3339Nano, v.CreatedAt); err == nil {
+		out.CreatedAt = t
+	}
+	if v.UsageData != nil {
+		out.Size, out.RefCount = v.UsageData.Size, v.UsageData.RefCount
+	}
+	return out
+}
+
+// VolumeUsage returns all volumes with their sizes, as `docker system df -v`
+// measures them. Newer Docker versions answer in VolumeUsage.Items, older
+// ones in Volumes; older ones also ignore type=volume and measure images and
+// containers too, which only takes longer.
+func (c *Client) VolumeUsage(ctx context.Context) ([]Volume, error) {
+	ctx, cancel := context.WithTimeout(ctx, dfTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/system/df?type=volume", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.stream.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("volume usage: %w", unwrapURLError(err))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, statusError("volume usage", resp)
+	}
+	var body struct {
+		Volumes     []apiVolume
+		VolumeUsage *struct{ Items []apiVolume }
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("volume usage: decode response: %w", err)
+	}
+	raw := body.Volumes
+	if body.VolumeUsage != nil && body.VolumeUsage.Items != nil {
+		raw = body.VolumeUsage.Items
+	}
+	out := make([]Volume, 0, len(raw))
+	for _, v := range raw {
+		out = append(out, v.toVolume())
+	}
+	return out, nil
+}
+
 // ListProjectVolumes returns the names of the volumes Compose created for a
 // project, sorted.
 func (c *Client) ListProjectVolumes(ctx context.Context, project string) ([]string, error) {

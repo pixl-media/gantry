@@ -173,3 +173,41 @@ func TestInfoError(t *testing.T) {
 		t.Fatalf("err = %v, want the daemon's message", err)
 	}
 }
+
+func TestVolumeUsage(t *testing.T) {
+	// Newer Docker versions answer in VolumeUsage.Items (and still in
+	// Volumes), older ones only in Volumes.
+	for _, body := range []string{
+		`{"VolumeUsage":{"Items":[{"Name":"app_data","Driver":"local","Labels":{"com.docker.compose.project":"app"},
+			"CreatedAt":"2026-11-01T10:00:00Z","UsageData":{"Size":1048576,"RefCount":1}},
+			{"Name":"nfs","Driver":"nfs","UsageData":{"Size":-1,"RefCount":-1}}]},"Volumes":[]}`,
+		`{"Volumes":[{"Name":"app_data","Driver":"local","Labels":{"com.docker.compose.project":"app"},
+			"CreatedAt":"2026-11-01T10:00:00Z","UsageData":{"Size":1048576,"RefCount":1}},
+			{"Name":"nfs","Driver":"nfs","UsageData":{"Size":-1,"RefCount":-1}}]}`,
+	} {
+		c := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/system/df" || r.URL.Query().Get("type") != "volume" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Write([]byte(body))
+		})
+		got, err := c.VolumeUsage(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 || got[0].Name != "app_data" || got[0].Size != 1048576 || got[0].RefCount != 1 ||
+			got[0].Labels[LabelProject] != "app" || got[0].CreatedAt.IsZero() || got[1].Size != -1 || got[1].RefCount != -1 {
+			t.Errorf("volumes = %+v", got)
+		}
+	}
+}
+
+func TestVolumeUsageError(t *testing.T) {
+	c := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"a disk usage operation is already running"}`, http.StatusInternalServerError)
+	})
+	if _, err := c.VolumeUsage(context.Background()); err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("err = %v", err)
+	}
+}
