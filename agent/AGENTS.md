@@ -59,7 +59,10 @@ Run from the repo root:
   Server-Sent Events via `startEventStream` in `agent/internal/api`; never
   buffer it in a single response.
 - Configuration through `GANTRY_*` environment variables (plus Docker's own
-  `DOCKER_HOST`), documented in the README table.
+  `DOCKER_HOST`), read in `main.go`, each with a row in the README table and
+  a line in `packaging/gantry.env.example` (`TestSettingsAreDocumented`
+  checks both). The root `.env.example` is only for development: `make run`
+  and `compose.yaml` take just the tokens from `.env`.
 - New API endpoints go under `/api/v1/`. The auth middleware denies by
   default: only the entries in `publicRoutes` are public (see Security).
 
