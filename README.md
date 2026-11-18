@@ -359,8 +359,9 @@ The package:
 - creates `/etc/gantry/gantry.env` once, with two random tokens
   (`sudo grep TOKEN /etc/gantry/gantry.env`): `GANTRY_UI_TOKEN` for the web
   login, `GANTRY_TOKEN` for API clients;
-- creates `/opt/stacks` for the `gantry` user, unless it exists (then:
-  `sudo chown -R gantry: /opt/stacks`);
+- creates `/opt/stacks` for the `gantry` user, unless it exists (then give
+  `gantry` write access to the directories, see
+  [Write access](#configuration));
 - starts the service. It listens on `127.0.0.1:7070`, this host only; see
   [Exposing gantry](#exposing-gantry) before changing that.
 
@@ -393,7 +394,8 @@ gh attestation verify gantry-agent_0.1.0_amd64.deb -R pixl-media/gantry
 | `GANTRY_PUBLIC_URL` | (none) | Address of the web UI, e.g. `https://gantry.example.com`. If set, cookie-authenticated requests must come from exactly this origin, and with `https` the session cookie is `Secure` and named `__Host-gantry_session`. Required for single sign-on |
 | `GANTRY_OIDC_ISSUER` | (none) | Identity provider for single sign-on, exactly as it announces itself, e.g. `https://auth.example.com/application/o/gantry/`. Together with the next two, turns single sign-on on; see [Single sign-on](#single-sign-on-oidc) |
 | `GANTRY_OIDC_CLIENT_ID` | (none) | gantry's client ID at the identity provider |
-| `GANTRY_OIDC_CLIENT_SECRET` | (none) | Its client secret; or `GANTRY_OIDC_CLIENT_SECRET_FILE` with a file holding it |
+| `GANTRY_OIDC_CLIENT_SECRET` | (none) | Its client secret |
+| `GANTRY_OIDC_CLIENT_SECRET_FILE` | (none) | Instead of `GANTRY_OIDC_CLIENT_SECRET`: a file holding it, readable only by the agent |
 | `GANTRY_OIDC_ALLOWED_GROUPS` | (none) | Groups whose members may log in (the ID token's `groups` claim), comma-separated. This one or the next is required |
 | `GANTRY_OIDC_ALLOWED_EMAILS` | (none) | Email addresses that may log in, comma-separated; only addresses the provider has verified count |
 | `GANTRY_OIDC_SCOPES` | `openid profile email` | Scopes to ask the provider for; add `groups` for providers that send groups only then (e.g. Dex) |
