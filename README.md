@@ -94,9 +94,9 @@ what changed.
 - **New stack** on the list page, **Delete stack** in a stack's menu (type
   the name to confirm; named volumes only if you tick the box).
 
-Unmanaged stacks are read-only. The UI is in English and German (from the
-browser's language, switchable) and has a light and a dark mode (following
-the system by default, switchable in the app bar).
+Unmanaged stacks are read-only. The UI is in English and German (English
+by default, switchable in the app bar) and has a light and a dark mode
+(following the system by default, switchable too).
 
 **Login:** enter the web login token (`GANTRY_UI_TOKEN`) once; the API token
 doesn't work here. The agent exchanges it for a session cookie that

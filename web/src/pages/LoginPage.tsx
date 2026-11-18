@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Navigate, useLocation, useNavigate } from 'react-router';
 import { apiError } from '../api/client';
 import { useLogin, useSession } from '../api/queries';
+import { Logo } from '../components/Logo';
 
 export function LoginPage() {
   const { t } = useTranslation();
@@ -59,9 +60,12 @@ export function LoginPage() {
       <Card sx={{ width: '100%', maxWidth: 420 }} variant="outlined">
         <CardContent>
           <Stack component="form" onSubmit={submit} sx={{ gap: 2 }}>
-            <Typography variant="h5" component="h1" sx={{ fontWeight: 700 }}>
-              {t('app.title')}
-            </Typography>
+            <Stack direction="row" sx={{ alignItems: 'center', gap: 1.5 }}>
+              <Logo height={36} />
+              <Typography variant="h5" component="h1" sx={{ fontWeight: 700 }}>
+                {t('app.title')}
+              </Typography>
+            </Stack>
             <Typography variant="h6" component="h2">
               {t('login.title')}
             </Typography>

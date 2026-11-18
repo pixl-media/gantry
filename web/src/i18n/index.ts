@@ -1,4 +1,4 @@
-import i18n from 'i18next';
+import i18n, { type InitOptions } from 'i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
 import { initReactI18next } from 'react-i18next';
 import de from './locales/de.json';
@@ -12,22 +12,23 @@ export const resources = {
   de: { translation: de },
 } as const;
 
-i18n
-  .use(LanguageDetector)
-  .use(initReactI18next)
-  .init({
-    resources,
-    fallbackLng: 'en',
-    supportedLngs: languages,
-    nonExplicitSupportedLngs: true, // de-DE → de
-    detection: {
-      // Only the chosen language is stored, never anything sensitive.
-      order: ['localStorage', 'navigator'],
-      caches: ['localStorage'],
-      lookupLocalStorage: 'gantry.language',
-    },
-    interpolation: { escapeValue: false }, // React escapes already
-  });
+export const options = {
+  resources,
+  // English unless a language was chosen in the app bar; the browser's
+  // language is not used.
+  fallbackLng: 'en',
+  supportedLngs: languages,
+  nonExplicitSupportedLngs: true, // de-DE → de
+  detection: {
+    // Only the language is stored, never anything sensitive.
+    order: ['localStorage'],
+    caches: ['localStorage'],
+    lookupLocalStorage: 'gantry.language',
+  },
+  interpolation: { escapeValue: false }, // React escapes already
+} satisfies InitOptions;
+
+i18n.use(LanguageDetector).use(initReactI18next).init(options);
 
 i18n.on('languageChanged', (lng) => {
   document.documentElement.lang = lng;
