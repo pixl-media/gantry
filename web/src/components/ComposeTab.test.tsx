@@ -20,6 +20,8 @@ function stack(overrides: Partial<StackDetail> = {}): StackDetail {
   return {
     name: 'app',
     managed: true,
+    editable: true,
+    deletable: true,
     status: 'running',
     servicesTotal: 1,
     servicesRunning: 1,
@@ -93,7 +95,11 @@ it('offers to reload after a version conflict', async () => {
 });
 
 it('is read-only for unmanaged stacks', async () => {
-  renderWithDataRouter(<ComposeTab stack={stack({ managed: false })} />);
+  renderWithDataRouter(
+    <ComposeTab
+      stack={stack({ managed: false, editable: false, deletable: false })}
+    />,
+  );
   expect(await editor()).toHaveAttribute('readonly');
   expect(
     screen.queryByRole('button', { name: 'Save' }),
@@ -117,4 +123,12 @@ it('asks before leaving with unsaved changes', async () => {
     await screen.findByRole('button', { name: 'Discard and leave' }),
   );
   expect(await screen.findByText('Home')).toBeInTheDocument();
+});
+
+it('is read-only when the agent may not change the files', async () => {
+  renderWithDataRouter(<ComposeTab stack={stack({ editable: false })} />);
+  expect(await editor()).toHaveAttribute('readonly');
+  expect(
+    screen.queryByRole('button', { name: 'Save' }),
+  ).not.toBeInTheDocument();
 });

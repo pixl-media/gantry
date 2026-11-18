@@ -3,9 +3,12 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"slices"
+	"strings"
+	"syscall"
 
 	"github.com/pixl-media/gantry/agent/internal/compose"
 	"github.com/pixl-media/gantry/agent/internal/stackfiles"
@@ -65,6 +68,9 @@ func fileFailure(err error) *failure {
 		return fail(http.StatusNotFound, ErrorCodeNotFound, err)
 	case errors.Is(err, stackfiles.ErrExists):
 		return fail(http.StatusConflict, ErrorCodeStackExists, err)
+	case errors.Is(err, fs.ErrPermission), errors.Is(err, syscall.EROFS):
+		return fail(http.StatusConflict, ErrorCodeNoFileAccess,
+			fmt.Errorf("the agent (user %s) may not change these files: %w", stacks.User(), err))
 	}
 	return nil
 }
@@ -266,6 +272,16 @@ func (h *handlers) DeleteStack(ctx context.Context, req DeleteStackRequestObject
 		default:
 			return DeleteStack400JSONResponse(f.body), nil
 		}
+	}
+	// Checked before `down` runs, so a stack that can't be removed keeps
+	// running.
+	if access := h.cfg.Stacks.Access(p); !access.Deletable {
+		paths := make([]string, 0, len(access.Missing))
+		for _, m := range access.Missing {
+			paths = append(paths, m.Path)
+		}
+		err := fmt.Errorf("the agent (user %s) may not remove this stack; missing access to %s", access.User, strings.Join(paths, ", "))
+		return DeleteStack409JSONResponse(apiError(err, ErrorCodeNoFileAccess)), nil
 	}
 	name := req.Name
 	op, err := h.cfg.Operations.Delete(p, volumes, func() error { return h.cfg.Stacks.Remove(name) })

@@ -14,7 +14,7 @@ const stack = (name: string, managed: boolean) => ({
   path: `/opt/stacks/${name}`,
 });
 
-function fakeAgent() {
+function fakeAgent(missing: { path: string; access: string }[] = []) {
   return mockFetch((req) => {
     if (new URL(req.url).pathname === '/api/v1/stacks') {
       return json({
@@ -25,6 +25,7 @@ function fakeAgent() {
         ],
         dockerAvailable: true,
         warnings: [],
+        fileAccess: { user: 'gantry', missing },
       });
     }
     return json({ error: 'unexpected' }, 500);
@@ -37,8 +38,11 @@ function Where() {
   return <div data-testid="where">{l.pathname + l.search}</div>;
 }
 
-function renderList(route = '/') {
-  fakeAgent();
+function renderList(
+  route = '/',
+  missing: { path: string; access: string }[] = [],
+) {
+  fakeAgent(missing);
   renderWithProviders(
     <>
       <Routes>
@@ -127,4 +131,16 @@ it('starts in the remembered view', async () => {
     'aria-pressed',
     'true',
   );
+});
+
+it('offers no new stack without write access to the stacks directory', async () => {
+  renderList('/', [{ path: '/opt/stacks', access: 'write' }]);
+  await screen.findByText('webmail');
+  expect(screen.getByRole('button', { name: 'New stack' })).toBeDisabled();
+});
+
+it('offers a new stack with write access', async () => {
+  renderList();
+  await screen.findByText('webmail');
+  expect(screen.getByRole('button', { name: 'New stack' })).toBeEnabled();
 });

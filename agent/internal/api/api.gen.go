@@ -100,6 +100,7 @@ const (
 	ErrorCodeInvalidToken         ErrorCode = "invalid_token"
 	ErrorCodeInvalidVariable      ErrorCode = "invalid_variable"
 	ErrorCodeLoginDisabled        ErrorCode = "login_disabled"
+	ErrorCodeNoFileAccess         ErrorCode = "no_file_access"
 	ErrorCodeNotFound             ErrorCode = "not_found"
 	ErrorCodeOperationFinished    ErrorCode = "operation_finished"
 	ErrorCodeOriginRejected       ErrorCode = "origin_rejected"
@@ -137,6 +138,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeInvalidVariable:
 		return true
 	case ErrorCodeLoginDisabled:
+		return true
+	case ErrorCodeNoFileAccess:
 		return true
 	case ErrorCodeNotFound:
 		return true
@@ -177,6 +180,24 @@ func (e LogLineStream) Valid() bool {
 	case LogLineStreamStderr:
 		return true
 	case LogLineStreamStdout:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MissingAccessAccess.
+const (
+	MissingAccessAccessRead  MissingAccessAccess = "read"
+	MissingAccessAccessWrite MissingAccessAccess = "write"
+)
+
+// Valid indicates whether the value is a known member of the MissingAccessAccess enum.
+func (e MissingAccessAccess) Valid() bool {
+	switch e {
+	case MissingAccessAccessRead:
+		return true
+	case MissingAccessAccessWrite:
 		return true
 	default:
 		return false
@@ -468,6 +489,17 @@ type Error struct {
 // ErrorCode Machine-readable reason, for clients to act on.
 type ErrorCode string
 
+// FileAccess What the agent may not read or write on the host, as the user it
+// runs as. gantry never changes owners or permissions itself.
+type FileAccess struct {
+	Missing []MissingAccess `json:"missing"`
+
+	// User The user the agent runs as; its numeric ID if it has no name.
+	//
+	// Example: gantry
+	User string `json:"user"`
+}
+
 // FileVersion defines model for FileVersion.
 type FileVersion struct {
 	Version string `json:"version"`
@@ -503,6 +535,21 @@ type LoginRequest struct {
 	// Token The agent's `GANTRY_UI_TOKEN`.
 	Token string `json:"token"`
 }
+
+// MissingAccess defines model for MissingAccess.
+type MissingAccess struct {
+	Access MissingAccessAccess `json:"access"`
+
+	// Path Example: /opt/stacks/romm/.env
+	Path string `json:"path"`
+
+	// ReadOnlyFilesystem True if the path is on a read-only file system, for example by a
+	// service sandbox; then changing its owner doesn't help.
+	ReadOnlyFilesystem *bool `json:"readOnlyFilesystem,omitempty"`
+}
+
+// MissingAccessAccess defines model for MissingAccess.Access.
+type MissingAccessAccess string
 
 // Operation defines model for Operation.
 type Operation struct {
@@ -660,18 +707,35 @@ type StackCreated struct {
 	Path string `json:"path"`
 }
 
-// StackDetail defines model for StackDetail.
+// StackDetail For managed stacks, `fileAccess` covers `GANTRY_STACKS_DIR`, the
+// stack's directory, its Compose file and `.env`.
 type StackDetail struct {
 	// ActiveOperation The operation currently running on a stack, if any.
 	ActiveOperation *ActiveOperation `json:"activeOperation,omitempty"`
 	ComposeFile     *ComposeFile     `json:"composeFile,omitempty"`
-	DockerAvailable bool             `json:"dockerAvailable"`
-	Managed         bool             `json:"managed"`
-	Name            string           `json:"name"`
-	Path            string           `json:"path"`
-	Services        []Service        `json:"services"`
-	ServicesRunning int              `json:"servicesRunning"`
-	ServicesTotal   int              `json:"servicesTotal"`
+
+	// Deletable True if the stack can be deleted: `editable`, and the agent may
+	// write `GANTRY_STACKS_DIR`. What the stack's directory contains
+	// isn't checked; files the agent may not remove stop the deletion,
+	// and the Compose file is removed last.
+	Deletable       bool `json:"deletable"`
+	DockerAvailable bool `json:"dockerAvailable"`
+
+	// Editable True if the Compose file and `.env` can be changed: the stack is
+	// managed, the agent may write its directory and read both files.
+	// Files are replaced, never written in place, so they need not be
+	// writable.
+	Editable bool `json:"editable"`
+
+	// FileAccess What the agent may not read or write on the host, as the user it
+	// runs as. gantry never changes owners or permissions itself.
+	FileAccess      *FileAccess `json:"fileAccess,omitempty"`
+	Managed         bool        `json:"managed"`
+	Name            string      `json:"name"`
+	Path            string      `json:"path"`
+	Services        []Service   `json:"services"`
+	ServicesRunning int         `json:"servicesRunning"`
+	ServicesTotal   int         `json:"servicesTotal"`
 
 	// Status `running`: every service has a running container.
 	// `partial`: some services have a running container.
@@ -684,11 +748,16 @@ type StackDetail struct {
 	Warnings []string `json:"warnings"`
 }
 
-// StackList defines model for StackList.
+// StackList `fileAccess` is the access to `GANTRY_STACKS_DIR`; stacks can be
+// created only if nothing is missing.
 type StackList struct {
-	DockerAvailable bool           `json:"dockerAvailable"`
-	Stacks          []StackSummary `json:"stacks"`
-	Warnings        []string       `json:"warnings"`
+	DockerAvailable bool `json:"dockerAvailable"`
+
+	// FileAccess What the agent may not read or write on the host, as the user it
+	// runs as. gantry never changes owners or permissions itself.
+	FileAccess FileAccess     `json:"fileAccess"`
+	Stacks     []StackSummary `json:"stacks"`
+	Warnings   []string       `json:"warnings"`
 }
 
 // StackStatus `running`: every service has a running container.

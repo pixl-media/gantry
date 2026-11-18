@@ -113,7 +113,23 @@ jobs:
           ui=$(sudo sed -n 's/^GANTRY_UI_TOKEN=//p' /etc/gantry/gantry.env)
           test "${#api}" -ge 24 && test "${#ui}" -ge 24 && test "$api" != "$ui"
           for i in $(seq 1 20); do curl -fsS http://127.0.0.1:7070/healthz && break; sleep 1; done
-          curl -fsS -H "Authorization: Bearer $api" http://127.0.0.1:7070/api/v1/stacks | jq -e .dockerAvailable
+          curl -fsS -H "Authorization: Bearer $api" http://127.0.0.1:7070/api/v1/stacks \
+            | jq -e '.dockerAvailable and .fileAccess.user == "gantry" and .fileAccess.missing == []'
+
+          # A stack that belongs to root, as from another tool: the service,
+          # running as gantry, reports what it may not do, and the suggested
+          # owner change (not recursive) fixes it.
+          sudo install -d -m 0755 /opt/stacks/rooted
+          printf 'services:\n  app:\n    image: traefik/whoami:v1.12\n' | sudo tee /opt/stacks/rooted/compose.yaml > /dev/null
+          echo 'SECRET=x' | sudo tee /opt/stacks/rooted/.env > /dev/null
+          sudo chmod 600 /opt/stacks/rooted/.env
+          curl -fsS -H "Authorization: Bearer $api" http://127.0.0.1:7070/api/v1/stacks/rooted | tee rooted.json \
+            | jq -e '.editable == false and .deletable == false and
+                ([.fileAccess.missing[] | "\(.access) \(.path)"] == ["write /opt/stacks/rooted", "read /opt/stacks/rooted/.env"])'
+          sudo chown gantry /opt/stacks/rooted /opt/stacks/rooted/.env
+          curl -fsS -H "Authorization: Bearer $api" http://127.0.0.1:7070/api/v1/stacks/rooted \
+            | jq -e '.editable and .deletable and .fileAccess.missing == []'
+          sudo rm -rf /opt/stacks/rooted
 
           # An upgrade keeps the settings and restarts the service.
           sudo apt-get install -y --no-install-recommends --reinstall "./$deb"

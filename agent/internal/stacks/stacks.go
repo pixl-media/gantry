@@ -83,6 +83,9 @@ type List struct {
 	Stacks          []Summary
 	DockerAvailable bool
 	Warnings        []string
+	// Access to the stacks directory; stacks can be created only if nothing
+	// is missing.
+	Access FileAccess
 }
 
 // Detail is a single stack with its services and Compose file.
@@ -93,6 +96,7 @@ type Detail struct {
 	Volumes         []string // named volumes of the Compose project
 	DockerAvailable bool
 	Warnings        []string
+	Access          *Access // nil for unmanaged stacks
 }
 
 // ComposeFile is a stack's Compose file, as stored on disk.
@@ -168,11 +172,21 @@ func (m *Manager) List(ctx context.Context) (List, error) {
 	if err != nil {
 		return List{}, err
 	}
-	list := List{DockerAvailable: snap.dockerAvailable, Warnings: snap.warnings, Stacks: []Summary{}}
+	list := List{
+		DockerAvailable: snap.dockerAvailable,
+		Warnings:        snap.warnings,
+		Stacks:          []Summary{},
+		Access:          FileAccess{User: User(), Missing: snap.dirMissing},
+	}
 	for _, st := range snap.stacks {
 		list.Stacks = append(list.Stacks, st.summary(snap.dockerAvailable))
 		for _, w := range st.warnings {
 			list.Warnings = append(list.Warnings, st.name+": "+w)
+		}
+		if paths := unreadable(st.missing); len(paths) > 0 {
+			list.Warnings = append(list.Warnings, fmt.Sprintf(
+				"%s: the agent (user %s) may not read %s, so Compose can't either; the stack's page shows how to fix that",
+				st.name, User(), strings.Join(paths, " and ")))
 		}
 	}
 	return list, nil
@@ -196,6 +210,13 @@ func (m *Manager) Get(ctx context.Context, name string) (Detail, error) {
 		DockerAvailable: snap.dockerAvailable,
 		Warnings:        append(slices.Clone(snap.warnings), st.warnings...),
 		Services:        st.servicesWithContainers(),
+	}
+	if st.managed {
+		d.Access = &Access{
+			FileAccess: FileAccess{User: User(), Missing: append(slices.Clone(snap.dirMissing), st.missing...)},
+			Editable:   len(st.missing) == 0,
+			Deletable:  len(st.missing) == 0 && len(snap.dirMissing) == 0,
+		}
 	}
 	if st.composeFile != "" {
 		content, warning := readComposeFile(st.composeFile)
@@ -312,12 +333,14 @@ type stack struct {
 	services    []string           // defined services, sorted
 	containers  []docker.Container // excluding one-off containers
 	warnings    []string
+	missing     []MissingAccess // managed stacks: access the agent lacks
 }
 
 type snapshot struct {
 	stacks          []*stack // sorted by name
 	dockerAvailable bool
 	warnings        []string
+	dirMissing      []MissingAccess // access to the stacks directory
 }
 
 // collect merges the stacks directory with the Docker state. If only is not
@@ -330,6 +353,10 @@ func (m *Manager) collect(ctx context.Context, only string) (snapshot, error) {
 		return snap, err
 	}
 	snap.warnings = warnings
+	snap.dirMissing = m.dirAccess()
+	for _, st := range managed {
+		st.missing = stackAccess(st.path, st.composeFile)
+	}
 
 	containers, err := m.docker.ListComposeContainers(ctx)
 	snap.dockerAvailable = err == nil
@@ -443,7 +470,12 @@ func (m *Manager) loadServices(ctx context.Context, stacks []*stack) {
 				// Not Compose's message: it can quote lines of the .env file,
 				// and this warning is shown on every refresh, unaudited.
 				// Saving the Compose file in the editor shows why it fails.
-				st.warnings = append(st.warnings, "Compose can't read this stack's files; run `docker compose config` in its directory, or save the Compose file in the editor, to see why")
+				// Files the agent may not read are reported by the access
+				// check instead: List warns, the stack's page says how to fix
+				// it.
+				if len(unreadable(st.missing)) == 0 {
+					st.warnings = append(st.warnings, "Compose can't read this stack's files; run `docker compose config` in its directory, or save the Compose file in the editor, to see why")
+				}
 				services = containerServices(st.containers)
 			}
 			st.services = services

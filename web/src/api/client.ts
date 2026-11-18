@@ -15,6 +15,7 @@ export type Container = components['schemas']['Container'];
 export type Service = components['schemas']['Service'];
 export type ServiceAction = components['schemas']['ServiceAction'];
 export type ServiceActionPlan = components['schemas']['ServiceActionPlan'];
+export type FileAccess = components['schemas']['FileAccess'];
 
 let onUnauthorized: () => void = () => {};
 

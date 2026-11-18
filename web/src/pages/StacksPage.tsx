@@ -36,6 +36,7 @@ import { CreateStackDialog } from '../components/CreateStackDialog';
 import { StackStatus, TypeChip } from '../components/StackBadges';
 import { StackCard } from '../components/StackCard';
 import { errorMessage } from '../lib/errors';
+import { chownCommand } from '../lib/fileAccess';
 import {
   filterStacks,
   isFiltered,
@@ -73,7 +74,10 @@ export function StacksPage() {
   if (stacks.isError) {
     return <Alert severity="error">{errorMessage(t, stacks.error)}</Alert>;
   }
-  const { stacks: list, dockerAvailable, warnings } = stacks.data;
+  const { stacks: list, dockerAvailable, warnings, fileAccess } = stacks.data;
+  // Optional for an agent older than the UI.
+  const createBlocked = fileAccess?.missing[0];
+  const createCommand = fileAccess && chownCommand(fileAccess);
   const shown = filterStacks(list, filter);
 
   return (
@@ -95,13 +99,31 @@ export function StacksPage() {
             </Typography>
           )}
         </Stack>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setCreating(true)}
+        <Tooltip
+          title={
+            createBlocked
+              ? createCommand
+                ? t('access.cannotCreate', {
+                    user: fileAccess.user,
+                    path: createBlocked.path,
+                    command: createCommand,
+                  })
+                : t('access.cannotCreateReadOnly', { path: createBlocked.path })
+              : ''
+          }
         >
-          {t('create.button')}
-        </Button>
+          {/* A span, so the tooltip also shows on the disabled button. */}
+          <span>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              disabled={createBlocked !== undefined}
+              onClick={() => setCreating(true)}
+            >
+              {t('create.button')}
+            </Button>
+          </span>
+        </Tooltip>
       </Stack>
       <CreateStackDialog
         open={creating}

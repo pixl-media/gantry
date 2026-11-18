@@ -32,7 +32,7 @@ stacks=/opt/stacks
 if [ ! -e "$stacks" ]; then
 	install -d -m 0750 -o gantry -g gantry "$stacks"
 elif [ "$(stat -c %U "$stacks" 2>/dev/null)" != gantry ]; then
-	echo "gantry: $stacks exists and isn't owned by gantry; to manage its stacks: sudo chown -R gantry: $stacks"
+	echo "gantry: $stacks exists and isn't owned by gantry. To manage its stacks, give gantry the directories, not their contents: sudo chown gantry $stacks $stacks/*/ (see \"Write access\" in the README)"
 fi
 
 if [ -d /run/systemd/system ]; then

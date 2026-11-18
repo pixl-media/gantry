@@ -54,7 +54,7 @@ function row(key: string) {
 
 it('shows names only, until a value is asked for', async () => {
   const agent = fakeAgent();
-  renderWithProviders(<EnvTab stack="app" />);
+  renderWithProviders(<EnvTab stack="app" editable />);
   expect(await screen.findByText('DB_PASSWORD')).toBeInTheDocument();
   expect(screen.queryByText('s3cr3t')).not.toBeInTheDocument();
   expect(agent.reveals).toEqual([]);
@@ -79,7 +79,7 @@ it('shows names only, until a value is asked for', async () => {
 
 it('edits a value with the current version', async () => {
   const agent = fakeAgent();
-  renderWithProviders(<EnvTab stack="app" />);
+  renderWithProviders(<EnvTab stack="app" editable />);
   await userEvent.click(
     await screen.findByRole('button', { name: 'Edit: DB_USER' }),
   );
@@ -101,7 +101,7 @@ it('edits a value with the current version', async () => {
 
 it('deletes a variable after asking', async () => {
   const agent = fakeAgent();
-  renderWithProviders(<EnvTab stack="app" />);
+  renderWithProviders(<EnvTab stack="app" editable />);
   await userEvent.click(
     await screen.findByRole('button', { name: 'Delete: DB_USER' }),
   );
@@ -118,7 +118,7 @@ it('deletes a variable after asking', async () => {
 
 it('validates new variable names', async () => {
   fakeAgent();
-  renderWithProviders(<EnvTab stack="app" />);
+  renderWithProviders(<EnvTab stack="app" editable />);
   await userEvent.click(
     await screen.findByRole('button', { name: 'Add variable' }),
   );
@@ -137,7 +137,7 @@ it('validates new variable names', async () => {
 
 it('saves with Enter and cancels with Escape', async () => {
   const agent = fakeAgent();
-  renderWithProviders(<EnvTab stack="app" />);
+  renderWithProviders(<EnvTab stack="app" editable />);
   await userEvent.click(
     await screen.findByRole('button', { name: 'Add variable' }),
   );
@@ -155,4 +155,17 @@ it('saves with Enter and cancels with Escape', async () => {
   await userEvent.type(await screen.findByDisplayValue('admin'), 'x{Escape}');
   expect(screen.queryByDisplayValue('adminx')).not.toBeInTheDocument();
   expect(agent.patches).toHaveLength(1);
+});
+
+it('only shows values when the agent may not change the file', async () => {
+  fakeAgent();
+  renderWithProviders(<EnvTab stack="app" editable={false} />);
+  await screen.findByText('DB_USER');
+  const r = within(row('DB_USER'));
+  expect(
+    r.getByRole('button', { name: 'Show value: DB_USER' }),
+  ).toBeInTheDocument();
+  expect(r.queryByRole('button', { name: /Edit/ })).not.toBeInTheDocument();
+  expect(r.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Add/ })).not.toBeInTheDocument();
 });

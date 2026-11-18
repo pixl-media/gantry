@@ -30,6 +30,7 @@ type StackService interface {
 	PlanService(ctx context.Context, name, service string, action stacks.ServiceAction) (compose.Project, stacks.ServicePlan, error)
 	Remove(name string) error
 	Dir() string
+	Access(p compose.Project) stacks.Access
 }
 
 // OperationService is what the API needs from the operations package.

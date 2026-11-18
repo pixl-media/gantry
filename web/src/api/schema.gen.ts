@@ -471,7 +471,7 @@ export interface components {
              * @description Machine-readable reason, for clients to act on.
              * @enum {string}
              */
-            code?: "unauthorized" | "invalid_token" | "login_disabled" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "request_too_large" | "invalid_name" | "invalid_action" | "invalid_service" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "service_not_found" | "confirmation_required" | "stack_busy" | "stack_unmanaged" | "docker_unavailable" | "https_required" | "operation_finished";
+            code?: "unauthorized" | "invalid_token" | "login_disabled" | "too_many_attempts" | "origin_rejected" | "invalid_request" | "request_too_large" | "invalid_name" | "invalid_action" | "invalid_service" | "invalid_compose" | "invalid_variable" | "version_conflict" | "stack_exists" | "not_found" | "service_not_found" | "confirmation_required" | "stack_busy" | "stack_unmanaged" | "docker_unavailable" | "https_required" | "operation_finished" | "no_file_access";
             /** @description For `stack_busy`, the ID of the running operation. */
             operation?: string;
             plan?: components["schemas"]["ServiceActionPlan"];
@@ -541,14 +541,61 @@ export interface components {
             /** @description For a service action, the chosen service. */
             service?: string;
         };
+        /**
+         * @description `fileAccess` is the access to `GANTRY_STACKS_DIR`; stacks can be
+         *     created only if nothing is missing.
+         */
         StackList: {
             stacks: components["schemas"]["StackSummary"][];
             dockerAvailable: boolean;
             warnings: string[];
+            fileAccess: components["schemas"]["FileAccess"];
         };
+        /**
+         * @description What the agent may not read or write on the host, as the user it
+         *     runs as. gantry never changes owners or permissions itself.
+         */
+        FileAccess: {
+            /**
+             * @description The user the agent runs as; its numeric ID if it has no name.
+             * @example gantry
+             */
+            user: string;
+            missing: components["schemas"]["MissingAccess"][];
+        };
+        MissingAccess: {
+            /** @example /opt/stacks/romm/.env */
+            path: string;
+            /** @enum {string} */
+            access: "read" | "write";
+            /**
+             * @description True if the path is on a read-only file system, for example by a
+             *     service sandbox; then changing its owner doesn't help.
+             */
+            readOnlyFilesystem?: boolean;
+        };
+        /**
+         * @description For managed stacks, `fileAccess` covers `GANTRY_STACKS_DIR`, the
+         *     stack's directory, its Compose file and `.env`.
+         */
         StackDetail: {
             name: string;
             managed: boolean;
+            /**
+             * @description True if the Compose file and `.env` can be changed: the stack is
+             *     managed, the agent may write its directory and read both files.
+             *     Files are replaced, never written in place, so they need not be
+             *     writable.
+             */
+            editable: boolean;
+            /**
+             * @description True if the stack can be deleted: `editable`, and the agent may
+             *     write `GANTRY_STACKS_DIR`. What the stack's directory contains
+             *     isn't checked; files the agent may not remove stop the deletion,
+             *     and the Compose file is removed last.
+             */
+            deletable: boolean;
+            fileAccess?: components["schemas"]["FileAccess"];
             status: components["schemas"]["StackStatus"];
             servicesTotal: number;
             servicesRunning: number;
@@ -1006,7 +1053,11 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description `stack_exists`: a directory or Compose project with this name exists. */
+            /**
+             * @description `stack_exists`: a directory or Compose project with this name
+             *     exists. `no_file_access`: the agent may not write the stacks
+             *     directory (see `fileAccess` in the stack list).
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -1092,7 +1143,10 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
-            /** @description `stack_unmanaged`. */
+            /**
+             * @description `stack_unmanaged`, or `no_file_access`: the agent may not remove
+             *     the stack (see `deletable` in its details); nothing was run.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -1139,7 +1193,11 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
-            /** @description `version_conflict` or `stack_unmanaged`. */
+            /**
+             * @description `version_conflict`, `stack_unmanaged`, or `no_file_access`: the
+             *     agent may not write the stack's directory or read the file (see
+             *     `fileAccess` in the stack's details).
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -1222,7 +1280,11 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
-            /** @description `version_conflict` or `stack_unmanaged`. */
+            /**
+             * @description `version_conflict`, `stack_unmanaged`, or `no_file_access`: the
+             *     agent may not write the stack's directory or read the file (see
+             *     `fileAccess` in the stack's details).
+             */
             409: {
                 headers: {
                     [name: string]: unknown;

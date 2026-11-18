@@ -28,7 +28,10 @@ export function EditorFallback() {
   );
 }
 
-/** The Compose file of a stack: editable if managed, read-only otherwise. */
+/**
+ * The Compose file of a stack: editable if the stack is managed and the agent
+ * may change its files, read-only otherwise.
+ */
 export function ComposeTab({ stack }: { stack: StackDetail }) {
   const { t } = useTranslation();
   const notify = useNotify();
@@ -130,7 +133,7 @@ export function ComposeTab({ stack }: { stack: StackDetail }) {
       <Suspense fallback={<EditorFallback />}>
         <CodeEditor
           value={draft?.content ?? saved}
-          readOnly={!stack.managed}
+          readOnly={!stack.editable}
           ariaLabel={t('compose.editorLabel')}
           onChange={(content) =>
             setDraft((d) => ({
@@ -141,7 +144,7 @@ export function ComposeTab({ stack }: { stack: StackDetail }) {
         />
       </Suspense>
 
-      {stack.managed && (
+      {stack.editable && (
         <Stack direction="row" sx={{ gap: 1, alignItems: 'center' }}>
           <Button
             variant="contained"

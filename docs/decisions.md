@@ -34,6 +34,7 @@ here instead of editing history.
 26. [Separate tokens for the API and the web login](#26-separate-tokens-for-the-api-and-the-web-login)
 27. [TLS in the agent](#27-tls-in-the-agent)
 28. [Packages and releases](#28-packages-and-releases)
+29. [Write access: checked, never changed](#29-write-access-checked-never-changed)
 
 ## 1. Agent in Go
 
@@ -710,3 +711,33 @@ values crossed the network in plain text.
 - Rejected: an apt or dnf repository (hosting and keys to maintain; for now
   the packages are files in the release) and building the images with
   GoReleaser too (the existing steps are tested).
+
+## 29. Write access: checked, never changed
+
+**Decided 2026-11-18**, after a first install next to stacks from another
+tool: they belonged to root, so the agent, running as `gantry`, listed them
+as managed but couldn't save them, and an unreadable `.env` only showed as
+"Compose can't read this stack's files". The docs suggested
+`chown -R gantry: /opt/stacks`, which also takes the containers' data away
+from them.
+
+- **What the agent needs:** write access to `GANTRY_STACKS_DIR` (create,
+  delete) and to a stack's directory (edit, delete), read access to its
+  Compose file and `.env` (edit, and every action, since Compose reads
+  them). Files are replaced through a temporary file, never written in
+  place, so reading them is enough.
+- **Checked with access(2)** on every list and detail request, which
+  honors ACLs and read-only file systems; no test writes. The stack list
+  reports the stacks directory (`fileAccess`); a stack's details report all
+  four and whether it is `editable` and `deletable`. Deleting is refused
+  before `down` if the directory couldn't be removed; writes that fail
+  anyway answer `no_file_access` instead of a 500.
+- **Never changed by gantry:** it shows a `chown` of exactly the missing
+  paths and leaves running it to the administrator. Never recursive: a
+  stack's data belongs to its containers.
+- **Controlling without editing is fine:** missing write access is a note on
+  the stack's page, not a warning. Unreadable files are a warning, because
+  Compose fails on them too.
+- The contents of a stack's directory aren't checked: deleting stops at
+  files the agent may not remove, and the Compose file goes last, so the
+  stack stays listed.

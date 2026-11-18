@@ -218,7 +218,10 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: "`stack_exists`: a directory or Compose project with this name exists."
+          description: |
+            `stack_exists`: a directory or Compose project with this name
+            exists. `no_file_access`: the agent may not write the stacks
+            directory (see `fileAccess` in the stack list).
           content:
             application/json:
               schema:
@@ -307,7 +310,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "`stack_unmanaged`."
+          description: |
+            `stack_unmanaged`, or `no_file_access`: the agent may not remove
+            the stack (see `deletable` in its details); nothing was run.
           content:
             application/json:
               schema:
@@ -350,7 +355,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "`version_conflict` or `stack_unmanaged`."
+          description: |
+            `version_conflict`, `stack_unmanaged`, or `no_file_access`: the
+            agent may not write the stack's directory or read the file (see
+            `fileAccess` in the stack's details).
           content:
             application/json:
               schema:
@@ -423,7 +431,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "`version_conflict` or `stack_unmanaged`."
+          description: |
+            `version_conflict`, `stack_unmanaged`, or `no_file_access`: the
+            agent may not write the stack's directory or read the file (see
+            `fileAccess` in the stack's details).
           content:
             application/json:
               schema:
@@ -934,6 +945,7 @@ components:
             - docker_unavailable
             - https_required
             - operation_finished
+            - no_file_access
         operation:
           type: string
           description: For `stack_busy`, the ID of the running operation.
@@ -1031,7 +1043,10 @@ components:
 
     StackList:
       type: object
-      required: [stacks, dockerAvailable, warnings]
+      description: |
+        `fileAccess` is the access to `GANTRY_STACKS_DIR`; stacks can be
+        created only if nothing is missing.
+      required: [stacks, dockerAvailable, warnings, fileAccess]
       properties:
         stacks:
           type: array
@@ -1043,9 +1058,46 @@ components:
           type: array
           items:
             type: string
+        fileAccess:
+          $ref: "#/components/schemas/FileAccess"
+
+    FileAccess:
+      type: object
+      description: |
+        What the agent may not read or write on the host, as the user it
+        runs as. gantry never changes owners or permissions itself.
+      required: [user, missing]
+      properties:
+        user:
+          type: string
+          description: The user the agent runs as; its numeric ID if it has no name.
+          example: gantry
+        missing:
+          type: array
+          items:
+            $ref: "#/components/schemas/MissingAccess"
+
+    MissingAccess:
+      type: object
+      required: [path, access]
+      properties:
+        path:
+          type: string
+          example: /opt/stacks/romm/.env
+        access:
+          type: string
+          enum: [read, write]
+        readOnlyFilesystem:
+          type: boolean
+          description: |
+            True if the path is on a read-only file system, for example by a
+            service sandbox; then changing its owner doesn't help.
 
     StackDetail:
       type: object
+      description: |
+        For managed stacks, `fileAccess` covers `GANTRY_STACKS_DIR`, the
+        stack's directory, its Compose file and `.env`.
       required:
         - name
         - managed
@@ -1057,11 +1109,29 @@ components:
         - volumes
         - dockerAvailable
         - warnings
+        - editable
+        - deletable
       properties:
         name:
           type: string
         managed:
           type: boolean
+        editable:
+          type: boolean
+          description: |
+            True if the Compose file and `.env` can be changed: the stack is
+            managed, the agent may write its directory and read both files.
+            Files are replaced, never written in place, so they need not be
+            writable.
+        deletable:
+          type: boolean
+          description: |
+            True if the stack can be deleted: `editable`, and the agent may
+            write `GANTRY_STACKS_DIR`. What the stack's directory contains
+            isn't checked; files the agent may not remove stop the deletion,
+            and the Compose file is removed last.
+        fileAccess:
+          $ref: "#/components/schemas/FileAccess"
         status:
           $ref: "#/components/schemas/StackStatus"
         servicesTotal:
