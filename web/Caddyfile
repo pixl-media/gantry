@@ -11,7 +11,9 @@
 	}
 }
 
-:8080 {
+# GANTRY_WEB_PORT changes the port, for running in the host's network
+# (--network host) next to something else on 8080.
+:{$GANTRY_WEB_PORT:8080} {
 	encode zstd gzip
 
 	# The agent's API on the same origin as the app: the session cookie works

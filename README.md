@@ -458,9 +458,23 @@ Image tags: `:0.1` gets the fixes of 0.1.x, `:0.1.0` is that exact
 release, `:latest` the newest release, and `:edge` the current `main`
 (untested beyond CI).
 
-The web UI speaks plain HTTP on port 8080. The web container also works with
-an agent running as a systemd service: point `GANTRY_AGENT_URL` at it, and
-set the agent's `GANTRY_LISTEN` so the container can reach it.
+The web UI speaks plain HTTP on port 8080; `GANTRY_WEB_PORT` changes it
+(above 1023, the container doesn't run as root). The web container also
+works with an agent running as a systemd service: point `GANTRY_AGENT_URL`
+at it, and set the agent's `GANTRY_LISTEN` so the container can reach it. Or
+run the container in the host's network, and the agent can stay on
+`127.0.0.1`:
+
+```sh
+docker run -d --name gantry-web --restart unless-stopped --network host \
+  -e GANTRY_AGENT_URL=http://127.0.0.1:7070 -e GANTRY_WEB_PORT=8090 \
+  ghcr.io/pixl-media/gantry-web:0.1
+```
+
+In the host's network the UI listens on all of the host's addresses, and
+the host firewall applies (no published Docker port). Set the agent's
+`GANTRY_TRUSTED_PROXIES=127.0.0.1` so that every browser gets its own login
+limit.
 
 ### Exposing gantry
 

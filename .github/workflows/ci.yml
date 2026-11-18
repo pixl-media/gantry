@@ -322,6 +322,16 @@ jobs:
           curl -fsS -b tls-cookies.txt "$web/api/v1/stacks" | jq -e '.stacks | length > 0'
           curl -sN -b tls-cookies.txt --max-time 5 "$web/api/v1/events" > tls-events.txt || true
           grep -q '^event: ready' tls-events.txt
+
+          # The web UI in the host's network on another port, with the agent
+          # on 127.0.0.1 (as installed by the package).
+          docker run -d --name gantry-web-host-smoke --network host \
+            -e GANTRY_AGENT_URL=http://127.0.0.1:7070 -e GANTRY_WEB_PORT=8091 gantry-web:smoke
+          web=http://127.0.0.1:8091
+          for i in $(seq 1 30); do curl -fsS "$web/" > /dev/null && break; sleep 1; done
+          curl -fsS "$web/" | grep -q '<div id="root">'
+          # 401 comes from the agent, so the proxy reached it.
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$web/api/v1/stacks")" = 401
       - name: Smoke test logs
         if: always()
         run: |
@@ -329,6 +339,7 @@ jobs:
           docker logs gantry-web-smoke || true
           docker logs gantry-tls-smoke || true
           docker logs gantry-web-tls-smoke || true
+          docker logs gantry-web-host-smoke || true
 
       - if: github.event_name == 'push'
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
