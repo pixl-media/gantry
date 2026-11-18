@@ -44,6 +44,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Agent and host
+         * @description The agent's version and its Docker host: name, system, Docker and
+         *     Compose versions, for overviews of several hosts. Host details come
+         *     from Docker, so they describe the host also when the agent runs in a
+         *     container. Fields whose source is unavailable are left out: without
+         *     Docker, `dockerAvailable` is false and only `version` and
+         *     `composeVersion` may be set. No addresses: clients know the one they
+         *     reached the agent at.
+         */
+        get: operations["getInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/session": {
         parameters: {
             query?: never;
@@ -500,6 +526,35 @@ export interface components {
             /** @example 0.1.0 */
             version: string;
         };
+        AgentInfo: {
+            /**
+             * @description The agent's version.
+             * @example 0.1.1
+             */
+            version: string;
+            dockerAvailable: boolean;
+            /**
+             * @description The Docker host's name.
+             * @example nas
+             */
+            hostname?: string;
+            /** @example Ubuntu 24.04.1 LTS */
+            operatingSystem?: string;
+            /** @example x86_64 */
+            architecture?: string;
+            /** @example 6.8.0-48-generic */
+            kernelVersion?: string;
+            /**
+             * @description The Docker Engine's version.
+             * @example 28.3.1
+             */
+            dockerVersion?: string;
+            /**
+             * @description The version of `docker compose`, as the agent runs it.
+             * @example 2.39.1
+             */
+            composeVersion?: string;
+        };
         /**
          * @description `running`: every service has a running container.
          *     `partial`: some services have a running container.
@@ -889,6 +944,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Version"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent and its host. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentInfo"];
                 };
             };
             401: components["responses"]["Unauthorized"];

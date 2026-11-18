@@ -472,3 +472,30 @@ func TestLogsAgainstDocker(t *testing.T) {
 		}
 	}
 }
+
+// hostInfo is the agent's HostService (in package main).
+type hostInfo struct {
+	docker  *docker.Client
+	compose compose.CLI
+}
+
+func (h hostInfo) Info(ctx context.Context) (docker.Info, error) { return h.docker.Info(ctx) }
+func (h hostInfo) ComposeVersion(ctx context.Context) (string, error) {
+	return h.compose.Version(ctx)
+}
+
+func TestInfoAgainstDocker(t *testing.T) {
+	dc, err := docker.New(os.Getenv("DOCKER_HOST"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := api.New(api.Config{Token: token, Version: "it", Host: hostInfo{docker: dc}})
+	var info api.AgentInfo
+	if code := get(t, h, "/api/v1/info", &info); code != http.StatusOK {
+		t.Fatalf("info: status %d", code)
+	}
+	if !info.DockerAvailable || info.Hostname == nil || info.DockerVersion == nil || info.ComposeVersion == nil || info.Architecture == nil {
+		t.Errorf("info = %+v, want host, Docker and Compose details", info)
+	}
+	t.Logf("host %s, Docker %s, Compose %s", *info.Hostname, *info.DockerVersion, *info.ComposeVersion)
+}

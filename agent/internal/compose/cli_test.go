@@ -78,18 +78,43 @@ func TestComposeDoesNotSeeGantrySettings(t *testing.T) {
 	if _, err := cli.Run(context.Background(), p, []string{"up", "-d"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := cli.Version(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	raw, err := os.ReadFile(envFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := string(raw)
-	if strings.Count(env, "ENV_OUT=") != 3 {
-		t.Fatalf("expected three runs, env:\n%s", env)
+	if strings.Count(env, "ENV_OUT=") != 4 {
+		t.Fatalf("expected four runs, env:\n%s", env)
 	}
 	if strings.Contains(env, "GANTRY_") || strings.Contains(env, "secret-token-value") {
 		t.Errorf("Compose saw GANTRY_* settings:\n%s", env)
 	}
 	if !strings.Contains(env, "PATH=") {
 		t.Error("the rest of the environment (PATH, HOME, DOCKER_HOST) must be passed on")
+	}
+}
+
+func TestVersion(t *testing.T) {
+	bin, argsFile := fakeDocker(t, `printf '2.39.1\n'`)
+	got, err := CLI{Docker: bin}.Version(context.Background())
+	if err != nil || got != "2.39.1" {
+		t.Fatalf("version = %q, %v", got, err)
+	}
+	raw, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if args := strings.Fields(string(raw)); !slices.Equal(args, []string{"compose", "version", "--short"}) {
+		t.Errorf("args = %v", args)
+	}
+}
+
+func TestVersionError(t *testing.T) {
+	bin, _ := fakeDocker(t, `echo "docker: 'compose' is not a docker command." >&2; exit 1`)
+	if _, err := (CLI{Docker: bin}).Version(context.Background()); err == nil {
+		t.Fatal("expected an error without the Compose plugin")
 	}
 }

@@ -129,6 +129,7 @@ authenticated (`via=token` or `via=session`), never with its body.
 | `GET /api/v1/session` | Whether and how the request is authenticated |
 | `DELETE /api/v1/session` | Log out; clears the cookie (public) |
 | `GET /api/v1/version` | Agent version |
+| `GET /api/v1/info` | Agent version and its Docker host: name, system, architecture, kernel, Docker and Compose versions |
 | `GET /api/v1/stacks` | All stacks with status; `dockerAvailable` and `warnings` |
 | `POST /api/v1/stacks` | Create a managed stack from `{name, compose, env?}` |
 | `GET /api/v1/stacks/{name}` | Services, containers (state, health, ports), named volumes and the raw Compose file with its `version` |

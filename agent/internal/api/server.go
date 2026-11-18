@@ -69,6 +69,8 @@ type Config struct {
 	Operations OperationService
 	Logs       LogService
 	Files      FileService
+	// Host tells about the Docker host (GET /api/v1/info); optional.
+	Host HostService
 	// Live tells clients which stacks changed (GET /api/v1/events); optional.
 	Live LiveService
 	// EventsPing is how often the live event stream sends a ping event;

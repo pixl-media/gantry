@@ -383,6 +383,39 @@ type AffectedServiceEffect string
 // needs it. `dependent`: it needs the chosen service.
 type AffectedServiceReason string
 
+// AgentInfo defines model for AgentInfo.
+type AgentInfo struct {
+	// Architecture Example: x86_64
+	Architecture *string `json:"architecture,omitempty"`
+
+	// ComposeVersion The version of `docker compose`, as the agent runs it.
+	//
+	// Example: 2.39.1
+	ComposeVersion  *string `json:"composeVersion,omitempty"`
+	DockerAvailable bool    `json:"dockerAvailable"`
+
+	// DockerVersion The Docker Engine's version.
+	//
+	// Example: 28.3.1
+	DockerVersion *string `json:"dockerVersion,omitempty"`
+
+	// Hostname The Docker host's name.
+	//
+	// Example: nas
+	Hostname *string `json:"hostname,omitempty"`
+
+	// KernelVersion Example: 6.8.0-48-generic
+	KernelVersion *string `json:"kernelVersion,omitempty"`
+
+	// OperatingSystem Example: Ubuntu 24.04.1 LTS
+	OperatingSystem *string `json:"operatingSystem,omitempty"`
+
+	// Version The agent's version.
+	//
+	// Example: 0.1.1
+	Version string `json:"version"`
+}
+
 // ComposeFile defines model for ComposeFile.
 type ComposeFile struct {
 	// Content Raw file content, variables unresolved. Omitted if the file can't
@@ -876,6 +909,9 @@ type ServerInterface interface {
 	// StreamEvents Which stacks changed, live
 	// (GET /api/v1/events)
 	StreamEvents(w http.ResponseWriter, r *http.Request)
+	// GetInfo Agent and host
+	// (GET /api/v1/info)
+	GetInfo(w http.ResponseWriter, r *http.Request)
 	// ListOperations List recent operations
 	// (GET /api/v1/operations)
 	ListOperations(w http.ResponseWriter, r *http.Request, params ListOperationsParams)
@@ -952,6 +988,20 @@ func (siw *ServerInterfaceWrapper) StreamEvents(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.StreamEvents(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetInfo operation middleware
+func (siw *ServerInterfaceWrapper) GetInfo(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetInfo(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1637,6 +1687,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.GetHealth)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/version", wrapper.GetVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/info", wrapper.GetInfo)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/session", wrapper.DeleteSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/session", wrapper.GetSession)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/session", wrapper.CreateSession)
@@ -1721,6 +1772,41 @@ func (response StreamEvents200TexteventStreamResponse) VisitStreamEventsResponse
 type StreamEvents401JSONResponse struct{ UnauthorizedJSONResponse }
 
 func (response StreamEvents401JSONResponse) VisitStreamEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetInfoRequestObject struct {
+}
+
+type GetInfoResponseObject interface {
+	VisitGetInfoResponse(w http.ResponseWriter) error
+}
+
+type GetInfo200JSONResponse AgentInfo
+
+func (response GetInfo200JSONResponse) VisitGetInfoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetInfo401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetInfo401JSONResponse) VisitGetInfoResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -3119,6 +3205,9 @@ type StrictServerInterface interface {
 	// StreamEvents Which stacks changed, live
 	// (GET /api/v1/events)
 	StreamEvents(ctx context.Context, request StreamEventsRequestObject) (StreamEventsResponseObject, error)
+	// GetInfo Agent and host
+	// (GET /api/v1/info)
+	GetInfo(ctx context.Context, request GetInfoRequestObject) (GetInfoResponseObject, error)
 	// ListOperations List recent operations
 	// (GET /api/v1/operations)
 	ListOperations(ctx context.Context, request ListOperationsRequestObject) (ListOperationsResponseObject, error)
@@ -3237,6 +3326,30 @@ func (sh *strictHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(StreamEventsResponseObject); ok {
 		if err := validResponse.VisitStreamEventsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetInfo operation middleware
+func (sh *strictHandler) GetInfo(w http.ResponseWriter, r *http.Request) {
+	var request GetInfoRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetInfo(ctx, request.(GetInfoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetInfo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetInfoResponseObject); ok {
+		if err := validResponse.VisitGetInfoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

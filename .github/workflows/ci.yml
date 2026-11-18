@@ -115,6 +115,8 @@ jobs:
           for i in $(seq 1 20); do curl -fsS http://127.0.0.1:7070/healthz && break; sleep 1; done
           curl -fsS -H "Authorization: Bearer $api" http://127.0.0.1:7070/api/v1/stacks \
             | jq -e '.dockerAvailable and .fileAccess.user == "gantry" and .fileAccess.missing == []'
+          curl -fsS -H "Authorization: Bearer $api" http://127.0.0.1:7070/api/v1/info \
+            | jq -e '.dockerAvailable and .hostname and .dockerVersion and .composeVersion'
 
           # A stack that belongs to root, as from another tool: the service,
           # running as gantry, reports what it may not do, and the suggested
@@ -197,6 +199,10 @@ jobs:
           curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:7070/api/v1/stacks | tee stacks.json
           # servicesTotal comes from `docker compose config` inside the image.
           jq -e '.dockerAvailable and (.stacks[] | select(.name == "whoami") | .servicesTotal == 1)' stacks.json
+          # Host details, with Compose from inside the image; never public.
+          curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:7070/api/v1/info \
+            | jq -e '.dockerAvailable and .hostname and .dockerVersion and .composeVersion'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7070/api/v1/info)" = 401
 
           # Actions: the agent in the container runs `docker compose` itself.
           api() { curl -fsS -H "Authorization: Bearer $token" "$@"; }
