@@ -18,6 +18,7 @@ import { useLogout } from '../api/queries';
 import { languages } from '../i18n';
 import { ColorSchemeMenu } from './ColorSchemeMenu';
 import { Logo } from './Logo';
+import { OperationWatcher } from './OperationWatcher';
 
 const languageNames: Record<(typeof languages)[number], string> = {
   en: 'English',
@@ -88,6 +89,7 @@ export function AppLayout() {
       <Container maxWidth="lg" sx={{ py: 3 }}>
         <LiveProvider>
           <Outlet />
+          <OperationWatcher />
         </LiveProvider>
       </Container>
     </Box>

@@ -93,6 +93,9 @@ what changed.
   confirm first.
 - **New stack** on the list page, **Delete stack** in a stack's menu (type
   the name to confirm; named volumes only if you tick the box).
+- **Notices:** when an action you started ends while its output panel is
+  closed, a short message at the top right says how it went, with a button
+  to the output if it failed or was canceled.
 - **File access:** if the agent may not change a stack's files, its page
   says what's missing and shows the command that allows it; editing is
   locked until then (see [Write access](#configuration)).
