@@ -21,7 +21,7 @@ info:
 
     This file is the contract: the Go server types are generated from it
     (`make generate`), and API clients should be generated from it too.
-  version: 0.1.0
+  version: 0.2.0
 
 servers:
   - url: /
