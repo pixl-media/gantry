@@ -65,6 +65,9 @@ the primary, recommended mode, the container image is an option.
 - The container stays for NAS/appliance systems (Synology, Unraid, TrueNAS)
   and quick trials. Its image must bundle the Docker CLI and Compose plugin.
 
+*Amended by [decision 28](#28-packages-and-releases):* the agent doesn't update itself; updates come
+from installing the newer package.
+
 ## 3. Platforms: linux/amd64 and linux/arm64
 
 **Decided 2026-11-12.** Binaries, packages and images are built for both.
@@ -697,6 +700,10 @@ values crossed the network in plain text.
   them; pull requests are merged with merge commits.
 - **Tags by hand,** after the release pull request; no automatic version
   bumps.
+- **No self-update:** updates come from installing the newer package. A
+  self-update would need write access to the agent's own binary, which the
+  sandbox denies (`ProtectSystem`), bypass the package manager, and check
+  for releases, a call to an outside service ([decision 25](#25-scope-a-lightweight-manager-for-one-host)).
 - **Signed build provenance** (GitHub artifact attestations) for every
   release file and pushed image; `gh attestation verify` checks it. GitHub
   offers this for public repositories.
