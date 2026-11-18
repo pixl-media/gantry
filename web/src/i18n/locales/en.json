@@ -156,7 +156,13 @@
     "action": "Action",
     "started": "Started",
     "result": "Result",
-    "titleService": "{{action}} · {{stack}} / {{service}}"
+    "titleService": "{{action}} · {{stack}} / {{service}}",
+    "showOutput": "Show output",
+    "notice": {
+      "succeeded": "{{title}}: done.",
+      "failed": "{{title}}: failed.",
+      "canceled": "{{title}}: canceled."
+    }
   },
   "errors": {
     "stack_busy": "Another operation is running on this stack.",

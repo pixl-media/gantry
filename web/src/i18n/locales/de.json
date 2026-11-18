@@ -156,7 +156,13 @@
     "action": "Aktion",
     "started": "Gestartet",
     "result": "Ergebnis",
-    "titleService": "{{action}} · {{stack}} / {{service}}"
+    "titleService": "{{action}} · {{stack}} / {{service}}",
+    "showOutput": "Ausgabe zeigen",
+    "notice": {
+      "succeeded": "{{title}}: fertig.",
+      "failed": "{{title}}: fehlgeschlagen.",
+      "canceled": "{{title}}: abgebrochen."
+    }
   },
   "errors": {
     "stack_busy": "Auf diesem Stack läuft bereits ein anderer Vorgang.",

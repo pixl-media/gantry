@@ -14,6 +14,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -31,17 +32,61 @@ import { OperationStatusChip } from './StatusChip';
 type Target = Pick<
   Operation,
   'id' | 'stack' | 'action' | 'startedAt' | 'service'
->;
+> & { status?: Operation['status'] };
+
+/** An operation started here, to report when it ends (OperationWatcher). */
+export type Watched = Pick<
+  Operation,
+  'id' | 'stack' | 'action' | 'startedAt' | 'service'
+> & { since: number };
 
 const PanelContext = createContext<(op: Target) => void>(() => {});
 
-/** Provides a side panel that shows an operation's live output. */
+const WatchContext = createContext<{
+  watched: Watched[];
+  openId: string | undefined;
+  unwatch: (id: string) => void;
+  open: (op: Target) => void;
+}>({ watched: [], openId: undefined, unwatch: () => {}, open: () => {} });
+
+/**
+ * Provides a side panel that shows an operation's live output. Running
+ * operations opened in it are watched, so OperationWatcher can report when
+ * they end while the panel is closed.
+ */
 export function OperationPanelProvider({ children }: { children: ReactNode }) {
   const [target, setTarget] = useState<Target>();
-  const open = useCallback((op: Target) => setTarget(op), []);
+  const [watched, setWatched] = useState<Watched[]>([]);
+  const open = useCallback((op: Target) => {
+    setTarget(op);
+    if (op.status !== 'running') return;
+    setWatched((w) =>
+      w.some((x) => x.id === op.id)
+        ? w
+        : [
+            ...w,
+            {
+              id: op.id,
+              stack: op.stack,
+              action: op.action,
+              startedAt: op.startedAt,
+              service: op.service,
+              since: Date.now(),
+            },
+          ],
+    );
+  }, []);
+  const unwatch = useCallback(
+    (id: string) => setWatched((w) => w.filter((x) => x.id !== id)),
+    [],
+  );
+  const watch = useMemo(
+    () => ({ watched, openId: target?.id, unwatch, open }),
+    [watched, target?.id, unwatch, open],
+  );
   return (
     <PanelContext.Provider value={open}>
-      {children}
+      <WatchContext.Provider value={watch}>{children}</WatchContext.Provider>
       <Drawer
         anchor="right"
         open={target !== undefined}
@@ -63,6 +108,11 @@ export function OperationPanelProvider({ children }: { children: ReactNode }) {
 /** Opens the operation panel. */
 export function useOperationPanel() {
   return useContext(PanelContext);
+}
+
+/** The operations watched for their end, and the one shown in the panel. */
+export function useWatchedOperations() {
+  return useContext(WatchContext);
 }
 
 export function OperationView({
