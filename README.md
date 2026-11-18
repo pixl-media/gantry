@@ -649,8 +649,13 @@ This is a development tool only; the agent doesn't serve docs itself.
 gantry stays a lightweight manager for one host: no database or files of its
 own, only what Docker and Compose can do, no background calls to outside
 services. Several hosts in one UI, user accounts and roles, resource
-history, a history of Compose files, a console in containers and "update
+usage, a history of Compose files, a console in containers and "update
 available" hints are out of scope ([decision 25](docs/decisions.md#25-scope-a-lightweight-manager-for-one-host)).
+
+For CPU, memory and network usage per container, use a tool such as
+[cAdvisor](https://github.com/google/cadvisor) next to gantry. Its metrics
+carry the Compose project and service labels, so they can be summed per
+stack. Like gantry, it should not be reachable from the internet.
 
 ## Workflow and releases
 
