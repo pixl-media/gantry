@@ -606,6 +606,11 @@ its operations every 5 seconds, per open tab, and every list request ran
 - **Not in gantry:** several hosts in one UI, user accounts and roles,
   resource usage and its history, a history of Compose files, a console in
   containers, renaming stacks with their volumes.
+
+  *Clarified 2026-11-18:* the size of a stack's volumes is information
+  about the stack, not resource usage: the API reports it on request, as
+  Docker measures it (`docker system df`), with one measurement kept for a
+  minute. CPU, memory and network stay with tools such as cAdvisor.
 - **Dropped:**
   - **"Update available" hints for images:** with `latest`, the update
     action pulls and recreates only what changed; with pinned versions,

@@ -24,6 +24,7 @@ import (
 	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
+	"github.com/pixl-media/gantry/agent/internal/volumes"
 )
 
 func sendJSON(t *testing.T, h http.Handler, method, path string, body any) (int, []byte) {
@@ -233,5 +234,39 @@ volumes:
 	}
 	if volumeExists(volume) {
 		t.Error("volume still exists after delete with volumes=true")
+	}
+}
+
+func TestVolumeSizesAgainstDocker(t *testing.T) {
+	b := make([]byte, 4)
+	rand.Read(b)
+	name := "gantry-test-" + hex.EncodeToString(b) + "-size"
+	t.Cleanup(func() {
+		exec.Command("docker", "compose", "-p", name, "down", "-v", "--remove-orphans", "-t", "1").Run()
+	})
+	dir := filepath.Join(tempDir(t), name)
+	os.MkdirAll(dir, 0o755)
+	file := filepath.Join(dir, "compose.yaml")
+	// Writes 1 MiB into the volume and exits.
+	os.WriteFile(file, []byte(`services:
+  app:
+    image: alpine:3.24
+    command: ["sh", "-c", "head -c 1048576 /dev/urandom > /data/blob"]
+    volumes:
+      - data:/data
+volumes:
+  data: {}
+`), 0o644)
+	// Attached: returns once the container has written and exited.
+	dockerCompose(t, name, file, "up")
+
+	dc, _ := docker.New(os.Getenv("DOCKER_HOST"))
+	h := api.New(api.Config{Token: token, Volumes: volumes.New(dc)})
+	var got api.StackVolumes
+	if code := get(t, h, "/api/v1/stacks/"+name+"/volumes", &got); code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	if len(got.Volumes) != 1 || got.Volumes[0].Name != name+"_data" || got.Volumes[0].Size == nil || *got.Volumes[0].Size < 1<<20 || got.TotalSize < 1<<20 {
+		t.Errorf("volumes = %+v", got)
 	}
 }

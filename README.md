@@ -131,8 +131,10 @@ authenticated (`via=token` or `via=session`), never with its body.
 | `GET /api/v1/version` | Agent version |
 | `GET /api/v1/info` | Agent version and its Docker host: name, system, architecture, kernel, Docker and Compose versions |
 | `GET /api/v1/stacks` | All stacks with status; `dockerAvailable` and `warnings` |
+| `GET /api/v1/volumes` | Volumes of all Compose projects with their size on disk, including leftovers of deleted stacks; measured by Docker, kept for a minute |
 | `POST /api/v1/stacks` | Create a managed stack from `{name, compose, env?}` |
 | `GET /api/v1/stacks/{name}` | Services, containers (state, health, ports), named volumes and the raw Compose file with its `version` |
+| `GET /api/v1/stacks/{name}/volumes` | A stack's volumes with their sizes and the total |
 | `DELETE /api/v1/stacks/{name}?confirm={name}` | Delete a stack permanently, as an operation; `volumes=true` also removes its named volumes |
 | `PUT /api/v1/stacks/{name}/compose` | Replace the Compose file (`{content, version}`), validated first |
 | `GET /api/v1/stacks/{name}/env` | Names of the `.env` variables (no values) and the file's `version` |

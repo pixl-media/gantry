@@ -168,6 +168,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/volumes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Volumes of all stacks, with their sizes
+         * @description The Docker volumes that belong to a Compose project (label
+         *     `com.docker.compose.project`), with their size on disk, sorted by
+         *     stack and name. This includes volumes left behind by stacks that no
+         *     longer exist. Bind mounts aren't volumes and aren't included.
+         *
+         *     Docker measures the sizes on request (`docker system df`), which can
+         *     take a while for large volumes; the agent keeps a measurement for a
+         *     minute, so `measuredAt` may be up to a minute old.
+         */
+        get: operations["listVolumes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stacks/{name}/volumes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A stack's volumes, with their sizes
+         * @description Like `GET /api/v1/volumes`, for one Compose project, managed or not,
+         *     with the total. A valid name without volumes gives an empty list,
+         *     also for a stack whose directory is gone.
+         */
+        get: operations["getStackVolumes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stacks/{name}/compose": {
         parameters: {
             query?: never;
@@ -525,6 +574,48 @@ export interface components {
         Version: {
             /** @example 0.1.0 */
             version: string;
+        };
+        Volume: {
+            /** @example romm_data */
+            name: string;
+            /**
+             * @description The Compose project the volume belongs to.
+             * @example romm
+             */
+            stack: string;
+            /** @example local */
+            driver: string;
+            /**
+             * Format: int64
+             * @description Size on disk in bytes; left out if Docker doesn't know it (e.g. other drivers than `local`).
+             * @example 1048576
+             */
+            size?: number;
+            /** @description How many containers use the volume; left out if Docker doesn't know it. */
+            containers?: number;
+            /** Format: date-time */
+            createdAt?: string;
+        };
+        VolumeList: {
+            volumes: components["schemas"]["Volume"][];
+            /**
+             * Format: date-time
+             * @description When Docker measured the sizes.
+             */
+            measuredAt: string;
+        };
+        StackVolumes: {
+            volumes: components["schemas"]["Volume"][];
+            /**
+             * Format: int64
+             * @description The sum of the known sizes, in bytes.
+             */
+            totalSize: number;
+            /**
+             * Format: date-time
+             * @description When Docker measured the sizes.
+             */
+            measuredAt: string;
         };
         AgentInfo: {
             /**
@@ -1224,6 +1315,70 @@ export interface operations {
              *     the stack (see `deletable` in its details); nothing was run.
              */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listVolumes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The volumes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VolumeList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description `docker_unavailable`: Docker can't be reached or didn't answer in time. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getStackVolumes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Compose project name. */
+                name: components["parameters"]["StackName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stack's volumes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StackVolumes"];
+                };
+            };
+            400: components["responses"]["InvalidName"];
+            401: components["responses"]["Unauthorized"];
+            /** @description `docker_unavailable`: Docker can't be reached or didn't answer in time. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

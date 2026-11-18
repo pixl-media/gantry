@@ -341,6 +341,65 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/volumes:
+    get:
+      operationId: listVolumes
+      tags: [stacks]
+      summary: Volumes of all stacks, with their sizes
+      description: |
+        The Docker volumes that belong to a Compose project (label
+        `com.docker.compose.project`), with their size on disk, sorted by
+        stack and name. This includes volumes left behind by stacks that no
+        longer exist. Bind mounts aren't volumes and aren't included.
+
+        Docker measures the sizes on request (`docker system df`), which can
+        take a while for large volumes; the agent keeps a measurement for a
+        minute, so `measuredAt` may be up to a minute old.
+      responses:
+        "200":
+          description: The volumes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VolumeList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: "`docker_unavailable`: Docker can't be reached or didn't answer in time."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/stacks/{name}/volumes:
+    get:
+      operationId: getStackVolumes
+      tags: [stacks]
+      summary: A stack's volumes, with their sizes
+      description: |
+        Like `GET /api/v1/volumes`, for one Compose project, managed or not,
+        with the total. A valid name without volumes gives an empty list,
+        also for a stack whose directory is gone.
+      parameters:
+        - $ref: "#/components/parameters/StackName"
+      responses:
+        "200":
+          description: The stack's volumes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StackVolumes"
+        "400":
+          $ref: "#/components/responses/InvalidName"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: "`docker_unavailable`: Docker can't be reached or didn't answer in time."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/stacks/{name}/compose:
     put:
       operationId: updateCompose
@@ -1011,6 +1070,62 @@ components:
         version:
           type: string
           example: 0.1.0
+
+    Volume:
+      type: object
+      required: [name, stack, driver]
+      properties:
+        name:
+          type: string
+          example: romm_data
+        stack:
+          type: string
+          description: The Compose project the volume belongs to.
+          example: romm
+        driver:
+          type: string
+          example: local
+        size:
+          type: integer
+          format: int64
+          description: Size on disk in bytes; left out if Docker doesn't know it (e.g. other drivers than `local`).
+          example: 1048576
+        containers:
+          type: integer
+          description: How many containers use the volume; left out if Docker doesn't know it.
+        createdAt:
+          type: string
+          format: date-time
+
+    VolumeList:
+      type: object
+      required: [volumes, measuredAt]
+      properties:
+        volumes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Volume"
+        measuredAt:
+          type: string
+          format: date-time
+          description: When Docker measured the sizes.
+
+    StackVolumes:
+      type: object
+      required: [volumes, totalSize, measuredAt]
+      properties:
+        volumes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Volume"
+        totalSize:
+          type: integer
+          format: int64
+          description: The sum of the known sizes, in bytes.
+        measuredAt:
+          type: string
+          format: date-time
+          description: When Docker measured the sizes.
 
     AgentInfo:
       type: object

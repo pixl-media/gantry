@@ -71,6 +71,8 @@ type Config struct {
 	Files      FileService
 	// Host tells about the Docker host (GET /api/v1/info); optional.
 	Host HostService
+	// Volumes measures the stacks' volumes (GET /api/v1/volumes); optional.
+	Volumes VolumeService
 	// Live tells clients which stacks changed (GET /api/v1/events); optional.
 	Live LiveService
 	// EventsPing is how often the live event stream sends a ping event;
