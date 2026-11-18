@@ -31,7 +31,9 @@ Run from the repo root:
   depends on interfaces so tests use fakes), `internal/operations` (async
   actions, one per stack, output buffer for live streams), `internal/logs`
   (merged stack logs with re-attach after restarts), `internal/session`
-  (in-memory sessions, login rate limit), `internal/stackfiles` (stack
+  (in-memory sessions, login rate limit), `internal/oidc` (single sign-on:
+  the login flow with a signed flow cookie, ID token checks, allow list;
+  `oidc/fakeidp` is a provider for tests), `internal/stackfiles` (stack
   files: validated atomic writes, versions, layout-preserving `.env`),
   `internal/tlscert` (the TLS certificate from files, reloaded when they
   change), `internal/volumes` (volume sizes from Docker, one shared
@@ -86,6 +88,10 @@ The root `AGENTS.md` has the rules for both parts. In the agent:
 - **Sessions live in memory** (`session.Store`); logout revokes them. Wrong
   tokens, by login or bearer header, count against one limiter; never let
   the right token past it while a client is blocked.
+- **Single sign-on** ([decision 30](../docs/decisions.md#30-single-sign-on-with-oidc)) turns a login into an ordinary session.
+  Keep its allow list required, ID tokens limited to key-pair signatures,
+  and failed callbacks counted against the same limiter, checked before the
+  code exchange. Never log codes, tokens or the flow cookie.
 - **Request bodies are limited** in the auth middleware (`maxBody`,
   `maxLoginBody`); raise them only deliberately.
 - **Errors:** unexpected errors (500) are logged, never returned with
@@ -97,7 +103,8 @@ The root `AGENTS.md` has the rules for both parts. In the agent:
   ([decision 18](../docs/decisions.md#18-env-values-only-on-request)). Read Compose data with `--no-interpolate`.
 - **Never log values:** audit logs name the stack, file and keys, never
   `.env` values or file contents. The auth middleware logs every changing
-  request with `via=token|session`, never its body.
+  request with `via=token|session` (and `user=` after single sign-on),
+  never its body.
 - Validate stack names with `stacks.ValidName` before using them in paths or
   commands. Symlinked stack directories and Compose files are never managed;
   file access goes through `os.Root`.

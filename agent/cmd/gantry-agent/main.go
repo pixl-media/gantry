@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -24,6 +25,7 @@ import (
 	"github.com/pixl-media/gantry/agent/internal/docker"
 	"github.com/pixl-media/gantry/agent/internal/live"
 	"github.com/pixl-media/gantry/agent/internal/logs"
+	"github.com/pixl-media/gantry/agent/internal/oidc"
 	"github.com/pixl-media/gantry/agent/internal/operations"
 	"github.com/pixl-media/gantry/agent/internal/stackfiles"
 	"github.com/pixl-media/gantry/agent/internal/stacks"
@@ -80,26 +82,27 @@ func repeats(s string, n int) bool {
 
 // loadTokens returns the API token (GANTRY_TOKEN, bearer only) and the web
 // login token (GANTRY_UI_TOKEN, login only), and warnings. Each is optional,
-// which turns its way in off, but at least one is needed. Both are checked,
-// and they must differ: the point of two is replacing one without the other
-// (docs/decisions.md, decision 26).
-func loadTokens() (apiToken, uiToken string, warnings []string, err error) {
-	apiToken, warning, err := loadToken("GANTRY_TOKEN")
+// which turns its way in off, but at least one way in is needed: one of
+// them, or single sign-on (sso). Both are checked, and they must differ:
+// the point of two is replacing one without the other (docs/decisions.md,
+// decision 26).
+func loadTokens(sso bool) (apiToken, uiToken string, warnings []string, err error) {
+	apiToken, warning, err := loadSecret("GANTRY_TOKEN")
 	if err != nil {
 		return "", "", nil, err
 	}
 	if warning != "" {
 		warnings = append(warnings, warning)
 	}
-	uiToken, warning, err = loadToken("GANTRY_UI_TOKEN")
+	uiToken, warning, err = loadSecret("GANTRY_UI_TOKEN")
 	if err != nil {
 		return "", "", nil, err
 	}
 	if warning != "" {
 		warnings = append(warnings, warning)
 	}
-	if apiToken == "" && uiToken == "" {
-		return "", "", nil, fmt.Errorf("set GANTRY_TOKEN (API), GANTRY_UI_TOKEN (web login), or both; %s", tokenAdvice)
+	if apiToken == "" && uiToken == "" && !sso {
+		return "", "", nil, fmt.Errorf("set GANTRY_TOKEN (API), GANTRY_UI_TOKEN (web login), GANTRY_OIDC_ISSUER and the rest of single sign-on, or several; %s", tokenAdvice)
 	}
 	for name, token := range map[string]string{"GANTRY_TOKEN": apiToken, "GANTRY_UI_TOKEN": uiToken} {
 		if token == "" {
@@ -109,17 +112,17 @@ func loadTokens() (apiToken, uiToken string, warnings []string, err error) {
 			return "", "", nil, err
 		}
 	}
-	if apiToken == uiToken {
+	if apiToken != "" && apiToken == uiToken {
 		return "", "", nil, errors.New("GANTRY_TOKEN and GANTRY_UI_TOKEN are the same; generate a separate one for each")
 	}
 	return apiToken, uiToken, warnings, nil
 }
 
-// loadToken returns the token from the variable name, or from the file that
-// name_FILE names (for systemd credentials or Docker secrets, which keep it
-// out of the process environment), and a warning, if any. Neither set is
-// "".
-func loadToken(name string) (token, warning string, err error) {
+// loadSecret returns the secret from the variable name, or from the file
+// that name_FILE names (for systemd credentials or Docker secrets, which
+// keep it out of the process environment), and a warning, if any. Neither
+// set is "".
+func loadSecret(name string) (token, warning string, err error) {
 	fileVar := name + "_FILE"
 	value, file := os.Getenv(name), os.Getenv(fileVar)
 	switch {
@@ -144,6 +147,95 @@ func loadToken(name string) (token, warning string, err error) {
 		return "", "", fmt.Errorf("%s: %s is empty", fileVar, file)
 	}
 	return token, warning, nil
+}
+
+// callbackPath is where the identity provider sends browsers back to,
+// after GANTRY_PUBLIC_URL.
+const callbackPath = "/api/v1/session/oidc/callback"
+
+// loadOIDC returns the single sign-on setup from GANTRY_OIDC_*, or nil if
+// none of it is set, and warnings. Issuer, client and secret come together,
+// an allow list is required (otherwise every account at the provider could
+// manage the host), and the provider sends browsers back to
+// GANTRY_PUBLIC_URL, so that is required too. Both use https, except on
+// this host (local tests).
+func loadOIDC(publicOrigin string) (*oidc.Config, []string, error) {
+	issuer, clientID := os.Getenv("GANTRY_OIDC_ISSUER"), os.Getenv("GANTRY_OIDC_CLIENT_ID")
+	secret, warning, err := loadSecret("GANTRY_OIDC_CLIENT_SECRET")
+	if err != nil {
+		return nil, nil, err
+	}
+	var warnings []string
+	if warning != "" {
+		warnings = append(warnings, warning)
+	}
+	groups := splitList(os.Getenv("GANTRY_OIDC_ALLOWED_GROUPS"))
+	emails := splitList(os.Getenv("GANTRY_OIDC_ALLOWED_EMAILS"))
+	scopes := strings.Fields(strings.ReplaceAll(os.Getenv("GANTRY_OIDC_SCOPES"), ",", " "))
+
+	const all = "GANTRY_OIDC_ISSUER, GANTRY_OIDC_CLIENT_ID and GANTRY_OIDC_CLIENT_SECRET (or _FILE)"
+	switch {
+	case issuer == "" && clientID == "" && secret == "":
+		if len(groups) > 0 || len(emails) > 0 || len(scopes) > 0 {
+			return nil, nil, fmt.Errorf("the GANTRY_OIDC_* settings need %s", all)
+		}
+		return nil, nil, nil
+	case issuer == "" || clientID == "" || secret == "":
+		return nil, nil, fmt.Errorf("single sign-on needs %s together", all)
+	case len(groups) == 0 && len(emails) == 0:
+		return nil, nil, errors.New("single sign-on needs an allow list, GANTRY_OIDC_ALLOWED_GROUPS or GANTRY_OIDC_ALLOWED_EMAILS: without one, every account at the identity provider could manage this host")
+	case publicOrigin == "":
+		return nil, nil, errors.New("single sign-on needs GANTRY_PUBLIC_URL, the web UI's address: the identity provider sends browsers back to it")
+	}
+	if err := checkSSOURL("GANTRY_OIDC_ISSUER", issuer); err != nil {
+		return nil, nil, err
+	}
+	if err := checkSSOURL("GANTRY_PUBLIC_URL", publicOrigin); err != nil {
+		return nil, nil, err
+	}
+	for i, e := range emails {
+		if !strings.Contains(e, "@") {
+			return nil, nil, fmt.Errorf("GANTRY_OIDC_ALLOWED_EMAILS: %q is no email address", e)
+		}
+		emails[i] = strings.ToLower(e)
+	}
+	if len(scopes) == 0 {
+		scopes = []string{"openid", "profile", "email"}
+	}
+	return &oidc.Config{
+		Issuer:        issuer,
+		ClientID:      clientID,
+		ClientSecret:  secret,
+		RedirectURL:   publicOrigin + callbackPath,
+		Scopes:        scopes,
+		AllowedGroups: groups,
+		AllowedEmails: emails,
+	}, warnings, nil
+}
+
+// splitList splits a comma-separated list, trimming spaces; group names
+// may contain spaces themselves.
+func splitList(s string) []string {
+	var list []string
+	for item := range strings.SplitSeq(s, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			list = append(list, item)
+		}
+	}
+	return list
+}
+
+// checkSSOURL wants an https URL, or http on this host (for tests with a
+// local provider): codes, tokens and cookies travel over it.
+func checkSSOURL(name, s string) error {
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("%s %q: want a URL like https://login.example.com", name, s)
+	}
+	if u.Scheme == "https" || (u.Scheme == "http" && loopbackHost(u.Hostname())) {
+		return nil
+	}
+	return fmt.Errorf("%s %q: single sign-on needs https (http only on this host, for tests)", name, s)
 }
 
 // config is the agent's network-facing configuration from the environment.
@@ -199,9 +291,11 @@ func tlsConfig(certFile, keyFile string, logger *slog.Logger) (*tls.Config, stri
 // host.
 func loopbackOnly(listen string) bool {
 	host, _, err := net.SplitHostPort(listen)
-	if err != nil {
-		return false
-	}
+	return err == nil && loopbackHost(host)
+}
+
+// loopbackHost reports whether host names this host only.
+func loopbackHost(host string) bool {
 	if host == "localhost" {
 		return true
 	}
@@ -223,24 +317,34 @@ func main() {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	apiToken, uiToken, warnings, err := loadTokens()
+	cfg, err := loadConfig()
 	if err != nil {
 		logger.Error(err.Error())
 		os.Exit(1)
 	}
-	for _, w := range warnings {
+	ssoConfig, warnings, err := loadOIDC(cfg.publicOrigin)
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+	apiToken, uiToken, tokenWarnings, err := loadTokens(ssoConfig != nil)
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+	for _, w := range append(warnings, tokenWarnings...) {
 		logger.Warn(w)
 	}
 	if apiToken == "" {
 		logger.Info("API tokens are off: GANTRY_TOKEN is not set")
 	}
 	if uiToken == "" {
-		logger.Info("web login is off: GANTRY_UI_TOKEN is not set")
+		logger.Info("web login with a token is off: GANTRY_UI_TOKEN is not set")
 	}
-	cfg, err := loadConfig()
-	if err != nil {
-		logger.Error(err.Error())
-		os.Exit(1)
+	var sso *oidc.Client
+	if ssoConfig != nil {
+		sso = oidc.New(*ssoConfig)
+		logger.Info("single sign-on is on", "issuer", ssoConfig.Issuer, "redirect_uri", ssoConfig.RedirectURL)
 	}
 	if cfg.allowInsecureHTTP {
 		logger.Warn("GANTRY_ALLOW_INSECURE_HTTP is set: tokens and session cookies from internet addresses are accepted over plain HTTP, where anyone on the way can read them")
@@ -292,6 +396,7 @@ func main() {
 	srv := api.NewServer(addr, api.New(api.Config{
 		Token:             apiToken,
 		UIToken:           uiToken,
+		OIDC:              sso,
 		Version:           version,
 		Stacks:            manager,
 		Operations:        ops,

@@ -104,6 +104,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/session/methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ways to log in
+         * @description Which ways into the web UI the agent offers, so the login page shows
+         *     only those: the web login token (`GANTRY_UI_TOKEN`) and single
+         *     sign-on through an identity provider (`GANTRY_OIDC_*`).
+         */
+        get: operations["getLoginMethods"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/oidc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Log in with single sign-on
+         * @description For browsers, as a link from the login page: redirects to the
+         *     identity provider (authorization code flow with PKCE). A short-lived
+         *     `gantry_oidc` cookie (`HttpOnly`, `SameSite=Lax`, 10 minutes, signed
+         *     by the agent) carries the login's state to the callback; the agent
+         *     stores nothing.
+         *
+         *     Errors redirect to `/login?error=<code>` instead, with the codes of
+         *     the callback.
+         */
+        get: operations["startOidcLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return from the identity provider
+         * @description The identity provider redirects here (the redirect URI is
+         *     `GANTRY_PUBLIC_URL` plus this path). The agent exchanges the code,
+         *     checks the ID token and the allow list (`GANTRY_OIDC_ALLOWED_GROUPS`,
+         *     `GANTRY_OIDC_ALLOWED_EMAILS`), sets the session cookie and redirects
+         *     to the page the login started from.
+         *
+         *     Errors redirect to `/login?error=<code>`:
+         *
+         *     - `oidc_denied`: the account isn't on the allow list.
+         *     - `oidc_unavailable`: the identity provider can't be reached.
+         *     - `oidc_failed`: anything else, such as a login older than 10
+         *       minutes; the agent's log has the reason.
+         *     - `oidc_disabled`: single sign-on isn't set up.
+         *     - `https_required`: sent over plain HTTP from an internet address.
+         *     - `too_many_attempts`: too many failed logins from this client
+         *       within a minute.
+         *
+         *     Failed callbacks count against the same limit as wrong tokens.
+         */
+        get: operations["finishOidcLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stacks": {
         parameters: {
             query?: never;
@@ -566,6 +652,18 @@ export interface components {
              * @description When the session cookie expires (cookie method only).
              */
             expiresAt?: string;
+            /**
+             * @description Who logged in, for sessions from single sign-on: the email
+             *     address, or else the user name or subject from the identity
+             *     provider.
+             */
+            user?: string;
+        };
+        LoginMethods: {
+            /** @description The web login token (`POST /api/v1/session`) works. */
+            token: boolean;
+            /** @description Single sign-on (`GET /api/v1/session/oidc`) works. */
+            oidc: boolean;
         };
         Health: {
             /** @example ok */
@@ -1158,6 +1256,83 @@ export interface operations {
             204: {
                 headers: {
                     /** @description An expired `gantry_session` cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getLoginMethods: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ways to log in. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginMethods"];
+                };
+            };
+        };
+    };
+    startOidcLogin: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Path of the web UI to return to after the login, such as
+                 *     `/stacks/whoami`. Only paths on this site count; anything else
+                 *     returns to `/`.
+                 */
+                returnTo?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description To the identity provider, or to the login page with an error. */
+            302: {
+                headers: {
+                    Location?: string;
+                    /** @description The `gantry_oidc` cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    finishOidcLogin: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                /** @description Set by the identity provider if the login failed there. */
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description To the web UI, logged in, or to the login page with an error. */
+            302: {
+                headers: {
+                    Location?: string;
+                    /**
+                     * @description The `gantry_session` cookie, and an expired `gantry_oidc`
+                     *     cookie.
+                     */
                     "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };

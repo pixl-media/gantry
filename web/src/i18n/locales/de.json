@@ -4,7 +4,8 @@
     "stacks": "Stacks",
     "logout": "Abmelden",
     "language": "Sprache",
-    "colorScheme": "Darstellung"
+    "colorScheme": "Darstellung",
+    "logoutUser": "Abmelden ({{user}})"
   },
   "colorScheme": {
     "system": "System",
@@ -18,8 +19,15 @@
     "submit": "Anmelden",
     "invalidToken": "Falscher Token.",
     "tooManyAttempts": "Zu viele Fehlversuche. Versuch es in einer Minute erneut.",
-    "disabled": "Der Web-Login ist aus: Auf dem Agent ist GANTRY_UI_TOKEN nicht gesetzt.",
-    "failed": "Anmeldung fehlgeschlagen: {{message}}"
+    "disabled": "Der Web-Login ist aus: Der Agent hat weder GANTRY_UI_TOKEN noch Single Sign-On (GANTRY_OIDC_*).",
+    "failed": "Anmeldung fehlgeschlagen: {{message}}",
+    "sso": "Mit Single Sign-On anmelden",
+    "or": "oder",
+    "ssoDenied": "Dein Konto ist für gantry nicht freigegeben. Bitte den Administrator, es in eine freigegebene Gruppe aufzunehmen.",
+    "ssoUnavailable": "Der Identitätsanbieter ist nicht erreichbar. Versuch es später erneut.",
+    "ssoFailed": "Single Sign-On ist fehlgeschlagen. Versuch es erneut; Details stehen im Log des Agents.",
+    "ssoDisabled": "Single Sign-On ist auf dem Agent nicht eingerichtet.",
+    "httpsRequired": "Die Anmeldung von dieser Adresse aus braucht HTTPS."
   },
   "status": {
     "running": "Läuft",

@@ -10,7 +10,10 @@ info:
     `gantry_session` cookie set by `POST /api/v1/session` with
     `GANTRY_UI_TOKEN` (the web UI). The two tokens are separate: each works
     only in its own place.
-    `/healthz`, `POST /api/v1/session` and `DELETE /api/v1/session` are public.
+    The web UI can also log in through an identity provider (OIDC, `GET
+    /api/v1/session/oidc`), which sets the same cookie.
+    `/healthz`, `POST /api/v1/session`, `DELETE /api/v1/session` and the
+    `/api/v1/session/methods` and `/api/v1/session/oidc` routes are public.
 
     With cookie authentication, changing requests (POST, DELETE) must send an
     `Origin` header matching the host; otherwise they get `403
@@ -182,6 +185,113 @@ paths:
           headers:
             Set-Cookie:
               description: An expired `gantry_session` cookie.
+              schema:
+                type: string
+
+  /api/v1/session/methods:
+    get:
+      operationId: getLoginMethods
+      tags: [session]
+      summary: Ways to log in
+      description: |
+        Which ways into the web UI the agent offers, so the login page shows
+        only those: the web login token (`GANTRY_UI_TOKEN`) and single
+        sign-on through an identity provider (`GANTRY_OIDC_*`).
+      security: []
+      responses:
+        "200":
+          description: The ways to log in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginMethods"
+
+  /api/v1/session/oidc:
+    get:
+      operationId: startOidcLogin
+      tags: [session]
+      summary: Log in with single sign-on
+      description: |
+        For browsers, as a link from the login page: redirects to the
+        identity provider (authorization code flow with PKCE). A short-lived
+        `gantry_oidc` cookie (`HttpOnly`, `SameSite=Lax`, 10 minutes, signed
+        by the agent) carries the login's state to the callback; the agent
+        stores nothing.
+
+        Errors redirect to `/login?error=<code>` instead, with the codes of
+        the callback.
+      security: []
+      parameters:
+        - name: returnTo
+          in: query
+          description: |
+            Path of the web UI to return to after the login, such as
+            `/stacks/whoami`. Only paths on this site count; anything else
+            returns to `/`.
+          schema:
+            type: string
+      responses:
+        "302":
+          description: To the identity provider, or to the login page with an error.
+          headers:
+            Location:
+              schema:
+                type: string
+            Set-Cookie:
+              description: The `gantry_oidc` cookie.
+              schema:
+                type: string
+
+  /api/v1/session/oidc/callback:
+    get:
+      operationId: finishOidcLogin
+      tags: [session]
+      summary: Return from the identity provider
+      description: |
+        The identity provider redirects here (the redirect URI is
+        `GANTRY_PUBLIC_URL` plus this path). The agent exchanges the code,
+        checks the ID token and the allow list (`GANTRY_OIDC_ALLOWED_GROUPS`,
+        `GANTRY_OIDC_ALLOWED_EMAILS`), sets the session cookie and redirects
+        to the page the login started from.
+
+        Errors redirect to `/login?error=<code>`:
+
+        - `oidc_denied`: the account isn't on the allow list.
+        - `oidc_unavailable`: the identity provider can't be reached.
+        - `oidc_failed`: anything else, such as a login older than 10
+          minutes; the agent's log has the reason.
+        - `oidc_disabled`: single sign-on isn't set up.
+        - `https_required`: sent over plain HTTP from an internet address.
+        - `too_many_attempts`: too many failed logins from this client
+          within a minute.
+
+        Failed callbacks count against the same limit as wrong tokens.
+      security: []
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          description: Set by the identity provider if the login failed there.
+          schema:
+            type: string
+      responses:
+        "302":
+          description: To the web UI, logged in, or to the login page with an error.
+          headers:
+            Location:
+              schema:
+                type: string
+            Set-Cookie:
+              description: |
+                The `gantry_session` cookie, and an expired `gantry_oidc`
+                cookie.
               schema:
                 type: string
 
@@ -1054,6 +1164,23 @@ components:
           type: string
           format: date-time
           description: When the session cookie expires (cookie method only).
+        user:
+          type: string
+          description: |
+            Who logged in, for sessions from single sign-on: the email
+            address, or else the user name or subject from the identity
+            provider.
+
+    LoginMethods:
+      type: object
+      required: [token, oidc]
+      properties:
+        token:
+          type: boolean
+          description: The web login token (`POST /api/v1/session`) works.
+        oidc:
+          type: boolean
+          description: Single sign-on (`GET /api/v1/session/oidc`) works.
 
     Health:
       type: object

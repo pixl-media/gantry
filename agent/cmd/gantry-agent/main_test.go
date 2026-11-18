@@ -42,20 +42,20 @@ func TestLoadTokenFromFile(t *testing.T) {
 	os.WriteFile(file, []byte("9c1f2a7e4b80d36512ef0a8c7d94b6e3\n"), 0o600)
 	t.Setenv("GANTRY_UI_TOKEN", "")
 	t.Setenv("GANTRY_UI_TOKEN_FILE", file)
-	token, warning, err := loadToken("GANTRY_UI_TOKEN")
+	token, warning, err := loadSecret("GANTRY_UI_TOKEN")
 	if err != nil || token != "9c1f2a7e4b80d36512ef0a8c7d94b6e3" || warning != "" {
-		t.Errorf("loadToken = %q, %q, %v", token, warning, err)
+		t.Errorf("loadSecret = %q, %q, %v", token, warning, err)
 	}
 	os.Chmod(file, 0o644)
-	if _, warning, _ := loadToken("GANTRY_UI_TOKEN"); !strings.Contains(warning, "GANTRY_UI_TOKEN_FILE") {
+	if _, warning, _ := loadSecret("GANTRY_UI_TOKEN"); !strings.Contains(warning, "GANTRY_UI_TOKEN_FILE") {
 		t.Errorf("warning = %q, want one about GANTRY_UI_TOKEN_FILE", warning)
 	}
 	os.WriteFile(file, []byte("\n"), 0o600)
-	if _, _, err := loadToken("GANTRY_UI_TOKEN"); err == nil {
+	if _, _, err := loadSecret("GANTRY_UI_TOKEN"); err == nil {
 		t.Error("an empty token file was accepted")
 	}
 	t.Setenv("GANTRY_UI_TOKEN", "9c1f2a7e4b80d36512ef0a8c7d94b6e3")
-	if _, _, err := loadToken("GANTRY_UI_TOKEN"); err == nil || !strings.Contains(err.Error(), "not both") {
+	if _, _, err := loadSecret("GANTRY_UI_TOKEN"); err == nil || !strings.Contains(err.Error(), "not both") {
 		t.Errorf("both GANTRY_UI_TOKEN and GANTRY_UI_TOKEN_FILE: err = %v", err)
 	}
 }
@@ -69,7 +69,7 @@ func TestLoadTokens(t *testing.T) {
 		{"both", a, b, ""},
 		{"API only", a, "", ""},
 		{"web login only", "", b, ""},
-		{"none", "", "", "GANTRY_TOKEN (API), GANTRY_UI_TOKEN (web login), or both"},
+		{"none", "", "", "GANTRY_TOKEN (API), GANTRY_UI_TOKEN (web login), GANTRY_OIDC_ISSUER"},
 		{"the same", a, a, "are the same"},
 		{"weak API token", "change-me", b, "GANTRY_TOKEN is too short"},
 		{"weak web login token", a, "change-me", "GANTRY_UI_TOKEN is too short"},
@@ -79,7 +79,7 @@ func TestLoadTokens(t *testing.T) {
 		t.Setenv("GANTRY_TOKEN_FILE", "")
 		t.Setenv("GANTRY_UI_TOKEN", tt.ui)
 		t.Setenv("GANTRY_UI_TOKEN_FILE", "")
-		api, ui, _, err := loadTokens()
+		api, ui, _, err := loadTokens(false)
 		if tt.err == "" {
 			if err != nil || api != tt.api || ui != tt.ui {
 				t.Errorf("%s: loadTokens = %q, %q, %v", tt.name, api, ui, err)
@@ -92,6 +92,92 @@ func TestLoadTokens(t *testing.T) {
 		if err != nil && strings.Contains(err.Error(), a) {
 			t.Errorf("%s: the error contains a token", tt.name)
 		}
+	}
+}
+
+// With single sign-on, neither token is needed.
+func TestLoadTokensWithSSO(t *testing.T) {
+	for _, name := range []string{"GANTRY_TOKEN", "GANTRY_TOKEN_FILE", "GANTRY_UI_TOKEN", "GANTRY_UI_TOKEN_FILE"} {
+		t.Setenv(name, "")
+	}
+	if api, ui, _, err := loadTokens(true); err != nil || api != "" || ui != "" {
+		t.Errorf("loadTokens = %q, %q, %v", api, ui, err)
+	}
+}
+
+func TestLoadOIDC(t *testing.T) {
+	const public = "https://gantry.example.com"
+	full := map[string]string{
+		"GANTRY_OIDC_ISSUER":         "https://auth.example.com/application/o/gantry/",
+		"GANTRY_OIDC_CLIENT_ID":      "gantry",
+		"GANTRY_OIDC_CLIENT_SECRET":  "the-client-secret",
+		"GANTRY_OIDC_ALLOWED_GROUPS": "gantry admins, ops",
+		"GANTRY_OIDC_ALLOWED_EMAILS": "Alice@Example.com",
+	}
+	with := func(changes map[string]string) map[string]string {
+		env := map[string]string{}
+		for k, v := range full {
+			env[k] = v
+		}
+		for k, v := range changes {
+			env[k] = v
+		}
+		return env
+	}
+	tests := []struct {
+		name   string
+		env    map[string]string
+		public string
+		err    string // part of the error, "" for none
+		off    bool
+	}{
+		{name: "off", env: map[string]string{}, public: public, off: true},
+		{name: "full", env: full, public: public},
+		{name: "groups only", env: with(map[string]string{"GANTRY_OIDC_ALLOWED_EMAILS": ""}), public: public},
+		{name: "loopback over http", env: with(map[string]string{"GANTRY_OIDC_ISSUER": "http://127.0.0.1:5556/dex"}), public: "http://localhost:5175"},
+		{name: "allow list alone", env: map[string]string{"GANTRY_OIDC_ALLOWED_GROUPS": "admins"}, public: public, err: "need GANTRY_OIDC_ISSUER"},
+		{name: "no secret", env: with(map[string]string{"GANTRY_OIDC_CLIENT_SECRET": ""}), public: public, err: "together"},
+		{name: "no allow list", env: with(map[string]string{"GANTRY_OIDC_ALLOWED_GROUPS": "", "GANTRY_OIDC_ALLOWED_EMAILS": " , "}), public: public, err: "allow list"},
+		{name: "no public URL", env: full, public: "", err: "GANTRY_PUBLIC_URL"},
+		{name: "public URL over http", env: full, public: "http://nas.local:8080", err: "needs https"},
+		{name: "issuer over http", env: with(map[string]string{"GANTRY_OIDC_ISSUER": "http://auth.example.com"}), public: public, err: "needs https"},
+		{name: "issuer not a URL", env: with(map[string]string{"GANTRY_OIDC_ISSUER": "auth.example.com"}), public: public, err: "want a URL"},
+		{name: "not an email", env: with(map[string]string{"GANTRY_OIDC_ALLOWED_EMAILS": "alice"}), public: public, err: "no email address"},
+	}
+	for _, tt := range tests {
+		for _, name := range []string{"GANTRY_OIDC_ISSUER", "GANTRY_OIDC_CLIENT_ID", "GANTRY_OIDC_CLIENT_SECRET",
+			"GANTRY_OIDC_CLIENT_SECRET_FILE", "GANTRY_OIDC_ALLOWED_GROUPS", "GANTRY_OIDC_ALLOWED_EMAILS", "GANTRY_OIDC_SCOPES"} {
+			t.Setenv(name, tt.env[name])
+		}
+		cfg, _, err := loadOIDC(tt.public)
+		switch {
+		case tt.err != "":
+			if err == nil || !strings.Contains(err.Error(), tt.err) {
+				t.Errorf("%s: err = %v, want %q", tt.name, err, tt.err)
+			}
+		case err != nil:
+			t.Errorf("%s: %v", tt.name, err)
+		case tt.off != (cfg == nil):
+			t.Errorf("%s: config = %+v", tt.name, cfg)
+		}
+		if err != nil && strings.Contains(err.Error(), "the-client-secret") {
+			t.Errorf("%s: the error contains the secret", tt.name)
+		}
+	}
+
+	for k, v := range full {
+		t.Setenv(k, v)
+	}
+	t.Setenv("GANTRY_OIDC_SCOPES", "")
+	cfg, _, err := loadOIDC(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RedirectURL != public+"/api/v1/session/oidc/callback" ||
+		strings.Join(cfg.AllowedGroups, "|") != "gantry admins|ops" ||
+		strings.Join(cfg.AllowedEmails, "|") != "alice@example.com" ||
+		strings.Join(cfg.Scopes, " ") != "openid profile email" {
+		t.Errorf("config = %+v", cfg)
 	}
 }
 

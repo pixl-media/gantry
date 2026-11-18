@@ -30,8 +30,9 @@ func newFailureLog(logger *slog.Logger) *failureLog {
 	return &failureLog{logger: logger, clients: map[string]struct{}{}}
 }
 
-// record logs a failed attempt by client (never the value it sent).
-func (f *failureLog) record(client string, method string) {
+// record logs a failed attempt by client (never the value it sent), with
+// details such as the reason as further slog arguments.
+func (f *failureLog) record(client string, method string, details ...any) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	now := time.Now()
@@ -40,7 +41,7 @@ func (f *failureLog) record(client string, method string) {
 	}
 	if f.logged < maxFailureLines {
 		f.logged++
-		f.logger.Warn("failed authentication", "client", client, "method", method)
+		f.logger.Warn("failed authentication", append([]any{"client", client, "method", method}, details...)...)
 		return
 	}
 	f.suppressed++

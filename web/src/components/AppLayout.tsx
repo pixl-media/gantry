@@ -14,7 +14,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Outlet, Link as RouterLink, useNavigate } from 'react-router';
 import { LiveProvider } from '../api/live';
-import { useLogout } from '../api/queries';
+import { useLogout, useSession } from '../api/queries';
 import { languages } from '../i18n';
 import { ColorSchemeMenu } from './ColorSchemeMenu';
 import { Logo } from './Logo';
@@ -29,6 +29,8 @@ export function AppLayout() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const logout = useLogout();
+  // Who logged in, for sessions from single sign-on.
+  const user = useSession().data?.user;
   const current = languages.find((l) => i18n.resolvedLanguage === l) ?? 'en';
 
   return (
@@ -73,7 +75,9 @@ export function AppLayout() {
             ))}
           </Select>
           <ColorSchemeMenu />
-          <Tooltip title={t('app.logout')}>
+          <Tooltip
+            title={user ? t('app.logoutUser', { user }) : t('app.logout')}
+          >
             <IconButton
               color="inherit"
               aria-label={t('app.logout')}
