@@ -73,13 +73,30 @@ func (c CLI) Services(ctx context.Context, p Project) ([]string, error) {
 	return services, nil
 }
 
+// Version returns the version of the Compose plugin, as `docker compose
+// version --short` prints it.
+func (c CLI) Version(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, c.bin(), "compose", "version", "--short")
+	cmd.Env = childEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("docker compose version: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (c CLI) timeout() time.Duration {
+	if c.Timeout == 0 {
+		return 30 * time.Second
+	}
+	return c.Timeout
+}
+
 // output runs a short Compose command for p and returns its stdout.
 func (c CLI) output(ctx context.Context, p Project, args ...string) ([]byte, error) {
-	timeout := c.Timeout
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, c.timeout())
 	defer cancel()
 
 	cmd := c.command(ctx, p, args...)

@@ -145,3 +145,31 @@ func TestNewRejectsUnsupportedHosts(t *testing.T) {
 		t.Errorf("New(\"\") = %v, want default host", err)
 	}
 }
+
+func TestInfo(t *testing.T) {
+	c := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/info" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"Name":"nas","ServerVersion":"28.3.1","OperatingSystem":"Ubuntu 24.04.1 LTS",
+			"Architecture":"x86_64","KernelVersion":"6.8.0-48-generic","Containers":3,"Swarm":{}}`))
+	})
+	got, err := c.Info(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Info{Name: "nas", ServerVersion: "28.3.1", OperatingSystem: "Ubuntu 24.04.1 LTS", Architecture: "x86_64", KernelVersion: "6.8.0-48-generic"}
+	if got != want {
+		t.Errorf("info = %+v, want %+v", got, want)
+	}
+}
+
+func TestInfoError(t *testing.T) {
+	c := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+	})
+	if _, err := c.Info(context.Background()); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("err = %v, want the daemon's message", err)
+	}
+}

@@ -296,6 +296,7 @@ func main() {
 		Operations:        ops,
 		Logs:              logs.New(dockerClient),
 		Files:             stackfiles.New(compose.CLI{}),
+		Host:              hostInfo{docker: dockerClient},
 		Live:              hub,
 		Context:           ctx,
 		Logger:            logger,
@@ -346,4 +347,16 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// hostInfo tells the API about the Docker host, from Docker and Compose.
+type hostInfo struct {
+	docker  *docker.Client
+	compose compose.CLI
+}
+
+func (h hostInfo) Info(ctx context.Context) (docker.Info, error) { return h.docker.Info(ctx) }
+
+func (h hostInfo) ComposeVersion(ctx context.Context) (string, error) {
+	return h.compose.Version(ctx)
 }

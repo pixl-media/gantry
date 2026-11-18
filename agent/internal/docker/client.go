@@ -108,6 +108,36 @@ func (c *Client) ListComposeContainers(ctx context.Context) ([]Container, error)
 	return out, nil
 }
 
+// Info is the part of Docker's system information that gantry uses.
+type Info struct {
+	Name            string // the host's name
+	ServerVersion   string
+	OperatingSystem string
+	Architecture    string
+	KernelVersion   string
+}
+
+// Info returns the Docker host's system information.
+func (c *Client) Info(ctx context.Context) (Info, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/info", nil)
+	if err != nil {
+		return Info{}, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return Info{}, fmt.Errorf("docker info: %w", unwrapURLError(err))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return Info{}, statusError("docker info", resp)
+	}
+	var info Info
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return Info{}, fmt.Errorf("docker info: decode response: %w", err)
+	}
+	return info, nil
+}
+
 // ListProjectVolumes returns the names of the volumes Compose created for a
 // project, sorted.
 func (c *Client) ListProjectVolumes(ctx context.Context, project string) ([]string, error) {

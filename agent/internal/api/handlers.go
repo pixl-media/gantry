@@ -10,8 +10,9 @@ import (
 
 // handlers implements the generated StrictServerInterface.
 type handlers struct {
-	cfg  Config
-	auth *authenticator
+	cfg            Config
+	auth           *authenticator
+	composeVersion versionCache
 }
 
 var _ StrictServerInterface = (*handlers)(nil)

@@ -71,6 +71,29 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/info:
+    get:
+      operationId: getInfo
+      tags: [system]
+      summary: Agent and host
+      description: |
+        The agent's version and its Docker host: name, system, Docker and
+        Compose versions, for overviews of several hosts. Host details come
+        from Docker, so they describe the host also when the agent runs in a
+        container. Fields whose source is unavailable are left out: without
+        Docker, `dockerAvailable` is false and only `version` and
+        `composeVersion` may be set. No addresses: clients know the one they
+        reached the agent at.
+      responses:
+        "200":
+          description: The agent and its host.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/session:
     get:
       operationId: getSession
@@ -988,6 +1011,38 @@ components:
         version:
           type: string
           example: 0.1.0
+
+    AgentInfo:
+      type: object
+      required: [version, dockerAvailable]
+      properties:
+        version:
+          type: string
+          description: The agent's version.
+          example: 0.1.1
+        dockerAvailable:
+          type: boolean
+        hostname:
+          type: string
+          description: The Docker host's name.
+          example: nas
+        operatingSystem:
+          type: string
+          example: Ubuntu 24.04.1 LTS
+        architecture:
+          type: string
+          example: x86_64
+        kernelVersion:
+          type: string
+          example: 6.8.0-48-generic
+        dockerVersion:
+          type: string
+          description: The Docker Engine's version.
+          example: 28.3.1
+        composeVersion:
+          type: string
+          description: The version of `docker compose`, as the agent runs it.
+          example: 2.39.1
 
     StackStatus:
       type: string
