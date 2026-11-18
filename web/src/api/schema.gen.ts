@@ -179,7 +179,9 @@ export interface paths {
          *     - `too_many_attempts`: too many failed logins from this client
          *       within a minute.
          *
-         *     Failed callbacks count against the same limit as wrong tokens.
+         *     Codes and ID tokens that don't hold up count against the same limit
+         *     as wrong tokens; accounts not on the allow list and logins ended at
+         *     the provider don't.
          */
         get: operations["finishOidcLogin"];
         put?: never;

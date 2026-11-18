@@ -62,7 +62,8 @@ type User struct {
 	// Email is set if the provider verified it.
 	Email string
 	// Name identifies the user in logs and the web UI: the verified email,
-	// or else the user name, or else the subject.
+	// or else the user name, or else the subject. A user name may be one
+	// the user chose at the provider; Subject is what stays the same.
 	Name string
 }
 
@@ -73,6 +74,9 @@ var (
 	ErrNoLogin = errors.New("no login in progress in this browser, or it took longer than 10 minutes")
 	// ErrDenied: the account isn't on the allow list.
 	ErrDenied = errors.New("account not allowed")
+	// ErrRefused: the identity provider sent the browser back with an
+	// error, e.g. a canceled login; nothing was asked of the provider.
+	ErrRefused = errors.New("the identity provider ended the login")
 	// ErrUnavailable: the identity provider can't be reached.
 	ErrUnavailable = errors.New("identity provider unavailable")
 	// ErrFailed: anything else.
@@ -109,13 +113,16 @@ func New(cfg Config) *Client {
 }
 
 // discover returns the provider's endpoints and a verifier for its ID
-// tokens, fetching its discovery document at the first call. A failure is
-// not kept, so the next login tries again.
+// tokens, fetching its discovery document until that succeeds once. A
+// failure is not kept, so the next login tries again. The lock isn't held
+// while fetching: with the provider unreachable, parallel logins each wait
+// for their own attempt, not for each other's.
 func (c *Client) discover(ctx context.Context) (*oauth2.Config, *goidc.IDTokenVerifier, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.oauth != nil {
-		return c.oauth, c.verifier, nil
+	oauth, verifier := c.oauth, c.verifier
+	c.mu.Unlock()
+	if oauth != nil {
+		return oauth, verifier, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
@@ -138,7 +145,7 @@ func (c *Client) discover(ctx context.Context) (*oauth2.Config, *goidc.IDTokenVe
 		!slices.Contains(meta.AuthMethods, "client_secret_basic") && slices.Contains(meta.AuthMethods, "client_secret_post") {
 		endpoint.AuthStyle = oauth2.AuthStyleInParams
 	}
-	c.oauth = &oauth2.Config{
+	oauth = &oauth2.Config{
 		ClientID:     c.cfg.ClientID,
 		ClientSecret: c.cfg.ClientSecret,
 		Endpoint:     endpoint,
@@ -148,8 +155,14 @@ func (c *Client) discover(ctx context.Context) (*oauth2.Config, *goidc.IDTokenVe
 	// Only signatures with a key pair: go-oidc leaves out HS256 and "none"
 	// even if the provider offers them. Keys are fetched when needed; the
 	// context only carries the HTTP client.
-	c.verifier = p.VerifierContext(goidc.ClientContext(context.Background(), c.http),
+	verifier = p.VerifierContext(goidc.ClientContext(context.Background(), c.http),
 		&goidc.Config{ClientID: c.cfg.ClientID, Now: func() time.Time { return c.now() }})
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.oauth == nil { // the first success wins; later ones are the same
+		c.oauth, c.verifier = oauth, verifier
+	}
 	return c.oauth, c.verifier, nil
 }
 
@@ -192,7 +205,7 @@ func (c *Client) Finish(ctx context.Context, cookie string, query url.Values) (U
 		return User{}, "", ErrNoLogin
 	}
 	if e := query.Get("error"); e != "" {
-		return User{}, "", fmt.Errorf("%w: the identity provider answered %q: %q", ErrFailed, e, query.Get("error_description"))
+		return User{}, "", fmt.Errorf("%w: %q: %q", ErrRefused, e, query.Get("error_description"))
 	}
 	if !equal(query.Get("state"), f.State) {
 		return User{}, "", fmt.Errorf("%w: state doesn't match the login started in this browser", ErrFailed)
@@ -234,9 +247,10 @@ func (c *Client) Finish(ctx context.Context, cookie string, query url.Values) (U
 	if err := idToken.Claims(&claims); err != nil {
 		return User{}, "", fmt.Errorf("%w: ID token claims: %v", ErrFailed, err)
 	}
-	// With several audiences, the token must have been issued to gantry
-	// (OpenID Connect Core 3.1.3.7).
-	if len(idToken.Audience) > 1 && claims.AuthorizedParty != c.cfg.ClientID {
+	// The token must have been issued to gantry: with several audiences
+	// azp says so, and if azp is there, it must name gantry (OpenID
+	// Connect Core 3.1.3.7).
+	if (len(idToken.Audience) > 1 || claims.AuthorizedParty != "") && claims.AuthorizedParty != c.cfg.ClientID {
 		return User{}, "", fmt.Errorf("%w: ID token issued to %q, not this client", ErrFailed, claims.AuthorizedParty)
 	}
 
@@ -315,6 +329,10 @@ func (b *flexBool) UnmarshalJSON(data []byte) error {
 type flexStrings []string
 
 func (s *flexStrings) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*s = nil
+		return nil
+	}
 	var one string
 	if err := json.Unmarshal(data, &one); err == nil {
 		*s = []string{one}

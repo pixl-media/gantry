@@ -57,7 +57,7 @@ export function LoginPage() {
         : e?.code === 'too_many_attempts'
           ? t('login.tooManyAttempts')
           : e?.code === 'login_disabled'
-            ? t('login.disabled')
+            ? t('login.tokenDisabled')
             : t('login.failed', { message: e?.error ?? String(login.error) });
   } else if (ssoError) {
     error = ssoErrorText(ssoError, t);

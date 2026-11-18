@@ -75,7 +75,9 @@ it('says when the agent refuses the token login', async () => {
   renderLogin();
   await userEvent.type(await screen.findByLabelText(/Token/), 'right');
   await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
-  expect(await screen.findByText(/The web login is off/)).toBeInTheDocument();
+  expect(
+    await screen.findByText(/Signing in with a token is off/),
+  ).toBeInTheDocument();
 });
 
 it('says when there is no way in', async () => {

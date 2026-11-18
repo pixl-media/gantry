@@ -20,6 +20,7 @@
     "invalidToken": "Wrong token.",
     "tooManyAttempts": "Too many failed attempts. Try again in a minute.",
     "disabled": "The web login is off: the agent has neither GANTRY_UI_TOKEN nor single sign-on (GANTRY_OIDC_*).",
+    "tokenDisabled": "Signing in with a token is off: GANTRY_UI_TOKEN is not set on the agent.",
     "failed": "Sign-in failed: {{message}}",
     "sso": "Sign in with single sign-on",
     "or": "or",

@@ -79,29 +79,35 @@ func (h *handlers) FinishOidcLogin(ctx context.Context, _ FinishOidcLoginRequest
 		flow = c.Value
 	}
 	user, returnTo, err := a.sso.Finish(ctx, flow, r.URL.Query())
-	if errors.Is(err, oidc.ErrNoLogin) {
-		// Not started in this browser (or too long ago): nothing was
-		// tried at the provider, so it doesn't count as an attempt.
+	switch {
+	case errors.Is(err, oidc.ErrDenied):
+		// A real login at the provider, just not allowed here: no guess
+		// and no extra call to count. Behind a shared proxy address,
+		// counting it would lock everyone out after someone's ten tries.
+		a.failures.record(client, "oidc", "err", "not on the allow list (GANTRY_OIDC_ALLOWED_GROUPS, GANTRY_OIDC_ALLOWED_EMAILS)",
+			"user", user.Name, "subject", user.Subject)
+		return loginFailed(ssoDenied, clear), nil
+	case errors.Is(err, oidc.ErrNoLogin), errors.Is(err, oidc.ErrRefused):
+		// Not started in this browser, too long ago, or ended at the
+		// provider (e.g. canceled): nothing was asked of the provider.
 		a.failures.record(client, "oidc", "err", err)
 		return loginFailed(ssoFailed, clear), nil
 	}
+	// Codes and ID tokens that don't hold up count like wrong tokens.
 	if ok, _ := a.limiter.Attempt(client, err == nil); !ok {
 		return loginFailed(ssoTooManyAttempts, clear), nil
 	}
 	if err != nil {
-		details := []any{"err", err}
-		if errors.Is(err, oidc.ErrDenied) {
-			details = []any{"err", "not on the allow list (GANTRY_OIDC_ALLOWED_GROUPS, GANTRY_OIDC_ALLOWED_EMAILS)",
-				"user", user.Name, "subject", user.Subject}
-		}
-		a.failures.record(client, "oidc", details...)
+		a.failures.record(client, "oidc", "err", err)
 		return loginFailed(ssoErrorCode(err), clear), nil
 	}
 
 	value, exp := a.sessions.Issue(user.Name)
 	session := a.cookie(r, value, int(a.sessions.TTL().Seconds()))
 	session.Expires = exp
-	a.logger.Info("single sign-on login", "client", a.net.client(r).String(), "user", user.Name)
+	// With the subject, which the user can't change at the provider: the
+	// audit log's user= is the name, which may be.
+	a.logger.Info("single sign-on login", "client", a.net.client(r).String(), "user", user.Name, "subject", user.Subject)
 	return redirect{location: returnTo, cookies: []*http.Cookie{session, clear}}, nil
 }
 

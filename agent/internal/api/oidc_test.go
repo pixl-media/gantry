@@ -117,7 +117,7 @@ func TestSSOLogin(t *testing.T) {
 	req.Body = io.NopCloser(strings.NewReader(`{`))
 	serve(h, req)
 	for _, want := range []string{
-		`msg="single sign-on login" client=127.0.0.1 user=alice@example.com`,
+		`msg="single sign-on login" client=127.0.0.1 user=alice@example.com subject=user-1`,
 		`msg="api request" method=POST path=/api/v1/stacks client=127.0.0.1 via=session user=alice@example.com`,
 	} {
 		if !strings.Contains(logs.String(), want) {
@@ -242,5 +242,28 @@ func TestSSOFailuresAreLimited(t *testing.T) {
 	}
 	if p.Exchanges != maxFailedAttempts {
 		t.Errorf("%d code exchanges, want %d: a blocked client reached the provider", p.Exchanges, maxFailedAttempts)
+	}
+}
+
+// Accounts that aren't allowed and logins ended at the provider don't
+// count: they ask nothing extra of the provider, and behind a shared proxy
+// address they would lock everyone out.
+func TestSSODenialsAreNotCounted(t *testing.T) {
+	h, p, _ := ssoSetup(t, nil)
+	allowed := p.Claims
+	p.Claims = map[string]any{"groups": []string{"users"}}
+	for range maxFailedAttempts + 1 {
+		if rec := ssoLogin(t, h, p, "/"); rec.Header().Get("Location") != "/login?error=oidc_denied" {
+			t.Fatalf("denied: callback to %q", rec.Header().Get("Location"))
+		}
+		start := ssoStart(h, "/")
+		rec := ssoCallback(h, url.Values{"error": {"access_denied"}}, start)
+		if rec.Header().Get("Location") != "/login?error=oidc_failed" {
+			t.Fatalf("canceled: callback to %q", rec.Header().Get("Location"))
+		}
+	}
+	p.Claims = allowed
+	if rec := ssoLogin(t, h, p, "/"); rec.Header().Get("Location") != "/" {
+		t.Errorf("allowed after denials: callback to %q", rec.Header().Get("Location"))
 	}
 }

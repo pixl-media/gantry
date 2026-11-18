@@ -99,7 +99,7 @@ func (p *Provider) Issuer() string { return p.URL }
 // with, code and state.
 func (p *Provider) Login(t testing.TB, authURL string) url.Values {
 	t.Helper()
-	c := p.Client()
+	c := *p.Client() // a copy: the shared one may be the client under test
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := c.Get(authURL)
 	if err != nil {

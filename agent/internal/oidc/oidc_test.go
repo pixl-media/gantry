@@ -90,6 +90,7 @@ func TestAllowList(t *testing.T) {
 		{name: "other group", claims: map[string]any{"groups": []string{"users"}}, groups: []string{"admins"}, want: ErrDenied},
 		{name: "group names are exact", claims: map[string]any{"groups": []string{"Admins"}}, groups: []string{"admins"}, want: ErrDenied},
 		{name: "no groups", claims: map[string]any{}, groups: []string{"admins"}, want: ErrDenied},
+		{name: "groups null", claims: map[string]any{"groups": nil}, groups: []string{"admins"}, want: ErrDenied},
 		{name: "verified email", claims: map[string]any{"email": "Bob@example.com", "email_verified": true}, emails: []string{"bob@example.com"}, user: "bob@example.com"},
 		{name: "verified as a string", claims: map[string]any{"email": "bob@example.com", "email_verified": "true"}, emails: []string{"bob@example.com"}, user: "bob@example.com"},
 		{name: "unverified email", claims: map[string]any{"email": "bob@example.com", "email_verified": false, "preferred_username": "bob"}, emails: []string{"bob@example.com"}, want: ErrDenied, user: "bob"},
@@ -180,7 +181,7 @@ func TestCallbackChecks(t *testing.T) {
 	}
 
 	cookie, _ = start()
-	if _, _, err := c.Finish(ctx, cookie, url.Values{"error": {"access_denied"}}); !errors.Is(err, ErrFailed) {
+	if _, _, err := c.Finish(ctx, cookie, url.Values{"error": {"access_denied"}}); !errors.Is(err, ErrRefused) {
 		t.Errorf("provider error: err = %v", err)
 	}
 
@@ -207,6 +208,8 @@ func TestIDTokenChecks(t *testing.T) {
 		{name: "no nonce", tweak: func(c map[string]any) { delete(c, "nonce") }},
 		{name: "several audiences, issued to another", tweak: func(c map[string]any) { c["aud"] = []string{"gantry", "other-app"}; c["azp"] = "other-app" }},
 		{name: "several audiences, no azp", tweak: func(c map[string]any) { c["aud"] = []string{"gantry", "other-app"} }},
+		{name: "issued to another", tweak: func(c map[string]any) { c["azp"] = "other-app" }},
+		{name: "issued to gantry", tweak: func(c map[string]any) { c["azp"] = "gantry" }, ok: true},
 		{name: "several audiences, issued to gantry", tweak: func(c map[string]any) { c["aud"] = []string{"gantry", "other-app"}; c["azp"] = "gantry" }, ok: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

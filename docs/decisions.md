@@ -789,11 +789,15 @@ gantry shouldn't build itself ([decision 25](#25-scope-a-lightweight-manager-for
   first needed, then the code exchange. No background calls
   ([decision 25](#25-scope-a-lightweight-manager-for-one-host)); the agent starts while the provider is down, and the
   next login tries again.
-- **Bounded and logged:** failed callbacks count against the same limit as
-  wrong tokens ([decision 21](#21-safe-even-when-exposed-to-the-internet)), checked before the code exchange, so a blocked
-  client can't make the agent call the provider. Callbacks without the flow
-  cookie don't count; they reach nothing. Sessions remember the user, and
-  the audit log adds `user=` to every change.
+- **Bounded and logged:** codes and ID tokens that don't hold up count
+  against the same limit as wrong tokens ([decision 21](#21-safe-even-when-exposed-to-the-internet)), checked before the code
+  exchange, so a blocked client can't make the agent call the provider.
+  Callbacks without the flow cookie, logins ended at the provider and
+  accounts not on the allow list don't count: they ask nothing extra of the
+  provider, and behind a shared proxy address one person's tries would lock
+  everyone out. Sessions remember the user, and the audit log adds `user=`
+  to every change; the login's log line also has the provider's subject,
+  which users can't change, unlike a user name.
 - **`GANTRY_PUBLIC_URL` is required:** the redirect URI is built from it.
   It and the issuer must be `https`, except on this host, for tests.
 - **Return paths** are plain paths of the web UI; anything a browser could
