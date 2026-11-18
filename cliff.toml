@@ -8,9 +8,10 @@
 header = """
 # Changelog
 
-Every entry is a merged pull request.\n
-"""
+Every entry is a merged pull request."""
+# Each release starts with a blank line: git-cliff joins them as they are.
 body = """
+
 {% if version %}\
 ## [{{ version | trim_start_matches(pat="v") }}](https://github.com/pixl-media/gantry/releases/tag/{{ version }}) ({{ timestamp | date(format="%Y-%m-%d") }})
 {% else %}\
@@ -21,9 +22,9 @@ body = """
 {% for commit in commits %}
 - {{ commit.message | split(pat="::") | last | upper_first }}
 {%- endfor %}
-{% endfor %}
+{% endfor %}\
 """
-trim = true
+trim = false
 
 [git]
 conventional_commits = false
