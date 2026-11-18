@@ -2,6 +2,25 @@
 
 Every entry is a merged pull request.
 
+## [0.2.0](https://github.com/pixl-media/gantry/releases/tag/v0.2.0) (2026-11-18)
+
+### Features
+
+- API: /api/v1/info with host details ([#30](https://github.com/pixl-media/gantry/pull/30))
+- API: volume sizes per stack ([#31](https://github.com/pixl-media/gantry/pull/31))
+- Web UI: notice when an operation ends, messages at the top right ([#33](https://github.com/pixl-media/gantry/pull/33))
+- Single sign-on with OIDC for the web UI ([#35](https://github.com/pixl-media/gantry/pull/35))
+
+### Maintenance
+
+- Web UI: split the bundle into React, MUI and app chunks ([#32](https://github.com/pixl-media/gantry/pull/32))
+- Package settings template with every setting ([#36](https://github.com/pixl-media/gantry/pull/36))
+- Drop the minimatch override ([#37](https://github.com/pixl-media/gantry/pull/37))
+
+### Dependencies
+
+- Bump i18next from 27.1.1 to 27.1.2 in /web in the web-dependencies group ([#34](https://github.com/pixl-media/gantry/pull/34))
+
 ## [0.1.1](https://github.com/pixl-media/gantry/releases/tag/v0.1.1) (2026-11-18)
 
 ### Features

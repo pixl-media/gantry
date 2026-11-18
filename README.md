@@ -10,10 +10,11 @@ Lightweight Docker Compose manager: a small headless **agent** that runs on a
 Docker host and exposes an HTTP API for managing Compose stacks, plus an
 optional **web UI** that runs as its own container.
 
-> Version 0.1. The agent lists stacks and shows their details and logs;
-> starts, stops, restarts, updates and removes stacks or single services;
-> edits, creates and deletes managed stacks; and tells clients about changes
-> live. The web UI does all of that in the browser, in English and German.
+> Version 0.2. The agent lists stacks and shows their details, logs and
+> volume sizes; starts, stops, restarts, updates and removes stacks or single
+> services; edits, creates and deletes managed stacks; and tells clients
+> about changes live. The web UI does all of that in the browser, in English
+> and German, optionally with single sign-on through an identity provider.
 > Packages and images are on the
 > [releases](https://github.com/pixl-media/gantry/releases) page.
 
@@ -348,8 +349,8 @@ amd64 and arm64, are attached to every
 the Compose plugin first.
 
 ```bash
-sudo apt install ./gantry-agent_0.1.0_amd64.deb     # Debian, Ubuntu
-sudo dnf install ./gantry-agent-0.1.0-1.x86_64.rpm   # Fedora, RHEL
+sudo apt install ./gantry-agent_0.2.0_amd64.deb     # Debian, Ubuntu
+sudo dnf install ./gantry-agent-0.2.0-1.x86_64.rpm   # Fedora, RHEL
 ```
 
 The package:
@@ -374,7 +375,7 @@ Releases also have plain binaries (`gantry-agent_<version>_linux_<arch>.tar.gz`)
 and `checksums.txt`. Every file has signed build provenance:
 
 ```bash
-gh attestation verify gantry-agent_0.1.0_amd64.deb -R pixl-media/gantry
+gh attestation verify gantry-agent_0.2.0_amd64.deb -R pixl-media/gantry
 ```
 
 ## Configuration
@@ -452,7 +453,7 @@ the container as on the host. Docker resolves relative bind mounts of stacks
 ```yaml
 services:
   gantry-agent:
-    image: ghcr.io/pixl-media/gantry-agent:0.1
+    image: ghcr.io/pixl-media/gantry-agent:0.2
     environment:
       GANTRY_TOKEN: ${GANTRY_TOKEN}
       GANTRY_UI_TOKEN: ${GANTRY_UI_TOKEN}
@@ -475,7 +476,7 @@ services:
 
   # Optional web UI. It forwards /api to the agent.
   gantry-web:
-    image: ghcr.io/pixl-media/gantry-web:0.1
+    image: ghcr.io/pixl-media/gantry-web:0.2
     environment:
       GANTRY_AGENT_URL: http://gantry-agent:7070
     ports:
@@ -496,7 +497,7 @@ networks:
         - subnet: 172.30.250.0/24
 ```
 
-Image tags: `:0.1` gets the fixes of 0.1.x, `:0.1.0` is that exact
+Image tags: `:0.2` gets the fixes of 0.2.x, `:0.2.0` is that exact
 release, `:latest` the newest release, and `:edge` the current `main`
 (untested beyond CI).
 
@@ -510,7 +511,7 @@ run the container in the host's network, and the agent can stay on
 ```sh
 docker run -d --name gantry-web --restart unless-stopped --network host \
   -e GANTRY_AGENT_URL=http://127.0.0.1:7070 -e GANTRY_WEB_PORT=8090 \
-  ghcr.io/pixl-media/gantry-web:0.1
+  ghcr.io/pixl-media/gantry-web:0.2
 ```
 
 In the host's network the UI listens on all of the host's addresses, and
