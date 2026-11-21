@@ -73,7 +73,7 @@ web-lint: ## ESLint, Prettier and typecheck for the web UI
 	cd web && pnpm lint && pnpm typecheck
 
 web-build: ## Build the web UI into web/dist
-	cd web && pnpm build
+	cd web && GANTRY_VERSION=$(VERSION) pnpm build
 
 web-image: ## Build the web UI Docker image locally
-	docker build -t gantry-web:dev web
+	docker build --build-arg VERSION=$(VERSION) -t gantry-web:dev web

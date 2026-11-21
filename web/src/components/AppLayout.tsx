@@ -19,6 +19,7 @@ import { languages } from '../i18n';
 import { ColorSchemeMenu } from './ColorSchemeMenu';
 import { Logo } from './Logo';
 import { OperationWatcher } from './OperationWatcher';
+import { Versions } from './Versions';
 
 const languageNames: Record<(typeof languages)[number], string> = {
   en: 'English',
@@ -96,6 +97,7 @@ export function AppLayout() {
           <OperationWatcher />
         </LiveProvider>
       </Container>
+      <Versions />
     </Box>
   );
 }

@@ -6,6 +6,11 @@ export function useSession() {
   return $api.useQuery('get', '/api/v1/session', {}, { retry: false });
 }
 
+/** The agent's version; it changes only with an update and a restart. */
+export function useAgentVersion() {
+  return $api.useQuery('get', '/api/v1/version', {}, { staleTime: 5 * 60_000 });
+}
+
 /** Which ways to log in the agent offers (public). */
 export function useLoginMethods() {
   return $api.useQuery(

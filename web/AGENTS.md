@@ -30,6 +30,9 @@ pnpm, Node 24+; CI and the image use Node 26 LTS. Run from the repo root:
   `App.tsx`), which `useBlocker` needs; tests for such components render with
   `renderWithDataRouter`. The CodeMirror editor (`components/CodeEditor.tsx`)
   is loaded lazily; tests replace it with `test/codeEditorStub.tsx`.
+- The web UI's version comes from `GANTRY_VERSION` at build time (Vite
+  `define`, read in `src/lib/version.ts`): the release from CI's build
+  argument, the git version with `make web-build`, otherwise `dev`.
 - Prettier style: single quotes, trailing commas.
 
 ## Security

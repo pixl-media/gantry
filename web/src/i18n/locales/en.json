@@ -5,7 +5,9 @@
     "logout": "Log out",
     "language": "Language",
     "colorScheme": "Appearance",
-    "logoutUser": "Log out ({{user}})"
+    "logoutUser": "Log out ({{user}})",
+    "versions": "Web UI {{web}} · agent {{agent}}",
+    "versionMismatch": "from different releases, update both"
   },
   "colorScheme": {
     "system": "System",

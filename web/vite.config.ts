@@ -8,6 +8,11 @@ const agent = process.env.GANTRY_AGENT_URL ?? 'http://127.0.0.1:7070';
 
 export default defineConfig({
   plugins: [react()],
+  // The web UI's version, shown next to the agent's (src/version.ts):
+  // the release in CI, the git version with `make web-build`, else "dev".
+  define: {
+    __GANTRY_VERSION__: JSON.stringify(process.env.GANTRY_VERSION || 'dev'),
+  },
   build: {
     rolldownOptions: {
       output: {

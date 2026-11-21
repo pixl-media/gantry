@@ -101,6 +101,10 @@ what changed.
   says what's missing and shows the command that allows it; editing is
   locked until then (see [Write access](#configuration)).
 
+The bottom of every page shows the versions of the web UI and the agent,
+and warns if they come from different releases (see
+[Updating](#updating)).
+
 Unmanaged stacks are read-only. The UI is in English and German (English
 by default, switchable in the app bar) and has a light and a dark mode
 (following the system by default, switchable too).
@@ -368,7 +372,8 @@ The package:
 
 Settings go into `/etc/gantry/gantry.env` (variables below), followed by
 `sudo systemctl restart gantry-agent`; logs with `journalctl -u gantry-agent`.
-To update, install the newer package; the settings stay. Removing the package
+To update, install the newer package; the settings stay (see
+[Updating](#updating) for the web UI). Removing the package
 keeps the settings and the stacks (`apt purge` also removes the settings).
 
 Releases also have plain binaries (`gantry-agent_<version>_linux_<arch>.tar.gz`)
@@ -518,6 +523,47 @@ In the host's network the UI listens on all of the host's addresses, and
 the host firewall applies (no published Docker port). Set the agent's
 `GANTRY_TRUSTED_PROXIES=127.0.0.1` so that every browser gets its own login
 limit.
+
+### Updating
+
+- **The agent as a package:** install the newer package (see
+  [Installation](#installation)); settings and stacks stay. The restart ends
+  all sessions, so you log in again.
+- **The web UI as a stack of its own:** put its Compose file into the stacks
+  directory, and *Update* on its page in gantry pulls a newer image and
+  recreates the container. With the agent as a service, for example in the
+  host's network as above:
+
+  ```yaml
+  # /opt/stacks/gantry-web/compose.yaml
+  services:
+    web:
+      image: ghcr.io/pixl-media/gantry-web:0.2
+      network_mode: host
+      environment:
+        GANTRY_AGENT_URL: http://127.0.0.1:7070
+        GANTRY_WEB_PORT: "8090"
+      restart: unless-stopped
+  ```
+
+  If the web UI already runs from `docker run`, remove that container first
+  (`docker rm -f gantry-web`), then start the stack. Updating it from the
+  web UI itself works: the agent runs the update, the page loses its
+  connection for a few seconds, and after reloading it you're still logged
+  in, now with the new version. Don't stop or delete this stack from the
+  web UI, though: that locks you out of it until you run `docker compose up
+  -d` in its directory (the API keeps working).
+- **The agent as a container** can't update itself: the update would stop
+  the container it runs in, halfway. Update it, and a web UI in the same
+  Compose project, outside gantry: `docker compose pull && docker compose
+  up -d` in its directory.
+- **Tags:** `:0.2` gets the fixes of 0.2.x; *Update* changes nothing if
+  there is nothing new, so it is also the check. For the next minor
+  release, change the tag (for the web UI, in gantry's Compose editor) and
+  update the agent at the same time.
+- **New releases:** the bottom of every page shows both versions and warns
+  if they are from different releases. To hear about releases, watch the
+  repository on GitHub (*Watch* → *Custom* → *Releases*).
 
 ### Exposing gantry
 
