@@ -2,6 +2,12 @@
 
 Every entry is a merged pull request.
 
+## [0.2.1](https://github.com/pixl-media/gantry/releases/tag/v0.2.1) (2026-11-21)
+
+### Features
+
+- Versions in the web UI, README on updating, secondary text color ([#39](https://github.com/pixl-media/gantry/pull/39))
+
 ## [0.2.0](https://github.com/pixl-media/gantry/releases/tag/v0.2.0) (2026-11-18)
 
 ### Features
