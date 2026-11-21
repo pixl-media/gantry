@@ -76,7 +76,7 @@ export function DeleteStackDialog({ open, onClose, stack }: Props) {
             {t('delete.path', { path: stack.path })}
           </DialogContentText>
           {stack.volumes.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="textSecondary">
               {t('delete.noVolumes')}
             </Typography>
           ) : (

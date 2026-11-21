@@ -154,7 +154,7 @@ export function StackPage() {
           </>
         )}
       </Stack>
-      <Typography variant="body2" color="text.secondary">
+      <Typography variant="body2" color="textSecondary">
         {t('stack.path')}: {s.path} · {t('stacks.services')}:{' '}
         {s.servicesRunning}/{s.servicesTotal}
       </Typography>
@@ -263,7 +263,7 @@ function Services({
                         />
                         <Typography
                           variant="caption"
-                          color="text.secondary"
+                          color="textSecondary"
                           sx={{ display: 'block' }}
                         >
                           {c.status}
@@ -324,7 +324,7 @@ function Operations({ stack }: { stack: string }) {
       </Typography>
       <Paper variant="outlined">
         {list.length === 0 ? (
-          <Typography sx={{ p: 2 }} color="text.secondary">
+          <Typography sx={{ p: 2 }} color="textSecondary">
             {t('stack.noOperations')}
           </Typography>
         ) : (

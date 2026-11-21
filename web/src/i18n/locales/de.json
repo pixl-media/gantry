@@ -5,7 +5,9 @@
     "logout": "Abmelden",
     "language": "Sprache",
     "colorScheme": "Darstellung",
-    "logoutUser": "Abmelden ({{user}})"
+    "logoutUser": "Abmelden ({{user}})",
+    "versions": "Web-UI {{web}} · Agent {{agent}}",
+    "versionMismatch": "aus verschiedenen Releases, bitte beide aktualisieren"
   },
   "colorScheme": {
     "system": "System",

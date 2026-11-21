@@ -11,7 +11,9 @@ RUN npm install -g pnpm@10.18.3
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
-RUN pnpm build
+# Shown in the web UI next to the agent's version; CI passes the release.
+ARG VERSION=dev
+RUN GANTRY_VERSION=${VERSION} pnpm build
 
 # Caddy serves the app and forwards /api to the agent. No RUN steps here, so
 # multi-arch builds need no emulation. It runs as nobody: port 8080 needs no

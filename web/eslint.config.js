@@ -14,5 +14,18 @@ export default defineConfig(
       reactHooks.configs.flat.recommended,
     ],
     languageOptions: { globals: globals.browser },
+    rules: {
+      // MUI's color props take palette names (textSecondary, error); a
+      // theme path such as 'text.secondary' only works in sx and is
+      // silently ignored as a prop.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "JSXAttribute[name.name='color'] Literal[value=/\\./]",
+          message:
+            "Use a palette name (textSecondary, error, …) for color props; theme paths like 'text.secondary' only work in sx.",
+        },
+      ],
+    },
   },
 );

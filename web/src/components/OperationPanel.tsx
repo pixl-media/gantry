@@ -161,7 +161,7 @@ export function OperationView({
         </IconButton>
       </Stack>
 
-      <Typography variant="body2" color="text.secondary" sx={{ px: 2 }}>
+      <Typography variant="body2" color="textSecondary" sx={{ px: 2 }}>
         {target.id} ·{' '}
         {t('operation.startedAt', {
           time: formatDateTime(target.startedAt, i18n.language),

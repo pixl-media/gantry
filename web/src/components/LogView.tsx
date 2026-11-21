@@ -262,7 +262,7 @@ export function LogView({
           </Button>
         )}
       </Box>
-      <Typography variant="caption" color="text.secondary">
+      <Typography variant="caption" color="textSecondary">
         {t('logs.count', { count: visible.length })}
       </Typography>
     </Stack>
