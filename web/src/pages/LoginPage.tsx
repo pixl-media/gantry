@@ -103,14 +103,14 @@ export function LoginPage() {
             )}
             {sso && tokenLogin && (
               <Divider>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="textSecondary">
                   {t('login.or')}
                 </Typography>
               </Divider>
             )}
             {tokenLogin && (
               <Stack component="form" onSubmit={submit} sx={{ gap: 2 }}>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="textSecondary">
                   {t('login.subtitle')}
                 </Typography>
                 <TextField

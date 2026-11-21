@@ -238,7 +238,7 @@ export function EnvTab({
                         {revealed[key]}
                       </Box>
                     ) : (
-                      <Typography component="span" color="text.secondary">
+                      <Typography component="span" color="textSecondary">
                         ••••••
                       </Typography>
                     )}

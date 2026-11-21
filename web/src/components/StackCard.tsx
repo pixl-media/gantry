@@ -65,7 +65,7 @@ export function StackCard({
         </Stack>
         <Typography
           variant="caption"
-          color="text.secondary"
+          color="textSecondary"
           sx={{ overflowWrap: 'anywhere' }}
         >
           {stack.path}
@@ -74,7 +74,7 @@ export function StackCard({
           <Box sx={raised}>
             <StackStatus stack={stack} />
           </Box>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="textSecondary">
             {t('stacks.servicesCount', {
               running: stack.servicesRunning,
               total: stack.servicesTotal,

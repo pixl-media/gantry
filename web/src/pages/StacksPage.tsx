@@ -91,7 +91,7 @@ export function StacksPage() {
             {t('stacks.title')}
           </Typography>
           {isFiltered(filter) && (
-            <Typography color="text.secondary">
+            <Typography color="textSecondary">
               {t('stacks.filtered', {
                 shown: shown.length,
                 total: list.length,
@@ -280,7 +280,7 @@ function StackRow({
         <Tooltip title={stack.path} placement="bottom-start">
           <Typography
             variant="caption"
-            color="text.secondary"
+            color="textSecondary"
             sx={{ display: 'block' }}
             noWrap
           >
